@@ -501,12 +501,12 @@ docs/
 
 ### Issue tracker
 
-Issues and PRDs are tracked in GitLab Issues through the `glab` CLI, after the repo has a GitLab remote and `glab` is authenticated. See `docs/agents/issue-tracker.md`.
+本项目的 issues 和 PRD 目标上使用 GitLab Issues 管理，并通过 `glab` CLI 操作；实际创建 issue 前必须先配置 GitLab remote 并完成 `glab` 认证。详见 `docs/agents/issue-tracker.md`。
 
 ### Triage labels
 
-The repo uses the default five triage labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+本项目沿用默认的五个 triage label：`needs-triage`、`needs-info`、`ready-for-agent`、`ready-for-human`、`wontfix`。详见 `docs/agents/triage-labels.md`。
 
 ### Domain docs
 
-This repo uses a single domain context, with `README.md` as the primary project context instead of `CONTEXT.md`. See `docs/agents/domain.md`.
+本项目采用单一领域上下文，以 `README.md` 作为主要项目上下文，不单独使用 `CONTEXT.md`。详见 `docs/agents/domain.md`。

@@ -1,52 +1,52 @@
-# Issue tracker: GitLab
+# Issue tracker：GitLab
 
-Issues and PRDs for this repo should live as GitLab Issues. Use the `glab` CLI for issue and merge request operations after GitLab remote and authentication are configured.
+本项目的 issues 和 PRD 目标上使用 GitLab Issues 管理。在 GitLab remote 和认证配置完成后，使用 `glab` CLI 执行 issue 和 merge request 相关操作。
 
-## Current remote status
+## 当前 remote 状态
 
-At setup time, this local clone still pointed at GitHub:
+配置本文档时，本地仓库仍然指向 GitHub：
 
 ```text
 https://github.com/201811510411lw/document-ai-review.git
 ```
 
-Target workflow is still GitLab Issues + `glab` CLI, but do not actually create GitLab issues until both conditions are true:
+目标工作流仍然是 GitLab Issues + `glab` CLI，但在以下两个条件同时满足之前，不要实际创建 GitLab issue：
 
-- `git remote -v` points to the intended GitLab project.
-- `glab auth status` confirms authentication for the target GitLab host.
+- `git remote -v` 指向目标 GitLab 项目。
+- `glab auth status` 确认已经登录目标 GitLab host。
 
-Before any skill publishes to the issue tracker, run:
+任何 skill 在发布内容到 issue tracker 之前，都必须先运行：
 
 ```bash
 git remote -v
 glab auth status
 ```
 
-If either check fails, stop and ask the user to configure the GitLab remote or authenticate `glab`.
+如果任一检查失败，停止创建 issue，并要求用户先配置 GitLab remote 或完成 `glab` 认证。
 
-## Conventions
+## 操作约定
 
-- Create an issue: `glab issue create --title "..." --description "..."`
-- Read an issue: `glab issue view <number> --comments`
-- List issues: `glab issue list -F json` with appropriate `--label` filters
-- Comment on an issue: `glab issue note <number> --message "..."`
-- Apply or remove labels: `glab issue update <number> --label "..."` / `--unlabel "..."`
-- Close an issue: post the closing explanation first with `glab issue note`, then run `glab issue close <number>`
-- Merge requests: use `glab mr create`, `glab mr view`, `glab mr note`, and related `glab mr` commands
+- 创建 issue：`glab issue create --title "..." --description "..."`
+- 查看 issue：`glab issue view <number> --comments`
+- 列出 issues：`glab issue list -F json`，并按需使用 `--label` 过滤
+- 评论 issue：`glab issue note <number> --message "..."`
+- 添加或移除 labels：`glab issue update <number> --label "..."` / `--unlabel "..."`
+- 关闭 issue：先用 `glab issue note` 写明关闭原因，再运行 `glab issue close <number>`
+- Merge requests：使用 `glab mr create`、`glab mr view`、`glab mr note` 以及相关 `glab mr` 命令
 
-Infer the repo from `git remote -v` once the GitLab remote is configured.
+GitLab remote 配置完成后，`glab` 会根据 `git remote -v` 推断目标仓库。
 
-## When a skill says "publish to the issue tracker"
+## 当 skill 要求 "publish to the issue tracker"
 
-First check `git remote -v` and `glab auth status`.
+先检查 `git remote -v` 和 `glab auth status`。
 
-If the repo points to the intended GitLab project and `glab` is authenticated, create a GitLab issue.
+如果仓库已经指向目标 GitLab 项目，并且 `glab` 已认证，则创建 GitLab issue。
 
-If not, do not create the issue yet; ask the user to configure GitLab remote and `glab auth`.
+否则不要创建 issue，先要求用户配置 GitLab remote 并完成 `glab auth`。
 
-## When a skill says "fetch the relevant ticket"
+## 当 skill 要求 "fetch the relevant ticket"
 
-First check `git remote -v` and `glab auth status`, then run:
+先检查 `git remote -v` 和 `glab auth status`，再运行：
 
 ```bash
 glab issue view <number> --comments

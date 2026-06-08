@@ -1,8 +1,8 @@
 # Triage Labels
 
-The skills speak in terms of five canonical triage roles. This file maps those roles to the actual label strings used in this repo's issue tracker.
+相关 skills 使用五个标准 triage 角色描述 issue 状态。本文档用于记录这些角色与本项目 issue tracker 中实际 label 字符串的对应关系。
 
-| Label in mattpocock/skills | Label in our tracker | Meaning |
+| mattpocock/skills 中的 label | 本项目 issue tracker 中的 label | 含义 |
 | --- | --- | --- |
 | `needs-triage` | `needs-triage` | 需要维护者评估 |
 | `needs-info` | `needs-info` | 等待提交者补充信息 |
@@ -10,4 +10,4 @@ The skills speak in terms of five canonical triage roles. This file maps those r
 | `ready-for-human` | `ready-for-human` | 需要人类实现 |
 | `wontfix` | `wontfix` | 不处理 |
 
-When a skill mentions a role, use the corresponding label string from this table.
+当 skill 提到某个 triage 角色时，使用上表中对应的 label 字符串。
