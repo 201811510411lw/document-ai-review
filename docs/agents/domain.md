@@ -5,7 +5,7 @@
 ## 探索前先读取
 
 - 仓库根目录的 `README.md`。这是本项目的主要项目上下文。
-- 当任务涉及服务边界、系统架构或调用链路时，优先读取 `README.md` 中的架构说明；如果未来重新新增 `docs/architecture.md`，再按需读取。
+- 当任务涉及服务边界、系统架构或调用链路时，优先读取 `README.md` 中的架构说明；如果需要更细的 V1 架构上下文，再读取 `docs/v1-python-architecture.md`。
 - 如果未来存在 `docs/adr/`，读取与当前工作区域相关的 ADR。
 
 本项目当前有意不使用 `CONTEXT.md` 或 `CONTEXT-MAP.md`。不要预先建议创建这些文件；应使用 `README.md` 作为项目术语和领域上下文来源。
@@ -18,7 +18,9 @@
 /
 ├── README.md
 ├── docs/
-└── ai-service/
+├── ai-service/
+├── rules/
+└── scripts/
 ```
 
 ## 使用 README 术语
@@ -29,14 +31,29 @@
 
 - Document AI Review Agent / Skill 平台
 - 食品安全证照检测
-- backend-java
 - ai-service
+- FastAPI
+- LangGraph
+- LangChain
+- Python 规则引擎
 - 审核任务
 - 字段抽取
+- 字段规范化
 - 规则校验
 - 风险报告
 - 人工复核
 - 审计留痕
+
+## V1 架构约定
+
+当前 V1 以纯 Python `ai-service` 为主，不拆分 Java / Spring Boot 后端服务。
+
+- FastAPI 负责 HTTP API。
+- LangGraph 是食品安全证照检测 V1 审核流程的核心编排方式。
+- LangChain 负责模型调用、Prompt、结构化输出和工具封装。
+- Python 规则引擎负责确定性规则校验。
+- Python 服务同时承担审核任务管理、审核结果保存、人工复核和审计日志。
+- 后续企业系统可以通过 HTTP API 调用该 Python 服务。
 
 ## 标明架构冲突
 
