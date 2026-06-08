@@ -128,8 +128,8 @@ Skill.review(input_context) -> ReviewResult
 | 模块 | 职责 |
 | --- | --- |
 | FastAPI | 对外暴露 HTTP API，包括健康检查、创建审核任务、查询审核结果、人工复核 |
-| Review Service | 创建审核任务，调用 Skill Registry，保存 ReviewResult，协调人工复核和审计日志 |
-| Skill Registry | 显式注册内置 Skill，加载 `metadata.yaml`，根据输入上下文路由到 `Skill.review(input_context)` |
+| Review Service | 创建审核任务，依赖 Skill Registry 路由并执行 Skill，保存 ReviewResult，协调人工复核和审计日志 |
+| Skill Registry | Skill 平台层入口，显式注册内置 Skill，加载并校验 `metadata.yaml`，提供 `get` / `list` 能力 |
 | Skill | 一等业务能力单元，封装配置、Prompt、规则、模型、工作流、节点和 Skill 文档 |
 | LangGraph | 在 Skill 内部编排审核工作流和节点状态流转 |
 | LangChain | 在 Skill 内部负责模型调用、Prompt、结构化输出、工具封装 |
@@ -226,9 +226,10 @@ document-ai-review/
 │   │   │   └── audit_log_repository.py
 │   │   ├── services/
 │   │   │   ├── review_service.py
-│   │   │   ├── skill_registry.py
 │   │   │   └── manual_review_service.py
 │   │   └── skills/
+│   │       ├── base.py
+│   │       ├── registry.py
 │   │       └── food_license/
 │   │           ├── skill.py
 │   │           ├── metadata.yaml
@@ -257,6 +258,8 @@ document-ai-review/
 ├── README.md
 └── .env.example
 ```
+
+`app/skills/base.py` 是 Skill 基础接口 / 协议，定义平台可依赖的 Skill 级契约。`app/skills/registry.py` 是显式注册内置 Skill、加载并校验 `metadata.yaml`、提供 `get` / `list` 的入口。Review Service 依赖 Skill Registry，但 Registry 本身属于 Skill 平台层，不放在 `app/services/` 下。
 
 `app/rules/` 只放通用规则基础设施，不放食品安全证照业务规则。`FOOD_LICENSE_EXPIRED`、`CREDIT_CODE_MATCH` 等具体规则和 `rules.yaml` 放在 `app/skills/food_license/rules/` 内。
 

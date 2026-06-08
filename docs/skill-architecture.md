@@ -80,8 +80,13 @@ Registry 负责：
 
 - 加载并校验内置 Skill 的 `metadata.yaml`；
 - 根据 `supported_document_types`、`input_modes` 和 `supports(input_context)` 选择 Skill；
+- 提供 `get` / `list` 等 Skill 查询入口；
 - 将请求路由到 `Skill.review(input_context)`；
 - 在结果和审计日志中保留 Skill 身份信息。
+
+`app/skills/base.py` 是 Skill 基础接口 / 协议，定义平台可依赖的 Skill 级契约。`app/skills/registry.py` 是显式注册内置 Skill、加载并校验 `metadata.yaml`、提供 `get` / `list` 的入口。
+
+Review Service 依赖 Skill Registry，但 Registry 本身属于 Skill 平台层，不放在 `app/services/` 下。
 
 ---
 
@@ -120,11 +125,15 @@ ai-service/
     ├── models/
     ├── repositories/
     ├── services/
+    │   ├── review_service.py
+    │   └── manual_review_service.py
     ├── rules/
     │   ├── engine.py
     │   ├── protocol.py
     │   └── result.py
     └── skills/
+        ├── base.py
+        ├── registry.py
         └── food_license/
             ├── skill.py
             ├── metadata.yaml

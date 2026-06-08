@@ -78,6 +78,8 @@ Review Service 是 V1 审核用例编排层，负责：
 
 Review Service 不直接调用 `extract_fields`、`run_rules`、`summarize_risk` 或 `route_review` 等 Skill 内部节点。
 
+Review Service 依赖 Skill Registry，但 Registry 本身属于 Skill 平台层，不放在 `app/services/` 下。
+
 ### 2.3 Skill Registry
 
 V1 Skill Registry 使用显式注册内置 Skill，不做目录扫描、外部 Skill 加载、插件市场、热加载或租户级覆盖。
@@ -86,10 +88,13 @@ Registry 负责：
 
 - 加载并校验内置 Skill 的 `metadata.yaml`；
 - 根据快捷入口、声明文档类型、`supported_document_types`、`input_modes` 和 `supports(input_context)` 选择 Skill；
+- 提供 `get` / `list` 等 Skill 查询入口；
 - 调用 `Skill.review(input_context) -> ReviewResult`；
 - 确保审核结果和审计日志记录 `skill_name`、`skill_version` 和 `ruleset_version`。
 
 `metadata.yaml` 是 Skill 运行时 manifest，也是 `name`、`version`、`supported_document_types`、`input_modes` 和 `ruleset_version` 等元信息的权威来源。
+
+`app/skills/base.py` 是 Skill 基础接口 / 协议。`app/skills/registry.py` 是显式注册内置 Skill、加载并校验 `metadata.yaml`、提供 `get` / `list` 的入口。
 
 ### 2.4 Skill
 
@@ -180,13 +185,14 @@ ai-service/
     ├── repositories/
     ├── services/
     │   ├── review_service.py
-    │   ├── skill_registry.py
     │   └── manual_review_service.py
     ├── rules/
     │   ├── engine.py
     │   ├── protocol.py
     │   └── result.py
     └── skills/
+        ├── base.py
+        ├── registry.py
         └── food_license/
             ├── skill.py
             ├── metadata.yaml
