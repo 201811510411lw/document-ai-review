@@ -3,6 +3,8 @@
 from app.models.review import (
     AuditEvent,
     ManualReview,
+    ManualReviewAction,
+    ManualReviewActionType,
     ManualReviewStatus,
     ReviewInput,
     ReviewInputContext,
@@ -15,6 +17,8 @@ from app.models.review import (
 __all__ = [
     "AuditEvent",
     "ManualReview",
+    "ManualReviewAction",
+    "ManualReviewActionType",
     "ManualReviewStatus",
     "ReviewInput",
     "ReviewInputContext",

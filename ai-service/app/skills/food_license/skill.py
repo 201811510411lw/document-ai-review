@@ -41,7 +41,11 @@ class FoodLicenseSkill:
             skill_version=self.version,
             ruleset_version=self.ruleset_version,
             document_type="food_license",
-            status=ReviewStatus.REVIEWED,
+            status=(
+                ReviewStatus.PENDING_MANUAL_REVIEW
+                if workflow_state["needs_manual_review"]
+                else ReviewStatus.REVIEWED
+            ),
             risk_level=workflow_state["risk_level"],
             needs_manual_review=workflow_state["needs_manual_review"],
             rule_results=workflow_state["rule_results"],

@@ -1,2 +1,17 @@
 ruleset_version: food-license-rules-v1
-rules: []
+rules:
+  - code: FOOD_LICENSE_EXISTS
+    name: 证照是否存在
+    risk_level_on_failure: HIGH
+  - code: FOOD_LICENSE_NO_REQUIRED
+    name: 许可证编号是否为空
+    risk_level_on_failure: HIGH
+  - code: CREDIT_CODE_MATCH
+    name: 统一社会信用代码是否一致
+    risk_level_on_failure: HIGH
+  - code: FOOD_LICENSE_EXPIRED
+    name: 证照是否过期
+    risk_level_on_failure: HIGH
+  - code: BUSINESS_SCOPE_COVERED
+    name: 经营项目是否覆盖食品业务
+    risk_level_on_failure: MEDIUM

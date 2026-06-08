@@ -1,9 +1,12 @@
-from app.models import ManualReview, ManualReviewStatus, RiskLevel
+import re
+
+from app.models import ManualReview, ManualReviewStatus, RiskLevel, RuleResult
 from app.skills.food_license.models import (
     FoodLicenseDocumentClassification,
     FoodLicenseExtractedFields,
     FoodLicenseNormalizedFields,
 )
+from app.skills.food_license.rules.rule_defs import evaluate_food_license_rules
 from app.skills.food_license.state import FoodLicenseWorkflowState
 
 
@@ -17,7 +20,11 @@ def load_document(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
 
 def classify_document(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
     document_text = state.get("document_text", "")
-    has_food_license_marker = "食品经营许可证" in document_text or "食品" in document_text
+    has_food_license_marker = (
+        "食品经营许可证" in document_text
+        or "许可证编号" in document_text
+        or re.search(r"\bJY\d{10,}\b", document_text) is not None
+    )
     classification = FoodLicenseDocumentClassification(
         document_type="food_license" if has_food_license_marker else "unknown",
         confidence=1.0 if has_food_license_marker else 0.0,
@@ -34,9 +41,17 @@ def classify_document(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowSta
 
 
 def extract_fields(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
+    document_text = state.get("document_text", "")
     return {
         **state,
-        "extracted_fields": FoodLicenseExtractedFields(),
+        "extracted_fields": FoodLicenseExtractedFields(
+            subject_name=_extract_line_value(document_text, ("经营者名称", "名称", "主体名称")),
+            credit_code=_extract_line_value(document_text, ("统一社会信用代码", "社会信用代码")),
+            license_no=_extract_line_value(document_text, ("许可证编号", "编号")),
+            business_address=_extract_line_value(document_text, ("经营场所", "经营地址", "住所")),
+            business_items=_extract_business_items(document_text),
+            valid_to=_extract_line_value(document_text, ("有效期至", "有效期截止日期", "有效期限至")),
+        ),
     }
 
 
@@ -61,9 +76,21 @@ def normalize_fields(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowStat
 
 
 def run_rules(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
+    input_context = state["input_context"]
+    classification = state.get("document_classification")
+    fields = state.get("normalized_fields") or FoodLicenseNormalizedFields()
+    document_type = (
+        classification.document_type if classification is not None else "unknown"
+    )
+
     return {
         **state,
-        "rule_results": [],
+        "rule_results": evaluate_food_license_rules(
+            document_text=state.get("document_text", ""),
+            document_type=document_type,
+            fields=fields,
+            review_input=input_context.input,
+        ),
     }
 
 
@@ -121,3 +148,19 @@ def route_review(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
         "needs_manual_review": needs_manual_review,
         "manual_review": manual_review,
     }
+
+
+def _extract_line_value(document_text: str, labels: tuple[str, ...]) -> str | None:
+    for label in labels:
+        pattern = rf"{re.escape(label)}\s*[:：]\s*([^\n]+)"
+        match = re.search(pattern, document_text)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
+def _extract_business_items(document_text: str) -> list[str]:
+    value = _extract_line_value(document_text, ("经营项目", "经营范围"))
+    if not value:
+        return []
+    return [item.strip() for item in re.split(r"[、,，;；]", value) if item.strip()]

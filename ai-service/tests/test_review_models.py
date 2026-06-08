@@ -35,14 +35,14 @@ def test_review_result_serializes_platform_fields_and_skill_result_boundary():
             credit_code="91510100MA00000000",
             license_no="JY15101000000000",
             business_items=["预包装食品销售", "散装食品销售"],
-            valid_to="2028-01-01",
+            valid_to="2099-01-01",
         ),
         normalized_fields=FoodLicenseNormalizedFields(
             subject_name="成都示例食品有限公司",
             credit_code="91510100MA00000000",
             license_no="JY15101000000000",
             business_items=["预包装食品销售", "散装食品销售"],
-            valid_to="2028-01-01",
+            valid_to="2099-01-01",
         ),
     )
 

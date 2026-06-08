@@ -13,7 +13,7 @@ def test_food_license_review_accepts_ocr_text_and_returns_review_result():
     response = client.post(
         "/api/v1/food-license/reviews",
         json={
-            "ocr_text": "食品经营许可证\n经营者名称：成都示例食品有限公司\n许可证编号：JY15101000000000",
+            "ocr_text": "食品经营许可证\n经营者名称：成都示例食品有限公司\n统一社会信用代码：91510100MA00000000\n许可证编号：JY15101000000000\n经营项目：预包装食品销售\n有效期至：2099-01-01",
             "supplier_name": "成都示例食品有限公司",
             "supplier_credit_code": "91510100MA00000000",
             "supplier_address": "成都市示例区示例路 100 号",
@@ -59,8 +59,8 @@ def test_food_license_review_accepts_ocr_text_and_returns_review_result():
     assert "normalized_fields" not in payload
     assert "document_classification" not in payload
     assert payload["skill_result"]["document_classification"]["document_type"] == "food_license"
-    assert payload["skill_result"]["extracted_fields"]["license_no"] is None
-    assert payload["skill_result"]["normalized_fields"]["license_no"] is None
+    assert payload["skill_result"]["extracted_fields"]["license_no"] == "JY15101000000000"
+    assert payload["skill_result"]["normalized_fields"]["license_no"] == "JY15101000000000"
 
 
 def test_food_license_review_rejects_empty_ocr_text_with_stable_error():

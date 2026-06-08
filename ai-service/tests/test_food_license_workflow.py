@@ -13,7 +13,11 @@ from app.skills.food_license.nodes import (
     route_review,
     summarize_risk,
 )
-from app.skills.food_license.models import FoodLicenseDocumentClassification
+from app.skills.food_license.models import (
+    FoodLicenseDocumentClassification,
+    FoodLicenseNormalizedFields,
+)
+from app.skills.food_license.rules.rule_defs import evaluate_food_license_rules
 from app.skills.food_license.skill import food_license_skill
 
 
@@ -21,7 +25,7 @@ def test_food_license_review_runs_internal_workflow_and_returns_review_result():
     input_context = ReviewInputContext(
         task_id="review-task-001",
         input=ReviewInput(
-            ocr_text="食品经营许可证\n经营者名称：成都示例食品有限公司\n许可证编号：JY15101000000000",
+            ocr_text="食品经营许可证\n经营者名称：成都示例食品有限公司\n统一社会信用代码：91510100MA00000000\n许可证编号：JY15101000000000\n经营项目：预包装食品销售\n有效期至：2099-01-01",
             supplier_name="成都示例食品有限公司",
             supplier_credit_code="91510100MA00000000",
             declared_document_type="food_license",
@@ -54,8 +58,8 @@ def test_food_license_review_runs_internal_workflow_and_returns_review_result():
         "confidence": 1.0,
         "reasons": ["OCR 文本包含食品经营许可证特征"],
     }
-    assert payload["skill_result"]["extracted_fields"]["license_no"] is None
-    assert payload["skill_result"]["normalized_fields"]["license_no"] is None
+    assert payload["skill_result"]["extracted_fields"]["license_no"] == "JY15101000000000"
+    assert payload["skill_result"]["normalized_fields"]["license_no"] == "JY15101000000000"
 
 
 def test_load_document_standardizes_ocr_text_into_workflow_state():
@@ -102,6 +106,31 @@ def test_summarize_risk_uses_rule_results_without_llm_decision():
     assert state["summary"] == "发现确定性规则风险。"
 
 
+def test_food_license_rules_report_deterministic_failures():
+    rule_results = evaluate_food_license_rules(
+        document_text="食品经营许可证",
+        document_type="food_license",
+        fields=FoodLicenseNormalizedFields(
+            license_no="JY15101000000000",
+            credit_code="91510100MA00000000",
+            business_items=["日用品销售"],
+            valid_to="2025-01-01",
+        ),
+        review_input=ReviewInput(
+            ocr_text="食品经营许可证",
+            supplier_name="成都示例食品有限公司",
+            supplier_credit_code="91510100MA99999999",
+        ),
+    )
+
+    failed_rule_codes = {
+        rule_result.rule_code for rule_result in rule_results if not rule_result.passed
+    }
+    assert "CREDIT_CODE_MATCH" in failed_rule_codes
+    assert "FOOD_LICENSE_EXPIRED" in failed_rule_codes
+    assert "BUSINESS_SCOPE_COVERED" in failed_rule_codes
+
+
 def test_route_review_sets_manual_review_from_risk_level():
     state = route_review(
         {
@@ -135,7 +164,7 @@ def test_unknown_document_type_requires_manual_review():
     payload = result.model_dump(mode="json")
 
     assert payload["skill_result"]["document_classification"]["document_type"] == "unknown"
-    assert result.risk_level == RiskLevel.NONE
+    assert result.status == ReviewStatus.PENDING_MANUAL_REVIEW
     assert result.needs_manual_review is True
     assert result.manual_review.status == ManualReviewStatus.PENDING
     assert result.manual_review.reasons == ["文档类型无法识别，需要人工复核"]

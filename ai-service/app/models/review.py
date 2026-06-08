@@ -27,6 +27,12 @@ class ManualReviewStatus(StrEnum):
     COMPLETED = "COMPLETED"
 
 
+class ManualReviewActionType(StrEnum):
+    APPROVE = "APPROVE"
+    REJECT = "REJECT"
+    REQUEST_MORE_INFO = "REQUEST_MORE_INFO"
+
+
 class ReviewInput(BaseModel):
     ocr_text: str
     supplier_name: str
@@ -87,4 +93,10 @@ class ReviewResult(BaseModel):
     audit_events: list[AuditEvent] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
-    skill_result: SerializeAsAny[BaseModel] | dict[str, Any]
+    skill_result: dict[str, Any] | SerializeAsAny[BaseModel]
+
+
+class ManualReviewAction(BaseModel):
+    action: ManualReviewActionType
+    reviewer: str
+    comment: str | None = None
