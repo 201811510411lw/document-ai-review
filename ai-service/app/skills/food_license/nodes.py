@@ -93,14 +93,28 @@ def summarize_risk(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
 
 def route_review(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
     risk_level = state.get("risk_level", RiskLevel.NONE)
-    needs_manual_review = risk_level in {RiskLevel.HIGH, RiskLevel.MEDIUM}
+    document_classification = state.get("document_classification")
+    unknown_document_type = (
+        document_classification is None
+        or document_classification.document_type != "food_license"
+    )
+    needs_manual_review = unknown_document_type or risk_level in {
+        RiskLevel.HIGH,
+        RiskLevel.MEDIUM,
+    }
+    reasons = []
+    if unknown_document_type:
+        reasons.append("文档类型无法识别，需要人工复核")
+    elif needs_manual_review:
+        reasons.append("确定性规则结果需要人工复核")
+
     manual_review = ManualReview(
         status=(
             ManualReviewStatus.PENDING
             if needs_manual_review
             else ManualReviewStatus.NOT_REQUIRED
         ),
-        reasons=[] if not needs_manual_review else ["确定性规则结果需要人工复核"],
+        reasons=reasons,
     )
     return {
         **state,
