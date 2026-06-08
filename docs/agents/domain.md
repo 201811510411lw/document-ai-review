@@ -5,7 +5,7 @@
 ## 探索前先读取
 
 - 仓库根目录的 `README.md`。这是本项目的主要项目上下文。
-- 当任务涉及服务边界、系统架构或调用链路时，读取 `docs/architecture.md`。
+- 当任务涉及服务边界、系统架构或调用链路时，优先读取 `README.md` 中的架构说明；如果未来重新新增 `docs/architecture.md`，再按需读取。
 - 如果未来存在 `docs/adr/`，读取与当前工作区域相关的 ADR。
 
 本项目当前有意不使用 `CONTEXT.md` 或 `CONTEXT-MAP.md`。不要预先建议创建这些文件；应使用 `README.md` 作为项目术语和领域上下文来源。
@@ -18,7 +18,6 @@
 /
 ├── README.md
 ├── docs/
-│   └── architecture.md
 └── ai-service/
 ```
 
@@ -41,4 +40,4 @@
 
 ## 标明架构冲突
 
-如果输出内容与 `README.md`、`docs/architecture.md` 或未来的 ADR 冲突，需要明确指出冲突，不要静默覆盖既有约定。
+如果输出内容与 `README.md` 或未来的 ADR 冲突，需要明确指出冲突，不要静默覆盖既有约定。
