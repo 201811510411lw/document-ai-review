@@ -494,3 +494,19 @@ docs/
 - 已确认 Java + Python 双服务架构；
 - 已确认 monorepo 项目结构；
 - 后续需要继续补齐代码骨架、接口契约、数据库设计和部署配置。
+
+---
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in GitLab Issues through the `glab` CLI, after the repo has a GitLab remote and `glab` is authenticated. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The repo uses the default five triage labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This repo uses a single domain context, with `README.md` as the primary project context instead of `CONTEXT.md`. See `docs/agents/domain.md`.
