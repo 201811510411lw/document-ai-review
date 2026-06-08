@@ -4,6 +4,8 @@
 
 本项目不是单纯 OCR 工具，而是面向企业内部审核场景的 **Document AI Review Agent / Skill 平台**。OCR 只是底层读取能力，核心目标是把证照、报告、合同等非结构化文件转为可校验、可追溯、可复核的结构化审核结果。
 
+`README.md` 是本项目唯一主上下文。当前不使用 `CONTEXT.md` / `CONTEXT-MAP.md`，也不要求创建 `AGENTS.md` / `CLAUDE.md`。
+
 ---
 
 ## 1. 项目定位
@@ -19,7 +21,7 @@
 - 将审核过程、审核依据、审核结果完整留痕；
 - 支持企业内部私有化部署，避免敏感材料直接上传公有云模型。
 
-当前 V1 不优先做合同审核，而是先聚焦 **食品安全证照检测**，把证照审核链路跑通，再扩展到 QC 证照校验、烟草证一致性校验、法务合同审核等场景。
+当前 V1 不优先做合同审核，也不拆分 Java / Python 双服务，而是先用纯 Python 架构聚焦 **食品安全证照检测**，把证照审核链路跑通，再扩展到 QC 证照校验、烟草证一致性校验、法务合同审核等场景。
 
 ---
 
@@ -36,25 +38,29 @@
 V1 主要解决：
 
 - 供应商是否上传了食品安全相关证照；
-- 证照图片或 PDF 是否可以被正常解析；
+- 证照图片、PDF、文件路径或 OCR 文本是否可以被正常处理；
+- 证照类型是否可以识别为食品安全相关证照；
 - 证照中的关键字段是否可以被结构化抽取；
+- 抽取字段是否可以被规范化为稳定的数据结构；
 - 证照是否过期；
 - 证照主体名称是否与业务系统供应商名称一致；
 - 统一社会信用代码是否一致；
 - 经营项目是否覆盖食品销售、预包装食品、散装食品等业务范围；
-- 审核结果是否可以沉淀为可追溯、可复核的结构化数据。
+- 审核任务、审核结果、规则结果、人工复核和审计日志是否可以沉淀为可追溯、可复核的结构化数据。
 
 ### 2.2 输入来源
 
-V1 先假设证照信息来自 MySQL 业务表：
+V1 先支持本地最小闭环，输入可以来自：
 
-- MySQL 业务表中的证照记录；
-- 证照图片或 PDF 文件路径；
+- 上传的食品安全证照图片或 PDF；
+- 已存在的证照图片或 PDF 文件路径；
+- 外部系统或测试脚本传入的 OCR 文本；
 - 供应商名称；
 - 统一社会信用代码；
 - 供应商经营地址；
-- 证照类型；
-- 业务系统中的审核状态。
+- 证照类型或待识别证照类型。
+
+V1 可以先使用 SQLite 或 MySQL 保存数据，优先保证本地可运行、可验证、可复核。
 
 后续可以扩展为：
 
@@ -63,260 +69,192 @@ V1 先假设证照信息来自 MySQL 业务表：
 - 文件服务器；
 - 对象存储；
 - 第三方验真平台；
-- 内部主数据平台。
+- 内部主数据平台；
+- 其他业务系统通过 HTTP API 调用 Python 服务。
 
 ---
 
-## 3. 系统架构
+## 3. V1 技术栈
 
-### 3.1 总体架构
+V1 采用纯 Python 架构：
 
-```text
-Java Spring Boot 对外暴露接口
-    ↓
-Python FastAPI + LangChain 提供 AI 能力
-    ↓
-OCR / 多模态模型 / 规则引擎 / RAG / 知识库
-```
+- Python；
+- FastAPI；
+- LangGraph；
+- LangChain；
+- Pydantic；
+- SQLite / MySQL。
 
-系统采用 Java + Python 双服务架构：
-
-- Java 负责业务入口、权限控制、任务管理、数据库读写、人工复核、通知和审计；
-- Python 负责文档解析、OCR、多模态模型调用、字段抽取、规则校验、风险报告生成；
-- 两个服务通过 HTTP API 交互；
-- 审核结果最终由 Java 服务落库，保证业务系统侧的数据闭环。
-
-### 3.2 服务调用链路
-
-```text
-业务系统 / 管理后台
-    ↓
-backend-java
-    ↓
-MySQL 查询证照记录
-    ↓
-创建审核任务
-    ↓
-调用 ai-service
-    ↓
-文档解析 / 字段抽取 / 规则校验
-    ↓
-返回审核结论和风险明细
-    ↓
-backend-java 保存审核结果
-    ↓
-人工复核 / 通知 / 审计留痕
-```
+Java / Spring Boot 不是 V1 范围。后续如果需要接入企业业务系统，可以让 Java、ERP、OA 或其他业务系统通过 HTTP API 调用当前 Python 服务。
 
 ---
 
-## 4. 服务职责
+## 4. 系统架构
 
-| 服务 | 职责 |
+### 4.1 总体架构
+
+```text
+业务系统 / 管理后台 / 测试脚本
+    ↓
+FastAPI HTTP API
+    ↓
+审核任务 Service / Repository
+    ↓
+LangGraph 食品安全证照检测工作流
+    ↓
+文档加载 / 证照类型识别 / 字段抽取 / 字段规范化
+    ↓
+Python 规则引擎
+    ↓
+风险汇总 / 人工复核路由
+    ↓
+SQLite / MySQL 保存任务、结果、规则结果、审计日志
+```
+
+V1 不再采用 `backend-java` + `ai-service` 的双服务架构。当前只有一个 Python 服务：`ai-service`。
+
+### 4.2 服务边界
+
+| 模块 | 职责 |
 | --- | --- |
-| `backend-java` | 对外 API、权限、任务管理、MySQL 业务数据读取、审核结果落库、人工复核、通知、审计留痕 |
-| `ai-service` | 文档解析、证照字段抽取、规则校验、风险报告生成、LangChain / LLM 编排 |
+| FastAPI | 对外暴露 HTTP API，包括健康检查、创建审核任务、查询审核结果、人工复核 |
+| LangGraph | 编排食品安全证照检测 V1 的审核工作流和节点状态流转 |
+| LangChain | 模型调用、Prompt、结构化输出、工具封装 |
+| Python 规则引擎 | 执行确定性规则校验，输出规则结果和风险等级 |
+| Pydantic models | 定义审核请求、证照字段、规则结果、审核结果等结构化数据 |
+| Repository / Service 层 | 管理审核任务、审核结果保存、人工复核、审计日志 |
+| SQLite / MySQL | 保存审核任务、审核结果、规则结果、人工复核记录和审计日志 |
 
-### 4.1 backend-java 职责
-
-`backend-java` 是业务后端服务，主要职责包括：
-
-- 提供审核任务创建接口；
-- 从 MySQL 查询供应商和证照记录；
-- 管理审核任务状态；
-- 调用 Python AI 服务；
-- 保存 AI 返回的结构化字段、规则命中结果、风险等级和审核报告；
-- 提供人工复核入口；
-- 支持审核通过、审核驳回、人工确认等操作；
-- 记录操作日志和审计日志；
-- 后续对接企业微信、邮件、OA 待办等通知渠道。
-
-### 4.2 ai-service 职责
-
-`ai-service` 是 AI 能力服务，主要职责包括：
-
-- 接收 Java 服务传入的审核任务；
-- 加载证照图片或 PDF；
-- 调用 OCR 或多模态模型解析文档内容；
-- 抽取食品安全证照字段；
-- 对抽取结果进行格式化和标准化；
-- 根据规则配置执行校验；
-- 生成风险项、风险等级、审核建议；
-- 返回结构化审核结果给 Java 服务。
+更详细的纯 Python V1 架构说明见 [docs/v1-python-architecture.md](docs/v1-python-architecture.md)。
 
 ---
 
-## 5. 仓库目录概览
+## 5. V1 最小闭环
 
-项目采用 monorepo 结构：
+```text
+上传食品安全证照文件，或传入文件路径 / OCR 文本
+    ↓
+FastAPI 创建审核任务
+    ↓
+LangGraph 执行审核工作流
+    ↓
+文档加载节点
+    ↓
+证照类型识别节点
+    ↓
+字段抽取节点
+    ↓
+字段规范化节点
+    ↓
+规则校验节点
+    ↓
+风险汇总节点
+    ↓
+人工复核路由节点
+    ↓
+保存审核任务、审核结果、规则结果、审计日志
+    ↓
+返回结构化审核结果
+```
+
+### 5.1 详细流程说明
+
+1. 用户、测试脚本或外部系统通过 FastAPI 发起食品安全证照审核；
+2. 请求可以上传证照文件，也可以传入文件路径或 OCR 文本；
+3. FastAPI 创建审核任务，并通过 Service / Repository 层保存任务初始状态；
+4. `food_license_graph` 启动 LangGraph 审核工作流；
+5. 文档加载节点读取图片、PDF、文件路径或 OCR 文本；
+6. 证照类型识别节点判断材料是否属于食品安全相关证照；
+7. 字段抽取节点通过 LangChain 调用模型、Prompt 和结构化输出能力；
+8. 字段规范化节点清洗日期、主体名称、统一社会信用代码、经营项目等字段；
+9. 规则校验节点调用 Python 规则引擎执行确定性规则；
+10. 风险汇总节点根据规则结果生成总体风险等级和审核建议；
+11. 人工复核路由节点判断是否需要进入人工复核；
+12. Service / Repository 层保存审核结果、规则结果、人工复核状态和审计日志；
+13. FastAPI 返回结构化审核结果。
+
+---
+
+## 6. 推荐目录结构
+
+项目采用以 `ai-service` 为核心的纯 Python 结构：
 
 ```text
 document-ai-review/
-├── backend-java/                    # Java Spring Boot 后端服务
-├── ai-service/                      # Python FastAPI AI 服务
-├── deploy/                          # Docker / docker-compose / Kubernetes 部署配置
-├── docs/                            # 项目设计文档
-├── rules/                           # 业务审核规则配置
-├── scripts/                         # 初始化脚本、测试脚本、工具脚本
-├── README.md                        # 项目说明文档
-└── .env.example                     # 环境变量示例
-```
-
-目录说明：
-
-- `backend-java/`：Java 后端接口与业务逻辑；
-- `ai-service/`：Python AI 服务，承载 OCR、LLM、规则校验和审核 Skill；
-- `deploy/`：部署配置，例如 Docker Compose、Kubernetes YAML、Nginx 配置等；
-- `docs/`：架构设计、接口契约、数据库设计、Skill 设计等文档；
-- `rules/`：食品安全证照、烟草证、合同审核等规则配置；
-- `scripts/`：数据库初始化、测试数据生成、批量任务脚本；
-- `.env.example`：本地开发和部署所需环境变量示例。
-
----
-
-## 6. ai-service 内部结构设计
-
-`ai-service` 作为 AI 能力服务，建议采用如下结构：
-
-```text
-ai-service/
-├── app/
-│   ├── main.py                         # FastAPI 启动入口
-│   ├── config.py                       # 全局配置
-│   ├── api/                            # API 接口层
-│   │   ├── upload.py                   # 文件上传接口
-│   │   ├── review.py                   # 审核任务接口
-│   │   ├── report.py                   # 审核报告接口
-│   │   └── callback.py                 # ERP/OA 回调接口
-│   ├── core/                           # 核心能力层
-│   │   ├── task_manager.py             # 审核任务调度
-│   │   ├── file_manager.py             # 文件管理
-│   │   ├── skill_router.py             # Skill 路由
-│   │   └── audit_logger.py             # 审计日志
-│   ├── parsers/                        # 文档解析层
-│   │   ├── image_parser.py             # 图片解析
-│   │   ├── pdf_parser.py               # PDF 解析
-│   │   └── ocr_parser.py               # OCR 解析封装
-│   ├── extractors/                     # 知识抽取层
-│   │   └── food_license_extractor.py   # 食品安全证照字段抽取
-│   ├── skills/                         # 业务 Skill 层
-│   │   └── food_license_review_skill.py # 食品安全证照审核 Skill
-│   ├── rules/                          # 规则引擎层
-│   │   ├── rule_engine.py              # 通用规则引擎
-│   │   └── food_license_rules.py       # 食品安全证照规则
-│   ├── llm/                            # 大模型调用层
-│   │   ├── base_client.py              # 模型客户端基类
-│   │   ├── local_llm_client.py         # 私有化模型调用
-│   │   └── prompt_runner.py            # Prompt 执行封装
-│   ├── rag/                            # 知识库 / RAG 层
-│   │   ├── retriever.py                # 检索器
-│   │   └── vector_store.py             # 向量库封装
-│   ├── integrations/                   # 外部系统集成
-│   │   ├── mysql_client.py             # MySQL 查询封装
-│   │   ├── object_storage_client.py    # 对象存储 / 文件服务封装
-│   │   └── callback_client.py          # 回调 Java 服务
-│   ├── models/                         # 数据模型
-│   │   ├── review_task.py              # 审核任务模型
-│   │   ├── food_license.py             # 食品安全证照模型
-│   │   └── review_result.py            # 审核结果模型
-│   ├── db/                             # 数据库层
-│   │   └── session.py                  # 数据库连接
-│   └── prompts/                        # Prompt 模板
-│       └── food_license_extract.md     # 食品安全证照抽取 Prompt
-├── rules_config/                       # 规则配置文件
-├── knowledge_base/                     # 知识库材料
-├── storage/                            # 本地文件缓存
-├── scripts/                            # 工具脚本
+├── ai-service/
+│   ├── app/
+│   │   ├── main.py
+│   │   ├── api/
+│   │   │   ├── health.py
+│   │   │   ├── review.py
+│   │   │   └── manual_review.py
+│   │   ├── core/
+│   │   │   ├── config.py
+│   │   │   ├── logging.py
+│   │   │   └── errors.py
+│   │   ├── graphs/
+│   │   │   ├── food_license_graph.py
+│   │   │   └── state.py
+│   │   ├── nodes/
+│   │   │   ├── load_document.py
+│   │   │   ├── classify_document.py
+│   │   │   ├── extract_fields.py
+│   │   │   ├── normalize_fields.py
+│   │   │   ├── run_rules.py
+│   │   │   ├── summarize_risk.py
+│   │   │   └── route_review.py
+│   │   ├── chains/
+│   │   │   └── food_license_extraction_chain.py
+│   │   ├── rules/
+│   │   │   ├── engine.py
+│   │   │   └── food_license_rules.py
+│   │   ├── models/
+│   │   │   ├── review.py
+│   │   │   ├── food_license.py
+│   │   │   └── rule.py
+│   │   ├── repositories/
+│   │   │   ├── review_task_repository.py
+│   │   │   └── audit_log_repository.py
+│   │   └── services/
+│   │       ├── review_service.py
+│   │       └── manual_review_service.py
+│   ├── tests/
+│   ├── requirements.txt
+│   └── .env.example
+├── docs/
+│   ├── agents/
+│   ├── prd-food-license-v1.md
+│   ├── langgraph-food-license-v1.md
+│   ├── api-contract.md
+│   └── v1-python-architecture.md
+├── rules/
+│   └── food_license_rules.yaml
+├── scripts/
+│   └── init_db.sql
 ├── docker-compose.yml
-├── Dockerfile
-├── requirements.txt
 ├── README.md
 └── .env.example
 ```
 
 ---
 
-## 7. backend-java 内部结构设计
+## 7. 食品安全证照 LangGraph 节点
 
-`backend-java` 作为业务后端服务，建议采用如下结构：
+V1 食品安全证照检测工作流建议由以下节点组成：
 
-```text
-backend-java/
-├── pom.xml
-├── src/
-│   └── main/
-│       ├── java/
-│       │   └── com/company/review/
-│       │       ├── ReviewApplication.java
-│       │       ├── controller/
-│       │       │   └── FoodLicenseReviewController.java
-│       │       ├── service/
-│       │       │   └── FoodLicenseReviewService.java
-│       │       ├── client/
-│       │       │   └── AiReviewClient.java
-│       │       ├── entity/
-│       │       │   ├── SupplierLicense.java
-│       │       │   ├── ReviewTask.java
-│       │       │   └── ReviewResult.java
-│       │       ├── mapper/
-│       │       │   ├── SupplierLicenseMapper.java
-│       │       │   ├── ReviewTaskMapper.java
-│       │       │   └── ReviewResultMapper.java
-│       │       ├── dto/
-│       │       │   ├── CreateReviewTaskRequest.java
-│       │       │   ├── AiReviewRequest.java
-│       │       │   └── AiReviewResponse.java
-│       │       └── common/
-│       │           ├── Result.java
-│       │           └── ReviewStatus.java
-│       └── resources/
-│           ├── application.yml
-│           └── mapper/
-└── README.md
-```
+| 节点 | 职责 |
+| --- | --- |
+| `load_document` | 加载上传文件、文件路径或 OCR 文本，生成统一文档输入 |
+| `classify_document` | 判断材料是否为食品安全相关证照 |
+| `extract_fields` | 使用 LangChain、Prompt 和结构化输出抽取证照字段 |
+| `normalize_fields` | 规范化日期、主体名称、统一社会信用代码、经营项目等字段 |
+| `run_rules` | 调用 Python 规则引擎执行食品安全证照规则 |
+| `summarize_risk` | 汇总规则结果，生成总体风险等级和审核建议 |
+| `route_review` | 判断是否自动通过、自动驳回或进入人工复核 |
 
 ---
 
-## 8. V1 审核流程
-
-```text
-Java 查询 MySQL 证照记录
-    ↓
-Java 创建审核任务
-    ↓
-Java 调用 Python AI 服务
-    ↓
-Python 解析证照图片 / PDF
-    ↓
-Python 抽取食品安全证照字段
-    ↓
-Python 规则库校验
-    ↓
-Python 返回风险结果
-    ↓
-Java 保存审核结果
-    ↓
-人工复核 / 通知 / 审计留痕
-```
-
-### 8.1 详细流程说明
-
-1. 用户或定时任务在 Java 服务中发起食品安全证照审核任务；
-2. Java 服务根据供应商 ID 查询 MySQL 中的证照记录；
-3. Java 服务构造审核请求，包含供应商信息、证照文件路径、证照类型等；
-4. Java 服务调用 Python `ai-service` 的审核接口；
-5. Python 服务读取证照图片或 PDF；
-6. Python 服务通过 OCR 或多模态模型提取文本和版面信息；
-7. `food_license_extractor` 抽取食品安全证照字段；
-8. `food_license_review_skill` 调用规则引擎执行校验；
-9. Python 服务返回字段抽取结果、规则命中结果、风险等级和审核建议；
-10. Java 服务保存审核结果，并更新任务状态；
-11. 若存在高风险项，进入人工复核或通知流程；
-12. 所有审核过程写入审计日志。
-
----
-
-## 9. 食品安全证照字段抽取
+## 8. 食品安全证照字段抽取
 
 V1 建议抽取以下字段：
 
@@ -352,13 +290,13 @@ V1 建议抽取以下字段：
 
 ---
 
-## 10. 食品安全证照规则示例
+## 9. 食品安全证照规则示例
 
 V1 建议先实现以下规则：
 
 | 规则编码 | 规则名称 | 风险等级 | 说明 |
 | --- | --- | --- | --- |
-| `FOOD_LICENSE_EXISTS` | 证照是否存在 | 高 | 未上传证照或文件路径为空 |
+| `FOOD_LICENSE_EXISTS` | 证照是否存在 | 高 | 未上传证照、文件路径为空或 OCR 文本为空 |
 | `FOOD_LICENSE_NO_REQUIRED` | 许可证编号是否为空 | 高 | 食品经营许可证编号不能为空 |
 | `FOOD_LICENSE_EXPIRED` | 证照是否过期 | 高 | 当前日期超过证照有效期截止日期 |
 | `SUBJECT_NAME_MATCH` | 主体名称是否一致 | 中 | 证照主体名称与供应商名称不一致 |
@@ -390,9 +328,9 @@ rules:
 
 ---
 
-## 11. AI 审核结果设计
+## 10. 审核结果设计
 
-Python AI 服务返回给 Java 服务的审核结果建议包含：
+Python 服务返回的审核结果建议包含：
 
 ```json
 {
@@ -400,6 +338,7 @@ Python AI 服务返回给 Java 服务的审核结果建议包含：
   "document_type": "food_license",
   "status": "REVIEWED",
   "risk_level": "HIGH",
+  "needs_manual_review": true,
   "extracted_fields": {
     "subject_name": "成都示例食品有限公司",
     "credit_code": "91510100MA00000000",
@@ -421,6 +360,19 @@ Python AI 服务返回给 Java 服务的审核结果建议包含：
 
 ---
 
+## 11. 数据保存范围
+
+V1 至少保存以下数据：
+
+- 审核任务：任务 ID、输入来源、供应商信息、任务状态、创建时间、更新时间；
+- 审核结果：文档类型、总体风险等级、审核建议、是否需要人工复核；
+- 字段抽取结果：食品安全证照结构化字段；
+- 规则结果：规则编码、规则名称、是否通过、风险等级、提示信息；
+- 人工复核记录：复核动作、复核人、复核备注、复核时间；
+- 审计日志：任务创建、工作流执行、规则校验、人工复核等关键事件。
+
+---
+
 ## 12. Skill 扩展方向
 
 后续可以在当前 Skill 框架上扩展：
@@ -436,47 +388,66 @@ Python AI 服务返回给 Java 服务的审核结果建议包含：
 扩展方式：
 
 ```text
-新增 Skill
+新增 Skill / LangGraph 工作流
     ↓
-新增字段抽取器 Extractor
+新增字段抽取 Chain
     ↓
 新增规则配置 Rules
     ↓
 新增 Prompt 模板
     ↓
-复用任务管理、文件管理、审计日志、模型调用能力
+复用任务管理、结果保存、审计日志、模型调用和人工复核能力
 ```
 
 ---
 
-## 13. 本地开发规划
+## 13. V1 不做事项
+
+V1 暂不实现：
+
+- Java / Spring Boot 服务；
+- 独立业务后台；
+- 完整权限系统；
+- 企业微信、邮件、OA 待办等通知渠道；
+- 第三方证照验真平台；
+- RAG / 知识库；
+- 合同审核、QC 证照、烟草证等其他 Skill；
+- 生产级多租户和复杂组织权限。
+
+这些能力后续可以作为企业系统集成或平台化扩展方向。
+
+---
+
+## 14. 本地开发规划
 
 建议按以下顺序落地：
 
 ```text
-1. 完成 README.md 和 docs 架构文档
+1. 完成 README.md 和 docs 纯 Python V1 架构文档
 2. 创建 ai-service FastAPI 骨架
-3. 创建食品安全证照字段模型
-4. 创建食品安全证照审核 Skill
-5. 创建规则引擎基础实现
-6. 创建 backend-java Spring Boot 骨架
-7. 打通 Java 调 Python 的审核接口
-8. 增加 MySQL 表结构和初始化脚本
-9. 增加 Docker Compose 本地启动配置
-10. 增加人工复核和审计留痕能力
+3. 创建食品安全证照字段模型、审核任务模型、规则结果模型
+4. 创建 LangGraph 食品安全证照检测工作流
+5. 创建 LangChain 字段抽取 Chain 和结构化输出
+6. 创建 Python 规则引擎基础实现
+7. 打通 FastAPI 创建审核任务到 LangGraph 审核结果返回
+8. 增加 SQLite / MySQL 表结构和初始化脚本
+9. 增加人工复核接口和审计留痕能力
+10. 增加 Docker Compose 本地启动配置
+11. 增加端到端验收测试
 ```
 
 ---
 
-## 14. 文档规划
+## 15. 文档规划
 
 建议后续补充以下文档：
 
 ```text
 docs/
-├── architecture.md                # 系统架构设计
-├── v1-food-license-design.md      # V1 食品安全证照检测设计
-├── api-contract.md                # Java 与 Python 接口契约
+├── v1-python-architecture.md      # 纯 Python V1 架构说明
+├── prd-food-license-v1.md         # V1 食品安全证照检测 PRD
+├── langgraph-food-license-v1.md   # 食品安全证照 LangGraph 工作流设计
+├── api-contract.md                # FastAPI 接口契约
 ├── database-design.md             # 数据库设计
 ├── skill-design.md                # Skill 设计规范
 ├── deployment.md                  # 部署说明
@@ -485,14 +456,15 @@ docs/
 
 ---
 
-## 15. 当前状态
+## 16. 当前状态
 
 当前项目处于初始规划和骨架建设阶段：
 
 - 已明确项目定位；
 - 已明确 V1 聚焦食品安全证照检测；
-- 已确认 Java + Python 双服务架构；
-- 已确认 monorepo 项目结构；
+- 已确认 V1 采用纯 Python 架构；
+- 已确认 FastAPI + LangGraph + LangChain + Python 规则引擎为 V1 核心技术路线；
+- 已确认 Java / Spring Boot 不属于 V1 范围；
 - 后续需要继续补齐代码骨架、接口契约、数据库设计和部署配置。
 
 ---
