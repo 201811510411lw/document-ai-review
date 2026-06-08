@@ -103,6 +103,14 @@ API 中的日期和时间使用：
 | `REJECT` | 人工驳回 |
 | `REQUEST_MORE_INFO` | 要求补充材料或信息 |
 
+#### 人工复核状态
+
+| 值 | 说明 |
+| --- | --- |
+| `NOT_REQUIRED` | 不需要人工复核 |
+| `PENDING` | 等待人工复核 |
+| `COMPLETED` | 人工复核已完成 |
+
 ## 4. 通用响应结构
 
 成功响应直接返回业务对象。
@@ -215,7 +223,7 @@ API 中的日期和时间使用：
 | `needs_manual_review` | 是否需要人工复核 |
 | `extracted_fields` | LangChain / LLM 抽取的字段 |
 | `normalized_fields` | 规范化后的字段 |
-| `rule_results` | Python 规则引擎输出的规则结果 |
+| `rule_results` | Python 规则引擎输出的规则结果；其中 `risk_level_on_failure` 表示该规则未通过时产生的风险等级 |
 | `summary` | 摘要建议，可由规则结果和 LLM 辅助生成 |
 | `created_at` | 任务创建时间 |
 | `updated_at` | 任务更新时间 |
@@ -258,17 +266,24 @@ API 中的日期和时间使用：
       "rule_code": "FOOD_LICENSE_EXISTS",
       "rule_name": "证照是否存在",
       "passed": true,
-      "risk_level": "HIGH",
+      "risk_level_on_failure": "HIGH",
       "message": "已检测到可审核的 OCR 文本"
     },
     {
       "rule_code": "CREDIT_CODE_MATCH",
       "rule_name": "统一社会信用代码是否一致",
       "passed": true,
-      "risk_level": "HIGH",
+      "risk_level_on_failure": "HIGH",
       "message": "证照信用代码与供应商信用代码一致"
     }
   ],
+  "manual_review": {
+    "status": "NOT_REQUIRED",
+    "reviewer": null,
+    "action": null,
+    "comment": null,
+    "reviewed_at": null
+  },
   "summary": "未发现明显风险，可自动通过。",
   "created_at": "2026-06-08T14:30:00+08:00",
   "updated_at": "2026-06-08T14:30:03+08:00"
@@ -303,7 +318,7 @@ API 中的日期和时间使用：
       "rule_code": "FOOD_LICENSE_EXPIRED",
       "rule_name": "证照是否过期",
       "passed": false,
-      "risk_level": "HIGH",
+      "risk_level_on_failure": "HIGH",
       "message": "当前日期超过证照有效期截止日期"
     }
   ],
@@ -361,7 +376,7 @@ API 中的日期和时间使用：
       "rule_code": "FOOD_LICENSE_EXPIRED",
       "rule_name": "证照是否过期",
       "passed": false,
-      "risk_level": "HIGH",
+      "risk_level_on_failure": "HIGH",
       "message": "当前日期超过证照有效期截止日期"
     }
   ],
@@ -512,7 +527,7 @@ API 实现应通过 Service / Repository 将以下数据保存到 SQLite / MySQL
 - 审核结果：证照类型、最终风险等级、审核建议、是否需要人工复核；
 - 字段抽取结果：LangChain / LLM 输出的食品安全证照结构化字段；
 - 字段规范化结果：规范化后的主体名称、统一社会信用代码、许可证编号、经营项目、日期和地址；
-- 规则结果：Python 规则引擎输出的规则编码、规则名称、是否通过、风险等级和提示信息；
+- 规则结果：Python 规则引擎输出的规则编码、规则名称、是否通过、未通过时产生的风险等级和提示信息；
 - 人工复核记录：复核动作、复核人、复核备注、复核时间；
 - 审计日志：任务创建、工作流开始、节点执行、规则校验、风险汇总、人工复核等关键事件。
 
@@ -522,6 +537,7 @@ API 实现应通过 Service / Repository 将以下数据保存到 SQLite / MySQL
 - API 契约包含健康检查、创建 OCR 文本审核任务、查询审核结果和人工复核接口；
 - API 契约明确请求字段包括 `ocr_text`、供应商名称、统一社会信用代码、供应商经营地址和可选证照类型；
 - API 契约明确响应字段包括任务状态、证照类型、抽取字段、规则结果、最终风险等级、人工复核标记和摘要建议；
+- API 契约明确规则结果使用 `risk_level_on_failure` 表示该规则未通过时产生的风险等级；
 - API 契约明确 FastAPI 只负责 HTTP API 边界；
 - API 契约明确 LangGraph 负责食品安全证照检测 V1 核心流程编排；
 - API 契约明确 LangChain / LLM 只负责字段抽取、结构化输出和摘要建议；
