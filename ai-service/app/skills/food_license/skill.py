@@ -9,10 +9,9 @@ from app.models import (
     ReviewInputContext,
     ReviewResult,
     ReviewStatus,
-    RiskLevel,
 )
+from app.skills.food_license.graph import food_license_graph
 from app.skills.food_license.models import (
-    FoodLicenseDocumentClassification,
     FoodLicenseSkillResult,
 )
 
@@ -29,12 +28,11 @@ class FoodLicenseSkill:
 
     def review(self, input_context: ReviewInputContext) -> ReviewResult:
         now = datetime.now(ZoneInfo(settings.timezone))
+        workflow_state = food_license_graph.invoke({"input_context": input_context})
         skill_result = FoodLicenseSkillResult(
-            document_classification=FoodLicenseDocumentClassification(
-                document_type="food_license",
-                confidence=None,
-                reasons=["OCR 文本已进入 food_license 快捷审核边界"],
-            )
+            document_classification=workflow_state["document_classification"],
+            extracted_fields=workflow_state["extracted_fields"],
+            normalized_fields=workflow_state["normalized_fields"],
         )
 
         return ReviewResult(
@@ -44,15 +42,15 @@ class FoodLicenseSkill:
             ruleset_version=self.ruleset_version,
             document_type="food_license",
             status=ReviewStatus.REVIEWED,
-            risk_level=RiskLevel.NONE,
-            needs_manual_review=False,
-            rule_results=[],
-            summary="已接收 OCR 文本并完成 food_license 快捷审核占位处理。",
-            manual_review=ManualReview(status=ManualReviewStatus.NOT_REQUIRED),
+            risk_level=workflow_state["risk_level"],
+            needs_manual_review=workflow_state["needs_manual_review"],
+            rule_results=workflow_state["rule_results"],
+            summary=workflow_state["summary"],
+            manual_review=workflow_state["manual_review"],
             audit_events=[
                 AuditEvent(
-                    event_type="food_license.review.placeholder_completed",
-                    message="food_license 快捷审核占位处理完成",
+                    event_type="food_license.workflow.completed",
+                    message="food_license 内部工作流执行完成",
                     occurred_at=now,
                 )
             ],

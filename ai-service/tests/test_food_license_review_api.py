@@ -59,8 +59,8 @@ def test_food_license_review_accepts_ocr_text_and_returns_review_result():
     assert "normalized_fields" not in payload
     assert "document_classification" not in payload
     assert payload["skill_result"]["document_classification"]["document_type"] == "food_license"
-    assert payload["skill_result"]["extracted_fields"] is None
-    assert payload["skill_result"]["normalized_fields"] is None
+    assert payload["skill_result"]["extracted_fields"]["license_no"] is None
+    assert payload["skill_result"]["normalized_fields"]["license_no"] is None
 
 
 def test_food_license_review_rejects_empty_ocr_text_with_stable_error():
