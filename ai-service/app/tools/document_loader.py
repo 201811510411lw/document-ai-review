@@ -1,4 +1,8 @@
+from pathlib import Path
+from tempfile import gettempdir
 from typing import Any, Protocol
+
+from pypdf import PdfReader
 
 
 class DocumentLoader(Protocol):
@@ -19,8 +23,96 @@ class StubDocumentLoader:
                 "mime_type": _get_value(source, "mime_type"),
                 "document_format": _get_value(source, "document_format")
                 or _get_value(source, "file_type"),
+                "local_path": _get_value(source, "local_path")
+                or _get_value(source, "file_path"),
             },
         }
+
+
+class LocalPdfDocumentLoader:
+    implementation_status = "implemented"
+
+    def load(self, source: Any) -> dict[str, Any]:
+        local_path = _get_value(source, "local_path") or _get_value(source, "file_path")
+        metadata = _metadata_from_source(source)
+        metadata.update(
+            {
+                "implementation_status": self.implementation_status,
+                "source": "local_path",
+                "needs_ocr": False,
+            }
+        )
+
+        path = _validate_local_pdf_path(local_path)
+        text = _extract_pdf_text(path).strip()
+        metadata["needs_ocr"] = not bool(text)
+        return {
+            "implementation_status": self.implementation_status,
+            "text": text,
+            "metadata": metadata,
+        }
+
+
+class LocalPdfDocumentLoadError(ValueError):
+    code = "LOCAL_PDF_LOAD_ERROR"
+    message = "file.local_path 指向的 PDF 文件无法读取"
+
+
+class LocalPdfNotFoundError(LocalPdfDocumentLoadError):
+    code = "LOCAL_PDF_NOT_FOUND"
+    message = "file.local_path 指向的 PDF 文件不存在"
+
+
+class UnsafeLocalPdfPathError(LocalPdfDocumentLoadError):
+    code = "UNSAFE_LOCAL_PDF_PATH"
+    message = "file.local_path 不是允许的本地 PDF 文件路径"
+
+
+def _metadata_from_source(source: Any) -> dict[str, Any]:
+    return {
+        "file_name": _get_value(source, "file_name"),
+        "mime_type": _get_value(source, "mime_type"),
+        "document_format": _get_value(source, "document_format")
+        or _get_value(source, "file_type"),
+        "local_path": _get_value(source, "local_path") or _get_value(source, "file_path"),
+    }
+
+
+def _validate_local_pdf_path(local_path: Any) -> Path:
+    if not isinstance(local_path, str) or not local_path.strip():
+        raise UnsafeLocalPdfPathError(UnsafeLocalPdfPathError.message)
+
+    path = Path(local_path).expanduser()
+    if not path.is_absolute():
+        raise UnsafeLocalPdfPathError(UnsafeLocalPdfPathError.message)
+
+    resolved_path = path.resolve(strict=False)
+    if not resolved_path.exists() or not resolved_path.is_file():
+        raise LocalPdfNotFoundError(LocalPdfNotFoundError.message)
+    if resolved_path.suffix.lower() != ".pdf":
+        raise UnsafeLocalPdfPathError(UnsafeLocalPdfPathError.message)
+    if not _is_allowed_local_pdf_path(resolved_path):
+        raise UnsafeLocalPdfPathError(UnsafeLocalPdfPathError.message)
+    return resolved_path
+
+
+def _extract_pdf_text(path: Path) -> str:
+    try:
+        reader = PdfReader(str(path))
+        page_texts = [page.extract_text() or "" for page in reader.pages]
+    except LocalPdfDocumentLoadError:
+        raise
+    except Exception as error:
+        raise LocalPdfDocumentLoadError(LocalPdfDocumentLoadError.message) from error
+    return "\n".join(text for text in page_texts if text)
+
+
+def _is_allowed_local_pdf_path(path: Path) -> bool:
+    allowed_roots = [
+        Path.cwd().resolve(),
+        Path(gettempdir()).resolve(),
+    ]
+    return any(path == root or root in path.parents for root in allowed_roots)
 
 
 def _get_value(source: Any, key: str) -> Any:
