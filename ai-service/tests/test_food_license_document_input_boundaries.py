@@ -234,7 +234,14 @@ def test_pdf_local_path_input_reads_pdf_text_and_completes_review_result(tmp_pat
         "needs_ocr": False,
         "source": "local_path",
     }
-    assert payload["rule_results"][0]["rule_code"] == "FOOD_LICENSE_RULE_ENGINE_STUB"
+    assert [rule_result["rule_code"] for rule_result in payload["rule_results"]] == [
+        "FOOD_LICENSE_RULE_ENGINE_STUB",
+        "FOOD_LICENSE_TYPE_MATCH",
+        "FOOD_LICENSE_SUBJECT_NAME_MATCH",
+        "FOOD_LICENSE_CREDIT_CODE_MATCH",
+        "FOOD_LICENSE_VALIDITY_PERIOD",
+    ]
+    assert all(rule_result["passed"] is True for rule_result in payload["rule_results"])
 
 
 def test_pdf_local_path_missing_file_returns_stable_error(tmp_path):

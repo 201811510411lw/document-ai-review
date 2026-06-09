@@ -69,7 +69,14 @@ def test_food_license_workflow_public_entrypoint_runs_stub_rule_executor():
     input_context = ReviewInputContext(
         task_id="review-task-rules",
         input=ReviewInput(
-            ocr_text="食品经营许可证",
+            ocr_text=(
+                "食品经营许可证\n"
+                "经营者名称：成都示例食品有限公司\n"
+                "统一社会信用代码：91510100MA00000000\n"
+                "许可证编号：JY15101000000000\n"
+                "经营项目：预包装食品销售、散装食品销售\n"
+                "有效期至：2028年06月05日"
+            ),
             supplier_name="成都示例食品有限公司",
             supplier_credit_code="91510100MA00000000",
             declared_document_type="food_license",
@@ -81,9 +88,16 @@ def test_food_license_workflow_public_entrypoint_runs_stub_rule_executor():
 
     state = run_food_license_workflow(input_context)
 
-    assert len(state["rule_results"]) == 1
+    assert len(state["rule_results"]) == 5
     assert state["rule_results"][0].rule_code == "FOOD_LICENSE_RULE_ENGINE_STUB"
-    assert state["rule_results"][0].passed is True
+    assert [rule_result.rule_code for rule_result in state["rule_results"]] == [
+        "FOOD_LICENSE_RULE_ENGINE_STUB",
+        "FOOD_LICENSE_TYPE_MATCH",
+        "FOOD_LICENSE_SUBJECT_NAME_MATCH",
+        "FOOD_LICENSE_CREDIT_CODE_MATCH",
+        "FOOD_LICENSE_VALIDITY_PERIOD",
+    ]
+    assert all(rule_result.passed is True for rule_result in state["rule_results"])
     assert state["rule_execution"].risk_level == RiskLevel.NONE
     assert state["rule_execution"].needs_manual_review is False
 
@@ -106,7 +120,9 @@ def test_unknown_document_type_requires_manual_review():
     payload = result.model_dump(mode="json")
 
     assert payload["skill_result"]["document_classification"]["document_type"] == "unknown"
-    assert result.risk_level == RiskLevel.NONE
+    assert result.risk_level == RiskLevel.HIGH
     assert result.needs_manual_review is True
     assert result.manual_review.status == ManualReviewStatus.PENDING
     assert result.manual_review.reasons == ["文档类型无法识别，需要人工复核"]
+    assert payload["rule_results"][1]["rule_code"] == "FOOD_LICENSE_TYPE_MATCH"
+    assert payload["rule_results"][1]["passed"] is False

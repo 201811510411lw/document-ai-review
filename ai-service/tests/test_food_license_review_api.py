@@ -13,7 +13,14 @@ def test_food_license_review_accepts_ocr_text_and_returns_review_result():
     response = client.post(
         "/api/v1/food-license/reviews",
         json={
-            "ocr_text": "食品经营许可证\n经营者名称：成都示例食品有限公司\n许可证编号：JY15101000000000",
+            "ocr_text": (
+                "食品经营许可证\n"
+                "经营者名称：成都示例食品有限公司\n"
+                "统一社会信用代码：91510100MA00000000\n"
+                "许可证编号：JY15101000000000\n"
+                "经营项目：预包装食品销售、散装食品销售\n"
+                "有效期至：2028年06月05日"
+            ),
             "supplier_name": "成都示例食品有限公司",
             "supplier_credit_code": "91510100MA00000000",
             "supplier_address": "成都市示例区示例路 100 号",
@@ -51,6 +58,13 @@ def test_food_license_review_accepts_ocr_text_and_returns_review_result():
     assert payload["needs_manual_review"] is False
     assert payload["manual_review"]["status"] == "NOT_REQUIRED"
     assert isinstance(payload["rule_results"], list)
+    assert [rule_result["rule_code"] for rule_result in payload["rule_results"]] == [
+        "FOOD_LICENSE_RULE_ENGINE_STUB",
+        "FOOD_LICENSE_TYPE_MATCH",
+        "FOOD_LICENSE_SUBJECT_NAME_MATCH",
+        "FOOD_LICENSE_CREDIT_CODE_MATCH",
+        "FOOD_LICENSE_VALIDITY_PERIOD",
+    ]
     assert isinstance(payload["audit_events"], list)
     assert datetime.fromisoformat(payload["created_at"]).tzinfo is not None
     assert datetime.fromisoformat(payload["updated_at"]).tzinfo is not None

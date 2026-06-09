@@ -33,7 +33,14 @@ def test_food_license_mvp_review_flow_can_save_pdf_stub_result(tmp_path):
     assert payload["skill_result"]["document_input"]["input_type"] == "pdf"
     assert payload["skill_result"]["document_classification"]["document_type"] == "food_license"
     assert payload["skill_result"]["extracted_fields"]["license_no"] == "JY15101000000000"
-    assert payload["rule_results"][0]["rule_code"] == "FOOD_LICENSE_RULE_ENGINE_STUB"
+    assert [rule_result["rule_code"] for rule_result in payload["rule_results"]] == [
+        "FOOD_LICENSE_RULE_ENGINE_STUB",
+        "FOOD_LICENSE_TYPE_MATCH",
+        "FOOD_LICENSE_SUBJECT_NAME_MATCH",
+        "FOOD_LICENSE_CREDIT_CODE_MATCH",
+        "FOOD_LICENSE_VALIDITY_PERIOD",
+    ]
+    assert all(rule_result["passed"] is True for rule_result in payload["rule_results"])
     assert payload["risk_level"] == "NONE"
     assert payload["needs_manual_review"] is False
     loaded = repository.get_by_task_id(result.task_id)
