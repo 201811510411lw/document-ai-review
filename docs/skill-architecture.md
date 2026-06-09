@@ -1,26 +1,23 @@
 # Document AI Review Skill 架构边界
 
-本文档明确 `document-ai-review` 的 Skill 架构边界。`README.md` 仍然是项目唯一主上下文；本文档作为 Skill 运行时、目录组织和扩展约束的细化说明。
+本文档明确 `document-ai-review` 的多场景 Skill 架构边界。`README.md` 仍然是项目唯一主上下文；本文档细化 Agent Skill 描述层、Python Runtime、workflow、rules、tools 和平台入口之间的关系。
 
 ---
 
-## 1. Skill 定义
+## 1. Skill 分层定义
 
-Skill 是平台中的一等业务能力对象，不只是 Prompt、规则文件或 LangGraph 工作流的别名。
+Skill 是平台中的一等业务能力对象，但不同层的 Skill 职责不同，不能混为一个文件或一个类。
 
-一个 Skill 同时承担三类边界：
+| 层级 | 位置 | 职责 |
+| --- | --- | --- |
+| Agent Skill 描述层 | `.agents/skills/<skill>/SKILL.md` | 描述能力边界、输入输出、规则摘要、提示边界和人工复核边界 |
+| Python Skill Runtime facade | `ai-service/app/skills/<skill>/skill.py` | 实现平台可调用的 `Skill.review(input_context)` 入口 |
+| Workflow Runtime | `ai-service/app/workflows/<domain>/` | 编排 LangGraph、LangChain、OCR、LLM、规则执行和人工复核路由 |
+| Business Rule 规则层 | `ai-service/app/rules/` 和 `ai-service/app/skills/<skill>/rules/` | 执行确定性、可测试的业务规则 |
+| Tool / Adapter 层 | `ai-service/app/tools/` | 封装 OCR、LLM、PDF、图片、ERP、OA、IM 等外部能力 |
+| API / Service 平台层 | `ai-service/app/api/`、`ai-service/app/services/`、`ai-service/app/skills/registry.py` | 解析请求、选择 Skill、执行统一 review 入口并返回平台结果 |
 
-- 运行时边界：平台通过稳定接口发现、路由并执行 Skill；
-- 组织边界：配置、Prompt、规则、模型、工作流、节点和文档按 Skill 纵向组织；
-- 业务边界：一个 Skill 对应一种可独立演进的文档审核能力，例如 `food_license`。
-
-V1 的第一个内置 Skill 是：
-
-```text
-food_license
-```
-
-它负责食品安全证照检测，不把食品安全证照的业务规则散落到平台横向模块中。
+`Skill.md` 可以描述规则摘要，但不能承载规则执行逻辑。具体业务规则必须保留在 rules 目录，并通过测试验证。
 
 ---
 
@@ -31,6 +28,7 @@ food_license
 ```text
 name
 version
+ruleset_version
 supported_document_types
 supports(input_context)
 review(input_context) -> ReviewResult
@@ -38,14 +36,15 @@ review(input_context) -> ReviewResult
 
 平台不得直接调用 Skill 内部节点或步骤，例如：
 
+- `load_document`
 - `extract_fields`
 - `run_rules`
 - `summarize_risk`
 - `route_review`
 
-这些名称可以作为 Skill 内部 LangGraph 节点或工作流约定存在，但不是平台对 Skill 的公共调用接口。
+这些名称可以作为 Skill 内部 workflow 节点或函数存在，但不是平台公共接口。
 
-平台入口的统一执行链路是：
+统一执行链路：
 
 ```text
 FastAPI HTTP API
@@ -56,66 +55,60 @@ Skill Registry
     ↓
 Skill.review(input_context)
     ↓
+Workflow Runtime
+    ↓
+Rules / Tools
+    ↓
 ReviewResult
 ```
 
-所有审核入口都必须经过 Review Service 和 Skill Registry，不能绕过 Registry 直接调用某个具体 Skill。
+快捷入口和通用入口都必须复用这条链路，不能维护两套审核逻辑。
 
 ---
 
-## 3. Registry V1
+## 3. 多场景 Skill
 
-V1 Skill Registry 只支持显式注册内置 Skill。
+目标产品至少包含三个主线场景：
+
+| Skill | 场景 | 状态 |
+| --- | --- | --- |
+| `qc_document_review` | QC 证照及批次报告审核 | 本轮创建 Agent Skill 描述和 Runtime 占位 |
+| `tobacco_license_consistency_review` | 营业执照与烟草证一致性校验 | 本轮创建 Agent Skill 描述和 Runtime 占位 |
+| `contract_review` | 法务合同内容审核 | 本轮创建 Agent Skill 描述和 Runtime 占位 |
+| `food_license` | 食品安全证照检测 V1 骨架 | 历史兼容 Skill，短期保留 |
+
+`food_license` 是历史 V1 骨架。后续可以演进为 `qc_document_review` 的子能力，或作为兼容 Skill 保留快捷入口。迁移必须分 Issue 进行，不能在多 Skill 架构骨架中直接删除。
+
+---
+
+## 4. Registry 边界
+
+V1 Skill Registry 继续采用显式注册内置 Skill。
 
 V1 不做：
 
-- 目录扫描；
-- 外部 Skill 加载；
-- 插件市场；
-- 热加载；
-- 租户级 Skill 覆盖；
+- 目录扫描。
+- 外部 Skill 加载。
+- 插件市场。
+- 热加载。
+- 租户级 Skill 覆盖。
 - 运行时动态启停 Skill。
 
 Registry 负责：
 
-- 加载并校验内置 Skill 的 `metadata.yaml`；
-- 根据 `supported_document_types`、`input_modes` 和 `supports(input_context)` 选择 Skill；
-- 提供 `get` / `list` 等 Skill 查询入口；
-- 将请求路由到 `Skill.review(input_context)`；
+- 注册多个内置 Skill。
+- 提供 `get(skill_name)` 和 `list()`。
+- 根据 `supports(input_context)` 选择 Skill。
+- 将请求路由到 `Skill.review(input_context)`。
 - 在结果和审计日志中保留 Skill 身份信息。
 
-`app/skills/base.py` 是 Skill 基础接口 / 协议，定义平台可依赖的 Skill 级契约。`app/skills/registry.py` 是显式注册内置 Skill、加载并校验 `metadata.yaml`、提供 `get` / `list` 的入口。
-
-Review Service 依赖 Skill Registry，但 Registry 本身属于 Skill 平台层，不放在 `app/services/` 下。
-
----
-
-## 4. metadata.yaml
-
-`metadata.yaml` 是 Skill 的运行时 manifest，也是 Skill 元信息的权威来源。
-
-V1 至少应表达：
-
-```yaml
-name: food_license
-version: v1
-display_name: 食品安全证照检测
-supported_document_types:
-  - food_license
-input_modes:
-  - ocr_text
-ruleset_version: food-license-rules-v1
-```
-
-代码、API 文档和审计日志中的 Skill 名称、版本、支持文档类型和规则集版本，应以 `metadata.yaml` 为准。
+Registry 不执行业务规则，不调用 workflow 节点，也不直接访问 OCR、LLM、ERP、OA 或 IM Adapter。
 
 ---
 
 ## 5. 目录边界
 
-V1 采用平台横向基础设施 + Skill 纵向包结构。
-
-推荐结构：
+推荐多场景结构：
 
 ```text
 ai-service/
@@ -125,48 +118,48 @@ ai-service/
     ├── models/
     ├── repositories/
     ├── services/
-    │   ├── review_service.py
-    │   └── manual_review_service.py
+    │   └── review_service.py
     ├── rules/
     │   ├── engine.py
     │   ├── protocol.py
     │   └── result.py
+    ├── tools/
+    │   ├── ocr_adapter.py
+    │   ├── llm_adapter.py
+    │   ├── document_loader.py
+    │   ├── file_adapter.py
+    │   ├── pdf_adapter.py
+    │   ├── image_adapter.py
+    │   ├── erp_adapter.py
+    │   ├── oa_adapter.py
+    │   └── im_adapter.py
+    ├── workflows/
+    │   ├── qc_document/
+    │   ├── tobacco_license/
+    │   └── contract/
     └── skills/
         ├── base.py
         ├── registry.py
-        └── food_license/
-            ├── skill.py
-            ├── metadata.yaml
-            ├── README.md
-            ├── models.py
-            ├── prompts/
-            ├── chains/
-            ├── graphs/
-            ├── nodes/
-            ├── review_policy.py
-            └── rules/
-                ├── rules.yaml
-                └── rule_defs.py
+        ├── food_license/
+        ├── qc_document_review/
+        ├── tobacco_license_consistency_review/
+        └── contract_review/
 ```
 
-`app/rules/` 只放通用规则基础设施，例如规则协议、规则引擎、通用结果结构和默认风险汇总辅助函数。
+`app/rules/` 只放通用规则基础设施。具体业务规则放在对应 Skill 包内，例如：
 
-`app/rules/` 不放具体业务规则，例如：
+- `app/skills/food_license/rules/`
+- `app/skills/qc_document_review/rules/`
+- `app/skills/tobacco_license_consistency_review/rules/`
+- `app/skills/contract_review/rules/`
 
-- `FOOD_LICENSE_EXISTS`
-- `FOOD_LICENSE_EXPIRED`
-- `SUBJECT_NAME_MATCH`
-- `CREDIT_CODE_MATCH`
-
-这些食品安全证照规则定义和 `rules.yaml` 必须放在 `app/skills/food_license/rules/` 内。
+本轮只建立骨架，不实现完整业务规则。
 
 ---
 
 ## 6. ReviewResult 边界
 
-`ReviewResult` 是平台级返回契约，必须保留稳定的跨 Skill 字段。
-
-推荐平台级字段：
+`ReviewResult` 是平台级返回契约，必须保留稳定的跨 Skill 字段：
 
 ```text
 task_id
@@ -185,83 +178,61 @@ updated_at
 skill_result
 ```
 
-`skill_result` 用于承载 Skill 专属 payload。食品安全证照 V1 中，以下内容应放在 `skill_result` 内：
-
-- `extracted_fields`
-- `normalized_fields`
-- 食品安全证照专属解释信息；
-- Skill 内部工作流需要返回给调用方的其他结构化结果。
-
-长期演进时，不应把食品安全证照专属字段固化为所有 Skill 都必须具备的顶层字段。
+`skill_result` 用于承载 Skill 专属 payload。平台字段不能被某个业务场景的专属字段污染。
 
 ---
 
-## 7. 人工复核边界
+## 7. Agent Skill 描述层
 
-人工复核基础设施属于平台，包括：
+`.agents/skills/<skill>/SKILL.md` 只描述：
 
-- 人工复核状态；
-- 人工复核动作；
-- 复核人和备注；
-- 人工复核记录保存；
-- 人工复核审计日志。
+- Skill 名称。
+- 能力边界。
+- 支持的输入。
+- 输出结构摘要。
+- 规则摘要。
+- 人工复核边界。
+- 禁止事项。
+- 与 Python Runtime 的关系。
 
-是否需要人工复核、初始人工复核状态和复核原因由 Skill 在 `review(input_context)` 中根据规则结果和审核策略决定。
+`SKILL.md` 不做：
 
-V1 人工复核状态枚举：
-
-- `NOT_REQUIRED`
-- `PENDING`
-- `COMPLETED`
-
----
-
-## 8. API 入口边界
-
-V1 保留食品安全证照快捷入口：
-
-```text
-POST /api/v1/food-license/reviews
-```
-
-该入口是 `food_license` Skill 的便捷 API，但实现上仍必须走：
-
-```text
-FastAPI
-    ↓
-Review Service
-    ↓
-Skill Registry
-    ↓
-food_license.review(input_context)
-```
-
-后续平台通用入口为：
-
-```text
-POST /api/v1/reviews
-```
-
-通用入口根据输入上下文、声明文档类型和 Registry 路由到合适的 Skill。快捷入口和通用入口不能维护两套审核逻辑。
+- 不写 `if/else` 规则执行逻辑。
+- 不保存真实模型配置。
+- 不引用公有云 API 作为必需依赖。
+- 不绕过 ReviewService 或 SkillRegistry。
+- 不直接调用 workflow 节点。
 
 ---
 
-## 9. V1 规则约束
+## 8. Tools / Adapter 边界
 
-V1 只支持 Skill 包内静态 `rules.yaml`。
+`app/tools/` 封装外部能力，当前只提供 Stub。
+
+Adapter 可以表示：
+
+- OCR。
+- LLM。
+- 文档加载。
+- 文件读取。
+- PDF 解析。
+- 图片解析。
+- ERP 查询或回写。
+- OA 回写。
+- IM 通知。
+
+Adapter Stub 必须可以本地测试，不依赖外部服务。真实接入必须后续单独 Issue 完成。
+
+---
+
+## 9. 规则约束
+
+确定性业务规则必须位于 rules 目录并可测试。LLM 可以辅助字段抽取、摘要和修改建议，但不能直接替代最终规则判定。
 
 V1 不做：
 
-- 数据库规则管理；
-- 外部规则覆盖；
-- 热加载规则；
-- 租户级规则覆盖；
+- 数据库规则管理。
+- 外部规则覆盖。
+- 热加载规则。
+- 租户级规则覆盖。
 - 运行时动态编辑规则。
-
-`rules.yaml` 必须包含 `ruleset_version`。每个 `ReviewResult` 和审计日志都应记录：
-
-- `skill_name`
-- `skill_version`
-- `ruleset_version`
-
-LLM 不能做最终规则决策。最终风险等级必须由确定性规则结果汇总得到。

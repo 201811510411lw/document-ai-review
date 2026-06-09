@@ -87,4 +87,4 @@ class ReviewResult(BaseModel):
     audit_events: list[AuditEvent] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
-    skill_result: SerializeAsAny[BaseModel] | dict[str, Any]
+    skill_result: dict[str, Any] | SerializeAsAny[BaseModel]
