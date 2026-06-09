@@ -9,8 +9,26 @@ class ReviewService:
         self._task_sequence = count(1)
 
     def review_food_license(self, review_input: ReviewInput) -> ReviewResult:
-        skill = skill_registry.get("food_license")
+        return self.review(review_input, skill_name="food_license")
+
+    def review(
+        self,
+        review_input: ReviewInput,
+        skill_name: str | None = None,
+    ) -> ReviewResult:
         task_id = f"review-task-{next(self._task_sequence):06d}"
+        if skill_name is None:
+            provisional_context = ReviewInputContext(
+                task_id=task_id,
+                input=review_input,
+                skill_name="",
+                skill_version="",
+                ruleset_version="",
+            )
+            skill = skill_registry.select(provisional_context)
+        else:
+            skill = skill_registry.get(skill_name)
+
         input_context = ReviewInputContext(
             task_id=task_id,
             input=review_input,
