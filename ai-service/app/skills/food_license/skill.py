@@ -28,9 +28,11 @@ class FoodLicenseSkill:
         now = datetime.now(ZoneInfo(settings.timezone))
         workflow_state = run_food_license_workflow(input_context)
         skill_result = FoodLicenseSkillResult(
+            document_input=workflow_state.get("document_input"),
             document_classification=workflow_state["document_classification"],
             extracted_fields=workflow_state["extracted_fields"],
             normalized_fields=workflow_state["normalized_fields"],
+            extraction_metadata=workflow_state.get("extraction_metadata", {}),
         )
 
         return ReviewResult(

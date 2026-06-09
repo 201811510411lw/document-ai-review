@@ -1,24 +1,68 @@
+import re
+
 from app.models import ManualReview, ManualReviewStatus, RiskLevel
 from app.rules import RuleContext, RuleExecutionResult, RuleExecutor
+from app.skills.food_license.extractor import extract_food_license_fields
 from app.skills.food_license.models import (
     FoodLicenseDocumentClassification,
+    FoodLicenseDocumentInputResult,
     FoodLicenseExtractedFields,
     FoodLicenseNormalizedFields,
 )
+from app.tools import StubDocumentLoader, StubLlmAdapter, StubOcrAdapter
 from app.workflows.food_license.state import FoodLicenseWorkflowState
+
+
+food_license_llm_adapter = StubLlmAdapter()
+food_license_document_loader = StubDocumentLoader()
+food_license_ocr_adapter = StubOcrAdapter()
 
 
 def load_document(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
     input_context = state["input_context"]
+    review_input = input_context.input
+    ocr_text = (review_input.ocr_text or "").strip()
+    if ocr_text:
+        return {
+            **state,
+            "document_text": ocr_text,
+            "document_input": FoodLicenseDocumentInputResult(input_type="ocr_text"),
+        }
+
+    file_input = review_input.file or review_input.document
+    loaded_document = (
+        food_license_document_loader.load(file_input) if file_input is not None else {}
+    )
+    stub_text = (
+        (loaded_document.get("text") or "")
+        or (food_license_ocr_adapter.extract_text(file_input) if file_input else "")
+    ).strip()
+    if file_input is not None and stub_text:
+        metadata = loaded_document.get("metadata", {})
+        return {
+            **state,
+            "document_text": stub_text,
+            "document_input": FoodLicenseDocumentInputResult(
+                input_type=_input_type_from_file(metadata.get("mime_type")),
+                file_name=metadata.get("file_name"),
+                mime_type=metadata.get("mime_type"),
+                document_format=metadata.get("document_format"),
+            ),
+        }
+
     return {
         **state,
-        "document_text": input_context.input.ocr_text.strip(),
+        "document_text": "",
+        "document_input": FoodLicenseDocumentInputResult(input_type="empty"),
     }
 
 
 def classify_document(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
     document_text = state.get("document_text", "")
-    has_food_license_marker = "食品经营许可证" in document_text or "食品" in document_text
+    has_food_license_marker = (
+        ("食品经营许可证" in document_text and "无法识别" not in document_text)
+        or re.search(r"\bJY\d{14,}\b", document_text) is not None
+    )
     classification = FoodLicenseDocumentClassification(
         document_type="food_license" if has_food_license_marker else "unknown",
         confidence=1.0 if has_food_license_marker else 0.0,
@@ -35,9 +79,14 @@ def classify_document(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowSta
 
 
 def extract_fields(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
+    extracted_fields, metadata = extract_food_license_fields(
+        state.get("document_text", ""),
+        llm_adapter=food_license_llm_adapter,
+    )
     return {
         **state,
-        "extracted_fields": FoodLicenseExtractedFields(),
+        "extracted_fields": extracted_fields,
+        "extraction_metadata": metadata,
     }
 
 
@@ -87,6 +136,7 @@ def run_rules(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
             ),
             "extracted_fields": state.get("extracted_fields"),
             "normalized_fields": state.get("normalized_fields"),
+            "input_context": state["input_context"],
         },
     )
     rule_execution = RuleExecutor([FoodLicenseRuleEngineStubRule()]).run(rule_context)
@@ -178,3 +228,11 @@ def _summarize_rule_execution(
     if risk_level == RiskLevel.NONE:
         return "未发现确定性规则风险。"
     return "发现确定性规则风险。"
+
+
+def _input_type_from_file(mime_type: str | None) -> str:
+    if mime_type == "application/pdf":
+        return "pdf"
+    if mime_type is not None and mime_type.startswith("image/"):
+        return "image"
+    return "file"

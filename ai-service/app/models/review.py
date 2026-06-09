@@ -27,8 +27,19 @@ class ManualReviewStatus(StrEnum):
     COMPLETED = "COMPLETED"
 
 
+class ReviewDocumentInput(BaseModel):
+    file_uri: str | None = None
+    file_name: str | None = None
+    mime_type: str | None = None
+    file_type: str | None = None
+    document_format: str | None = None
+    stub_text: str | None = None
+
+
 class ReviewInput(BaseModel):
-    ocr_text: str
+    ocr_text: str | None = None
+    file: ReviewDocumentInput | None = None
+    document: ReviewDocumentInput | None = None
     supplier_name: str
     supplier_credit_code: str
     supplier_address: str | None = None

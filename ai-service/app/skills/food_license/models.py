@@ -33,7 +33,16 @@ class FoodLicenseNormalizedFields(BaseModel):
     issue_date: str | None = None
 
 
+class FoodLicenseDocumentInputResult(BaseModel):
+    input_type: str
+    file_name: str | None = None
+    mime_type: str | None = None
+    document_format: str | None = None
+
+
 class FoodLicenseSkillResult(BaseModel):
+    document_input: FoodLicenseDocumentInputResult | None = None
     document_classification: FoodLicenseDocumentClassification | None = None
     extracted_fields: FoodLicenseExtractedFields | None = None
     normalized_fields: FoodLicenseNormalizedFields | None = None
+    extraction_metadata: dict = Field(default_factory=dict)

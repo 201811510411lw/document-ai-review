@@ -1,12 +1,19 @@
 from itertools import count
+from typing import Protocol
 
 from app.models import ReviewInput, ReviewInputContext, ReviewResult
 from app.skills.registry import skill_registry
 
 
+class ReviewResultRepository(Protocol):
+    def save(self, review_result: ReviewResult) -> None:
+        ...
+
+
 class ReviewService:
-    def __init__(self) -> None:
+    def __init__(self, repository: ReviewResultRepository | None = None) -> None:
         self._task_sequence = count(1)
+        self.repository = repository
 
     def review_food_license(self, review_input: ReviewInput) -> ReviewResult:
         return self.review(review_input, skill_name="food_license")
@@ -36,7 +43,10 @@ class ReviewService:
             skill_version=skill.version,
             ruleset_version=skill.ruleset_version,
         )
-        return skill.review(input_context)
+        result = skill.review(input_context)
+        if self.repository is not None:
+            self.repository.save(result)
+        return result
 
 
 review_service = ReviewService()

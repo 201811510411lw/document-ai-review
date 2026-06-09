@@ -17,12 +17,23 @@ def create_food_license_review(
     review_input: ReviewInput,
     service: ReviewService = Depends(get_review_service),
 ) -> dict[str, Any]:
-    if not review_input.ocr_text.strip():
+    file_input = review_input.file or review_input.document
+    has_ocr_text = bool((review_input.ocr_text or "").strip())
+    has_stub_text = bool((file_input.stub_text or "").strip()) if file_input else False
+    if has_ocr_text and file_input is not None:
         raise HTTPException(
             status_code=400,
             detail={
-                "code": "EMPTY_OCR_TEXT",
-                "message": "ocr_text 不能为空",
+                "code": "AMBIGUOUS_DOCUMENT_INPUT",
+                "message": "ocr_text 和 file.stub_text 只能二选一",
+            },
+        )
+    if not has_ocr_text and not has_stub_text:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "EMPTY_DOCUMENT_INPUT",
+                "message": "ocr_text 或 file.stub_text 不能为空",
             },
         )
 
