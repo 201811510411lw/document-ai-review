@@ -7,10 +7,12 @@ from app.models import (
     RiskLevel,
     RuleResult,
 )
+from app.rules import RuleExecutionResult, RuleExecutionSummary, RuleStatus
 from app.skills.food_license.nodes import (
     classify_document,
     load_document,
     route_review,
+    run_rules,
     summarize_risk,
 )
 from app.skills.food_license.models import FoodLicenseDocumentClassification
@@ -102,6 +104,59 @@ def test_summarize_risk_uses_rule_results_without_llm_decision():
     assert state["summary"] == "发现确定性规则风险。"
 
 
+def test_summarize_risk_preserves_rule_execution_manual_review_need():
+    state = summarize_risk(
+        {
+            "rule_execution": RuleExecutionSummary(
+                results=[
+                    RuleExecutionResult(
+                        rule_code="STUB_RULE_ERROR",
+                        rule_name="Stub rule error",
+                        status=RuleStatus.ERROR,
+                        risk_level_on_failure=RiskLevel.HIGH,
+                        message="规则执行异常，需要人工复核：Stub rule error",
+                    )
+                ],
+                risk_level=RiskLevel.NONE,
+                needs_manual_review=True,
+            ),
+            "rule_results": [],
+        }
+    )
+
+    assert state["risk_level"] == RiskLevel.NONE
+    assert state["needs_manual_review"] is True
+    assert state["summary"] == "规则执行需要人工复核。"
+
+
+def test_run_rules_uses_rule_executor_with_food_license_stub_rule():
+    input_context = ReviewInputContext(
+        task_id="review-task-rules",
+        input=ReviewInput(
+            ocr_text="食品经营许可证",
+            supplier_name="成都示例食品有限公司",
+            supplier_credit_code="91510100MA00000000",
+            declared_document_type="food_license",
+        ),
+        skill_name="food_license",
+        skill_version="v1",
+        ruleset_version="food-license-rules-v1",
+    )
+
+    state = run_rules(
+        {
+            "input_context": input_context,
+            "document_text": "食品经营许可证",
+        }
+    )
+
+    assert len(state["rule_results"]) == 1
+    assert state["rule_results"][0].rule_code == "FOOD_LICENSE_RULE_ENGINE_STUB"
+    assert state["rule_results"][0].passed is True
+    assert state["rule_execution"].risk_level == RiskLevel.NONE
+    assert state["rule_execution"].needs_manual_review is False
+
+
 def test_route_review_sets_manual_review_from_risk_level():
     state = route_review(
         {
@@ -115,6 +170,22 @@ def test_route_review_sets_manual_review_from_risk_level():
     assert state["needs_manual_review"] is True
     assert state["manual_review"].status == ManualReviewStatus.PENDING
     assert state["manual_review"].reasons == ["确定性规则结果需要人工复核"]
+
+
+def test_route_review_keeps_manual_review_from_rule_execution_error():
+    state = route_review(
+        {
+            "document_classification": FoodLicenseDocumentClassification(
+                document_type="food_license"
+            ),
+            "risk_level": RiskLevel.NONE,
+            "needs_manual_review": True,
+        }
+    )
+
+    assert state["needs_manual_review"] is True
+    assert state["manual_review"].status == ManualReviewStatus.PENDING
+    assert state["manual_review"].reasons == ["规则执行异常或不完整，需要人工复核"]
 
 
 def test_unknown_document_type_requires_manual_review():

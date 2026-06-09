@@ -1,4 +1,5 @@
 from app.models import ManualReview, ManualReviewStatus, RiskLevel
+from app.rules import RuleContext, RuleExecutionResult, RuleExecutor
 from app.skills.food_license.models import (
     FoodLicenseDocumentClassification,
     FoodLicenseExtractedFields,
@@ -60,14 +61,55 @@ def normalize_fields(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowStat
     }
 
 
+class FoodLicenseRuleEngineStubRule:
+    code = "FOOD_LICENSE_RULE_ENGINE_STUB"
+    name = "food_license 规则执行器接入占位规则"
+    risk_level_on_failure = RiskLevel.LOW
+
+    def evaluate(self, context: RuleContext) -> RuleExecutionResult:
+        return RuleExecutionResult.passed(
+            rule=self,
+            message="food_license 已接入通用规则执行器。",
+            details={"document_type": context.facts.get("document_type")},
+        )
+
+
 def run_rules(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
+    document_classification = state.get("document_classification")
+    rule_context = RuleContext(
+        input_context=state["input_context"],
+        facts={
+            "document_text": state.get("document_text", ""),
+            "document_type": (
+                document_classification.document_type
+                if document_classification is not None
+                else None
+            ),
+            "extracted_fields": state.get("extracted_fields"),
+            "normalized_fields": state.get("normalized_fields"),
+        },
+    )
+    rule_execution = RuleExecutor([FoodLicenseRuleEngineStubRule()]).run(rule_context)
     return {
         **state,
-        "rule_results": [],
+        "rule_execution": rule_execution,
+        "rule_results": rule_execution.to_rule_results(),
     }
 
 
 def summarize_risk(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
+    rule_execution = state.get("rule_execution")
+    if rule_execution is not None:
+        return {
+            **state,
+            "risk_level": rule_execution.risk_level,
+            "needs_manual_review": rule_execution.needs_manual_review,
+            "summary": _summarize_rule_execution(
+                rule_execution.risk_level,
+                rule_execution.needs_manual_review,
+            ),
+        }
+
     rule_results = state.get("rule_results", [])
     failed_risks = [
         rule_result.risk_level_on_failure
@@ -98,13 +140,17 @@ def route_review(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
         document_classification is None
         or document_classification.document_type != "food_license"
     )
-    needs_manual_review = unknown_document_type or risk_level in {
-        RiskLevel.HIGH,
-        RiskLevel.MEDIUM,
-    }
+    rule_execution_needs_manual_review = state.get("needs_manual_review", False)
+    needs_manual_review = (
+        rule_execution_needs_manual_review
+        or unknown_document_type
+        or risk_level in {RiskLevel.HIGH, RiskLevel.MEDIUM}
+    )
     reasons = []
     if unknown_document_type:
         reasons.append("文档类型无法识别，需要人工复核")
+    elif rule_execution_needs_manual_review:
+        reasons.append("规则执行异常或不完整，需要人工复核")
     elif needs_manual_review:
         reasons.append("确定性规则结果需要人工复核")
 
@@ -121,3 +167,14 @@ def route_review(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
         "needs_manual_review": needs_manual_review,
         "manual_review": manual_review,
     }
+
+
+def _summarize_rule_execution(
+    risk_level: RiskLevel,
+    needs_manual_review: bool,
+) -> str:
+    if needs_manual_review:
+        return "规则执行需要人工复核。"
+    if risk_level == RiskLevel.NONE:
+        return "未发现确定性规则风险。"
+    return "发现确定性规则风险。"
