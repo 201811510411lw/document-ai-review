@@ -139,7 +139,7 @@ app/workflows/contract/
 
 Python 规则引擎负责确定性、可解释、可测试的业务规则。
 
-`app/rules/` 放通用规则基础设施。具体业务规则放在对应 Skill 包内的 `rules/` 目录。`Skill.md` 可以描述规则摘要，但不能承载规则执行逻辑。
+`app/rules/` 放通用规则基础设施，包括规则协议、规则上下文、规则执行状态、执行器、风险聚合和平台 `RuleResult` 映射。具体业务规则放在对应 Skill 包内的 `rules/` 目录。`Skill.md` 可以描述规则摘要，但不能承载规则执行逻辑。
 
 ### 2.9 Repository
 
@@ -222,7 +222,8 @@ food_license.review(input_context)
 - 真实 LLM 接入。
 - 真实 ERP、OA、飞书或企微调用。
 - 数据库规则配置。
-- `food_license` graph 迁移。
 - 合并 PR #15。
 
 PR #15 只作为只读技术验证参考。后续可以按 Issue 拆分迁移其中的字段抽取、文件输入、规则和持久化思路。
+
+当前尚未创建 `docs/adr/`。建议后续新增 ADR，记录 Skill、workflow、rules 和 Adapter 的长期边界：确定性规则不写入 workflow 或 `SKILL.md`，workflow 只负责编排，LLM 通过 Adapter 接入且不直接决定最终规则判定。
