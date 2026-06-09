@@ -1,6 +1,8 @@
 import re
 
 from app.models import ManualReview, ManualReviewStatus, RiskLevel, RuleResult
+from app.skills.food_license.extractors import extract_food_license_fields
+from app.skills.food_license.loaders import load_food_license_document
 from app.skills.food_license.models import (
     FoodLicenseDocumentClassification,
     FoodLicenseExtractedFields,
@@ -12,9 +14,12 @@ from app.skills.food_license.state import FoodLicenseWorkflowState
 
 def load_document(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
     input_context = state["input_context"]
+    loaded_document = load_food_license_document(input_context.input)
     return {
         **state,
-        "document_text": input_context.input.ocr_text.strip(),
+        "document_text": loaded_document.text,
+        "document_input_type": loaded_document.input_type,
+        "document_metadata": loaded_document.metadata,
     }
 
 
@@ -44,14 +49,7 @@ def extract_fields(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
     document_text = state.get("document_text", "")
     return {
         **state,
-        "extracted_fields": FoodLicenseExtractedFields(
-            subject_name=_extract_line_value(document_text, ("经营者名称", "名称", "主体名称")),
-            credit_code=_extract_line_value(document_text, ("统一社会信用代码", "社会信用代码")),
-            license_no=_extract_line_value(document_text, ("许可证编号", "编号")),
-            business_address=_extract_line_value(document_text, ("经营场所", "经营地址", "住所")),
-            business_items=_extract_business_items(document_text),
-            valid_to=_extract_line_value(document_text, ("有效期至", "有效期截止日期", "有效期限至")),
-        ),
+        "extracted_fields": extract_food_license_fields(document_text),
     }
 
 
@@ -148,19 +146,3 @@ def route_review(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
         "needs_manual_review": needs_manual_review,
         "manual_review": manual_review,
     }
-
-
-def _extract_line_value(document_text: str, labels: tuple[str, ...]) -> str | None:
-    for label in labels:
-        pattern = rf"{re.escape(label)}\s*[:：]\s*([^\n]+)"
-        match = re.search(pattern, document_text)
-        if match:
-            return match.group(1).strip()
-    return None
-
-
-def _extract_business_items(document_text: str) -> list[str]:
-    value = _extract_line_value(document_text, ("经营项目", "经营范围"))
-    if not value:
-        return []
-    return [item.strip() for item in re.split(r"[、,，;；]", value) if item.strip()]

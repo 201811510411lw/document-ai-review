@@ -33,12 +33,19 @@ class ManualReviewActionType(StrEnum):
     REQUEST_MORE_INFO = "REQUEST_MORE_INFO"
 
 
+class ReviewFileInput(BaseModel):
+    filename: str
+    content_type: str
+    content_base64: str
+
+
 class ReviewInput(BaseModel):
-    ocr_text: str
+    ocr_text: str | None = None
     supplier_name: str
     supplier_credit_code: str
     supplier_address: str | None = None
     declared_document_type: str | None = None
+    file: ReviewFileInput | None = None
     source: dict[str, Any] = Field(default_factory=dict)
     options: dict[str, Any] = Field(default_factory=dict)
 

@@ -17,12 +17,14 @@ def create_food_license_review(
     review_input: ReviewInput,
     service: ReviewService = Depends(get_review_service),
 ) -> dict[str, Any]:
-    if not review_input.ocr_text.strip():
+    has_ocr_text = bool(review_input.ocr_text and review_input.ocr_text.strip())
+    has_file = review_input.file is not None
+    if not has_ocr_text and not has_file:
         raise HTTPException(
             status_code=400,
             detail={
                 "code": "EMPTY_OCR_TEXT",
-                "message": "ocr_text 不能为空",
+                "message": "ocr_text 或 file 不能为空",
             },
         )
 

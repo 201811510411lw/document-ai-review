@@ -185,23 +185,30 @@ API 中的日期和时间使用：
 - 不要求检查模型、数据库或外部依赖的生产级健康状态；
 - 不暴露敏感配置、模型密钥或数据库连接信息。
 
-## 7. 创建 OCR 文本审核任务
+## 7. 创建审核任务
 
 ### 7.1 `POST /api/v1/food-license/reviews`
 
-基于 OCR 文本创建食品安全证照审核任务。第一阶段优先实现该接口，用于跑通最小闭环。
+基于 OCR 文本创建食品安全证照审核任务。当前 V1 继续优先支持 `ocr_text`，用于跑通可验证闭环。
+
+同一 JSON 入口也保留文件输入边界：调用方可以传入 PDF / 图片文件元信息和测试用 stub OCR 文本，用于验证 `food_license` Skill 内部 document loader / OCR adapter 边界。该边界不代表生产级图片/PDF OCR 已完成。
 
 #### 请求字段
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `ocr_text` | string | 是 | 食品安全证照 OCR 文本 |
+| `ocr_text` | string | 否 | 食品安全证照 OCR 文本；当前 V1 推荐输入方式 |
+| `file.filename` | string | 否 | PDF / 图片文件名；用于 V1 下一阶段文件输入边界 |
+| `file.content_type` | string | 否 | `application/pdf`、`image/png`、`image/jpeg` 等 |
+| `file.content_base64` | string | 否 | 文件内容 base64；当前仅作为接口边界或测试 fixture，不做生产级文件存储 |
 | `supplier.name` | string | 是 | 业务系统中的供应商名称 |
 | `supplier.credit_code` | string | 是 | 业务系统中的统一社会信用代码 |
 | `supplier.address` | string | 否 | 业务系统中的供应商经营地址 |
 | `declared_document_type` | string | 否 | 调用方声明的证照类型，例如 `food_license` |
 | `source` | object | 否 | 输入来源元信息 |
-| `options` | object | 否 | 审核选项 |
+| `options` | object | 否 | 审核选项；测试中可包含 `stub_ocr_text` 以驱动 fake OCR |
+
+`ocr_text` 和 `file` 至少提供一个。若同时提供，Skill 内部 document loader 优先使用 `ocr_text`。
 
 #### 请求示例
 
@@ -223,6 +230,32 @@ API 中的日期和时间使用：
   }
 }
 ```
+
+#### 文件输入边界示例
+
+```json
+{
+  "file": {
+    "filename": "food-license.pdf",
+    "content_type": "application/pdf",
+    "content_base64": "..."
+  },
+  "supplier": {
+    "name": "成都示例食品有限公司",
+    "credit_code": "91510100MA00000000"
+  },
+  "declared_document_type": "food_license",
+  "source": {
+    "input_type": "pdf",
+    "external_reference_id": "supplier-doc-002"
+  },
+  "options": {
+    "stub_ocr_text": "食品经营许可证\\n经营者名称：成都示例食品有限公司\\n统一社会信用代码：91510100MA00000000\\n许可证编号：JY15101000000000"
+  }
+}
+```
+
+文件输入必须继续走 `FastAPI -> Review Service -> Skill Registry -> food_license.review(input_context)`。FastAPI 不直接调用 OCR、LangChain、LangGraph 节点或 Skill 内部规则。OCR / document loader adapter 位于 `app/skills/food_license/` 内部，当前只提供 stub / fake OCR 边界用于测试。
 
 #### 响应字段
 
@@ -498,19 +531,27 @@ API 中的日期和时间使用：
 
 ### 10.1 `POST /api/v1/food-license/reviews:upload`
 
-该接口只作为 V1 后续扩展设计保留，不属于第一阶段必实现能力。
+该接口仍作为 V1 后续扩展设计保留，不属于当前小步实现的生产接口。
 
 建议语义：
 
 - 接收图片或 PDF 文件；
 - 接收供应商业务信息；
-- 解析文件并生成 OCR 文本；
+- 由 `food_license` Skill 内部 document loader / OCR adapter 解析文件并生成 OCR 文本；
 - 复用 OCR 文本审核任务流程，并继续走 Review Service + Skill Registry。
 
-第一阶段验收不要求实现：
+当前小步已经定义并测试文件输入边界：
 
-- 图片解析；
-- PDF 解析；
+- `ReviewInput.file` 可表达 PDF / 图片输入；
+- Skill 内部存在 document loader / OCR adapter 边界；
+- 测试可通过 fake OCR / `stub_ocr_text` 返回固定 OCR 文本；
+- `extract_fields` 节点存在 LangChain 结构化抽取边界，并保留确定性正则 fallback；
+- API 层不得直接调用 OCR、LangChain、LangGraph 节点或规则实现。
+
+当前仍不要求实现：
+
+- 生产级图片 OCR；
+- 生产级 PDF 图片页 OCR；
 - 文件存储；
 - 多模态模型直接读取图片；
 - 生产级上传大小限制和安全扫描。
@@ -579,8 +620,9 @@ API 实现应通过 Service / Repository 将以下数据保存到 SQLite / MySQL
 ## 13. 验收标准
 
 - API 契约明确第一阶段优先支持 OCR 文本输入闭环；
+- API 契约明确 PDF / 图片文件输入是 V1 下一阶段边界或 stub，不代表生产 OCR 已完成；
 - API 契约包含健康检查、创建 OCR 文本审核任务、查询审核结果和人工复核接口；
-- API 契约明确请求字段包括 `ocr_text`、供应商名称、统一社会信用代码、供应商经营地址和可选证照类型；
+- API 契约明确请求字段包括 `ocr_text`、`file`、供应商名称、统一社会信用代码、供应商经营地址和可选证照类型；
 - API 契约明确响应字段包括任务状态、证照类型、Skill 身份信息、规则结果、最终风险等级、人工复核标记、摘要建议和 `skill_result`；
 - API 契约明确食品安全证照抽取字段和规范化字段属于 `skill_result`，不是长期平台顶层字段；
 - API 契约明确规则结果使用 `risk_level_on_failure` 表示该规则未通过时产生的风险等级；

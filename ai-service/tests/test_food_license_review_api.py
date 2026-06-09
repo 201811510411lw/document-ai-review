@@ -78,7 +78,7 @@ def test_food_license_review_rejects_empty_ocr_text_with_stable_error():
     assert response.status_code == 400
     assert response.json()["detail"] == {
         "code": "EMPTY_OCR_TEXT",
-        "message": "ocr_text 不能为空",
+        "message": "ocr_text 或 file 不能为空",
     }
 
 

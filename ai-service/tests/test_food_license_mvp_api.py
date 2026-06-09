@@ -104,6 +104,42 @@ def test_food_license_review_detects_rule_failures_and_allows_manual_review(tmp_
         _clear_overrides()
 
 
+def test_food_license_file_review_uses_stub_ocr_and_can_be_queried(tmp_path):
+    client = _client_with_temp_review_service(tmp_path)
+    try:
+        response = client.post(
+            "/api/v1/food-license/reviews",
+            json={
+                "supplier_name": "成都示例食品有限公司",
+                "supplier_credit_code": "91510100MA00000000",
+                "declared_document_type": "food_license",
+                "file": {
+                    "filename": "food-license.pdf",
+                    "content_type": "application/pdf",
+                    "content_base64": "ZmFrZS1wZGY=",
+                },
+                "source": {"input_type": "pdf"},
+                "options": {
+                    "stub_ocr_text": "食品经营许可证\n经营者名称：成都示例食品有限公司\n统一社会信用代码：91510100MA00000000\n许可证编号：JY15101000000000\n经营项目：预包装食品销售\n有效期至：2099-01-01"
+                },
+            },
+        )
+
+        assert response.status_code == 200
+        created = response.json()
+        assert created["status"] == "REVIEWED"
+        assert created["needs_manual_review"] is False
+        assert created["skill_result"]["extracted_fields"]["license_no"] == "JY15101000000000"
+        assert "extracted_fields" not in created
+
+        query_response = client.get(f"/api/v1/food-license/reviews/{created['task_id']}")
+
+        assert query_response.status_code == 200
+        assert query_response.json() == created
+    finally:
+        _clear_overrides()
+
+
 def test_unknown_review_task_returns_404(tmp_path):
     client = _client_with_temp_review_service(tmp_path)
     try:

@@ -10,6 +10,7 @@ from app.models import (
 from app.skills.food_license.nodes import (
     classify_document,
     load_document,
+    normalize_fields,
     route_review,
     summarize_risk,
 )
@@ -104,6 +105,13 @@ def test_summarize_risk_uses_rule_results_without_llm_decision():
 
     assert state["risk_level"] == RiskLevel.MEDIUM
     assert state["summary"] == "发现确定性规则风险。"
+
+
+def test_normalize_fields_handles_missing_extracted_fields():
+    state = normalize_fields({})
+
+    assert state["normalized_fields"].license_no is None
+    assert state["normalized_fields"].business_items == []
 
 
 def test_food_license_rules_report_deterministic_failures():
