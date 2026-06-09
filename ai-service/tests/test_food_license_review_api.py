@@ -59,8 +59,9 @@ def test_food_license_review_accepts_ocr_text_and_returns_review_result():
     assert "normalized_fields" not in payload
     assert "document_classification" not in payload
     assert payload["skill_result"]["document_classification"]["document_type"] == "food_license"
-    assert payload["skill_result"]["extracted_fields"]["license_no"] is None
-    assert payload["skill_result"]["normalized_fields"]["license_no"] is None
+    assert payload["skill_result"]["document_input"]["input_type"] == "ocr_text"
+    assert payload["skill_result"]["extracted_fields"]["license_no"] == "JY15101000000000"
+    assert payload["skill_result"]["normalized_fields"]["license_no"] == "JY15101000000000"
 
 
 def test_food_license_review_rejects_empty_ocr_text_with_stable_error():
@@ -77,8 +78,8 @@ def test_food_license_review_rejects_empty_ocr_text_with_stable_error():
 
     assert response.status_code == 400
     assert response.json()["detail"] == {
-        "code": "EMPTY_OCR_TEXT",
-        "message": "ocr_text 不能为空",
+        "code": "EMPTY_DOCUMENT_INPUT",
+        "message": "ocr_text 或 file.stub_text 不能为空",
     }
 
 
