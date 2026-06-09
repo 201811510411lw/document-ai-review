@@ -4,16 +4,14 @@ from zoneinfo import ZoneInfo
 from app.core.config import settings
 from app.models import (
     AuditEvent,
-    ManualReview,
-    ManualReviewStatus,
     ReviewInputContext,
     ReviewResult,
     ReviewStatus,
 )
-from app.skills.food_license.graph import food_license_graph
 from app.skills.food_license.models import (
     FoodLicenseSkillResult,
 )
+from app.workflows.food_license import run_food_license_workflow
 
 
 class FoodLicenseSkill:
@@ -28,7 +26,7 @@ class FoodLicenseSkill:
 
     def review(self, input_context: ReviewInputContext) -> ReviewResult:
         now = datetime.now(ZoneInfo(settings.timezone))
-        workflow_state = food_license_graph.invoke({"input_context": input_context})
+        workflow_state = run_food_license_workflow(input_context)
         skill_result = FoodLicenseSkillResult(
             document_classification=workflow_state["document_classification"],
             extracted_fields=workflow_state["extracted_fields"],
