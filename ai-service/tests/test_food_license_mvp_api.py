@@ -130,6 +130,8 @@ def test_food_license_file_review_uses_stub_ocr_and_can_be_queried(tmp_path):
         assert created["status"] == "REVIEWED"
         assert created["needs_manual_review"] is False
         assert created["skill_result"]["extracted_fields"]["license_no"] == "JY15101000000000"
+        assert created["skill_result"]["extraction_metadata"]["fallback_used"] is True
+        assert "extraction_metadata" not in created
         assert "extracted_fields" not in created
 
         query_response = client.get(f"/api/v1/food-license/reviews/{created['task_id']}")

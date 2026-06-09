@@ -255,7 +255,37 @@ API 中的日期和时间使用：
 }
 ```
 
-文件输入必须继续走 `FastAPI -> Review Service -> Skill Registry -> food_license.review(input_context)`。FastAPI 不直接调用 OCR、LangChain、LangGraph 节点或 Skill 内部规则。OCR / document loader adapter 位于 `app/skills/food_license/` 内部，当前只提供 stub / fake OCR 边界用于测试。
+文件输入必须继续走 `FastAPI -> Review Service -> Skill Registry -> food_license.review(input_context)`。FastAPI 不直接调用 OCR、LangChain、LangGraph 节点、LLM 或 Skill 内部规则。OCR / document loader adapter 位于 `app/skills/food_license/` 内部，当前只提供 stub / fake OCR 边界用于测试。
+
+### 7.2 字段抽取链路与 LLM 配置
+
+当前 `food_license` Skill 内部字段抽取链路为：
+
+```text
+PDF / 图片
+-> food_license OCR adapter
+-> OCR text
+-> LangChain LLM structured extraction
+-> regex fallback
+-> normalize_fields
+-> deterministic rules
+```
+
+`extract_fields` 节点优先尝试 LangChain LLM 结构化抽取，输出模型为 `FoodLicenseExtractedFields`。如果 LLM 未启用、未配置 API Key、调用失败、输出解析失败或关键字段缺失，则自动 fallback 到确定性正则抽取。fallback 不应导致审核接口失败。
+
+真实 LLM 只在环境变量启用并配置完整时运行：
+
+| 环境变量 | 说明 |
+| --- | --- |
+| `FOOD_LICENSE_LLM_ENABLED` | `true` 时允许尝试真实 LLM；默认 `false` |
+| `FOOD_LICENSE_LLM_PROVIDER` | `openai` 或 `compatible` |
+| `FOOD_LICENSE_LLM_MODEL` | 模型名称 |
+| `FOOD_LICENSE_LLM_BASE_URL` | OpenAI-compatible 服务地址；OpenAI 官方默认可不填 |
+| `FOOD_LICENSE_LLM_API_KEY` | API Key，禁止写死在代码或测试中 |
+
+测试默认不调用真实 LLM，不依赖 API Key 或网络。测试可以使用 LangChain fake LLM 或自定义 Runnable 验证结构化抽取边界。
+
+抽取方式、是否 fallback 和 fallback 原因只能作为 Skill 专属 payload 放入 `skill_result.extraction_metadata`，不得提升到 `ReviewResult` 顶层。
 
 #### 响应字段
 
@@ -545,7 +575,9 @@ API 中的日期和时间使用：
 - `ReviewInput.file` 可表达 PDF / 图片输入；
 - Skill 内部存在 document loader / OCR adapter 边界；
 - 测试可通过 fake OCR / `stub_ocr_text` 返回固定 OCR 文本；
-- `extract_fields` 节点存在 LangChain 结构化抽取边界，并保留确定性正则 fallback；
+- `extract_fields` 节点存在可配置 LangChain LLM 结构化抽取边界，并保留确定性正则 fallback；
+- 真实 LLM 仅在 `FOOD_LICENSE_LLM_ENABLED=true` 且 API Key、模型等配置完整时运行；
+- 测试默认使用 fake LLM / stub，不依赖真实 API Key 或网络；
 - API 层不得直接调用 OCR、LangChain、LangGraph 节点或规则实现。
 
 当前仍不要求实现：
@@ -635,6 +667,8 @@ API 实现应通过 Service / Repository 将以下数据保存到 SQLite / MySQL
 - API 契约明确 Registry V1 使用显式注册内置 Skill；
 - API 契约明确 LangGraph 负责食品安全证照检测 V1 Skill 内部流程编排；
 - API 契约明确 LangChain / LLM 只负责字段抽取、结构化输出和摘要建议；
+- API 契约明确真实 LLM 通过 `FOOD_LICENSE_LLM_*` 环境变量启用，测试默认不调用真实 LLM；
+- API 契约明确 LLM 抽取失败、解析失败或未配置时必须 fallback 到确定性正则抽取；
 - API 契约明确 LLM 不直接做最终规则判定；
 - API 契约明确 Python 规则引擎负责规则判断和最终风险等级汇总；
 - API 契约明确 `app/rules/` 只放通用规则基础设施，具体业务规则和 `rules.yaml` 放在 Skill 内部；

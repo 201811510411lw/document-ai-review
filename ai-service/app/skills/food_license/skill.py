@@ -33,6 +33,7 @@ class FoodLicenseSkill:
             document_classification=workflow_state["document_classification"],
             extracted_fields=workflow_state["extracted_fields"],
             normalized_fields=workflow_state["normalized_fields"],
+            extraction_metadata=workflow_state.get("extraction_metadata", {}),
         )
 
         return ReviewResult(

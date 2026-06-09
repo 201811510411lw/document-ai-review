@@ -37,3 +37,4 @@ class FoodLicenseSkillResult(BaseModel):
     document_classification: FoodLicenseDocumentClassification | None = None
     extracted_fields: FoodLicenseExtractedFields | None = None
     normalized_fields: FoodLicenseNormalizedFields | None = None
+    extraction_metadata: dict[str, object] = Field(default_factory=dict)

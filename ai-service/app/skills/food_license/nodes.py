@@ -47,9 +47,11 @@ def classify_document(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowSta
 
 def extract_fields(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
     document_text = state.get("document_text", "")
+    extraction_result = extract_food_license_fields(document_text)
     return {
         **state,
-        "extracted_fields": extract_food_license_fields(document_text),
+        "extracted_fields": extraction_result.fields,
+        "extraction_metadata": extraction_result.metadata,
     }
 
 
