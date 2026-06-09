@@ -32,9 +32,25 @@ PDF metadata + stub_text：
 }
 ```
 
+本地开发 / 测试环境可以传入本地 PDF 路径。`local_path` / `file_path` 只面向本地调试，当前仅允许读取服务当前工作目录或系统临时目录下的 `.pdf` 文件：
+
+```json
+{
+  "file": {
+    "local_path": "/tmp/licenses/example.pdf",
+    "file_name": "example.pdf",
+    "mime_type": "application/pdf",
+    "document_format": "pdf"
+  },
+  "supplier_name": "成都示例食品有限公司",
+  "supplier_credit_code": "91510100MA00000000",
+  "declared_document_type": "food_license"
+}
+```
+
 图片 metadata 使用相同结构，`mime_type` 可为 `image/png` 或 `image/jpeg`。
 
-空输入会被 API 稳定拒绝：`ocr_text` 和 `file.stub_text` 不能同时为空，也不能同时传入。
+空输入会被 API 稳定拒绝：`ocr_text`、`file.stub_text` 或 `file.local_path` 至少提供一个。`ocr_text` 和文件输入不能同时传入。
 
 ## 输出位置
 
@@ -48,7 +64,7 @@ PDF metadata + stub_text：
 
 ## 当前 Stub 限制
 
-- 不解析真实 PDF。
+- 仅支持本地 PDF 内嵌文本解析；如果 PDF 是扫描件或不含可抽取文本，只标记需要 OCR，不接真实 OCR。
 - 不解析真实图片。
 - 不接真实 OCR 服务。
 - 不接真实 LLM 服务，也不读取真实 API Key。

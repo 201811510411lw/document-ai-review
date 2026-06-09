@@ -1,6 +1,12 @@
 """Stub tool adapters for private deployment integrations."""
 
-from app.tools.document_loader import StubDocumentLoader
+from app.tools.document_loader import (
+    LocalPdfDocumentLoadError,
+    LocalPdfDocumentLoader,
+    LocalPdfNotFoundError,
+    StubDocumentLoader,
+    UnsafeLocalPdfPathError,
+)
 from app.tools.erp_adapter import StubErpAdapter
 from app.tools.file_adapter import StubFileAdapter
 from app.tools.image_adapter import StubImageAdapter
@@ -12,6 +18,10 @@ from app.tools.pdf_adapter import StubPdfAdapter
 
 __all__ = [
     "StubDocumentLoader",
+    "LocalPdfDocumentLoader",
+    "LocalPdfDocumentLoadError",
+    "LocalPdfNotFoundError",
+    "UnsafeLocalPdfPathError",
     "StubErpAdapter",
     "StubFileAdapter",
     "StubImageAdapter",

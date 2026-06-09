@@ -10,11 +10,13 @@ from app.skills.food_license.models import (
     FoodLicenseNormalizedFields,
 )
 from app.tools import StubDocumentLoader, StubLlmAdapter, StubOcrAdapter
+from app.tools.document_loader import LocalPdfDocumentLoader
 from app.workflows.food_license.state import FoodLicenseWorkflowState
 
 
 food_license_llm_adapter = StubLlmAdapter()
 food_license_document_loader = StubDocumentLoader()
+food_license_pdf_document_loader = LocalPdfDocumentLoader()
 food_license_ocr_adapter = StubOcrAdapter()
 
 
@@ -30,15 +32,59 @@ def load_document(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
         }
 
     file_input = review_input.file or review_input.document
-    loaded_document = (
-        food_license_document_loader.load(file_input) if file_input is not None else {}
-    )
+    if file_input is not None:
+        if _has_stub_text(file_input):
+            loaded_document = food_license_document_loader.load(file_input)
+        elif _is_local_pdf_input(file_input):
+            loaded_document = food_license_pdf_document_loader.load(file_input)
+        else:
+            loaded_document = food_license_document_loader.load(file_input)
+
+        metadata = loaded_document.get("metadata", {})
+        document_text = (
+            (loaded_document.get("text") or "")
+            or (food_license_ocr_adapter.extract_text(file_input) if file_input else "")
+        ).strip()
+        if document_text:
+            extraction_metadata = dict(state.get("extraction_metadata", {}))
+            if metadata.get("implementation_status") == "implemented":
+                extraction_metadata["pdf_loader"] = _pdf_loader_metadata(metadata)
+            return {
+                **state,
+                "document_text": document_text,
+                "document_input": FoodLicenseDocumentInputResult(
+                    input_type=_input_type_from_file(metadata.get("mime_type")),
+                    file_name=metadata.get("file_name"),
+                    mime_type=metadata.get("mime_type"),
+                    document_format=metadata.get("document_format"),
+                ),
+                "extraction_metadata": extraction_metadata,
+            }
+        if _is_local_pdf_input(file_input):
+            return {
+                **state,
+                "document_text": "",
+                "document_input": FoodLicenseDocumentInputResult(
+                    input_type="pdf",
+                    file_name=metadata.get("file_name"),
+                    mime_type=metadata.get("mime_type"),
+                    document_format=metadata.get("document_format"),
+                ),
+                "extraction_metadata": {
+                    **state.get("extraction_metadata", {}),
+                    "pdf_loader": _pdf_loader_metadata(metadata, needs_ocr=True),
+                },
+            }
+
     stub_text = (
-        (loaded_document.get("text") or "")
-        or (food_license_ocr_adapter.extract_text(file_input) if file_input else "")
+        food_license_ocr_adapter.extract_text(file_input) if file_input else ""
     ).strip()
     if file_input is not None and stub_text:
-        metadata = loaded_document.get("metadata", {})
+        metadata = {
+            "file_name": file_input.file_name,
+            "mime_type": file_input.mime_type,
+            "document_format": file_input.document_format or file_input.file_type,
+        }
         return {
             **state,
             "document_text": stub_text,
@@ -86,7 +132,10 @@ def extract_fields(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
     return {
         **state,
         "extracted_fields": extracted_fields,
-        "extraction_metadata": metadata,
+        "extraction_metadata": {
+            **state.get("extraction_metadata", {}),
+            **metadata,
+        },
     }
 
 
@@ -236,3 +285,24 @@ def _input_type_from_file(mime_type: str | None) -> str:
     if mime_type is not None and mime_type.startswith("image/"):
         return "image"
     return "file"
+
+
+def _has_stub_text(file_input) -> bool:
+    return bool((getattr(file_input, "stub_text", None) or "").strip())
+
+
+def _is_local_pdf_input(file_input) -> bool:
+    local_path = getattr(file_input, "local_path", None) or getattr(
+        file_input,
+        "file_path",
+        None,
+    )
+    return bool(local_path) and getattr(file_input, "mime_type", None) == "application/pdf"
+
+
+def _pdf_loader_metadata(metadata: dict, *, needs_ocr: bool | None = None) -> dict:
+    return {
+        "implementation_status": metadata.get("implementation_status"),
+        "needs_ocr": metadata.get("needs_ocr") if needs_ocr is None else needs_ocr,
+        "source": metadata.get("source"),
+    }

@@ -29,6 +29,8 @@ class ManualReviewStatus(StrEnum):
 
 class ReviewDocumentInput(BaseModel):
     file_uri: str | None = None
+    local_path: str | None = None
+    file_path: str | None = None
     file_name: str | None = None
     mime_type: str | None = None
     file_type: str | None = None

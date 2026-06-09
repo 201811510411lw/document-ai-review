@@ -29,7 +29,8 @@ def extract_food_license_fields(
     document_text: str,
     llm_adapter: MissingFieldsLlmAdapter | None = None,
 ) -> tuple[FoodLicenseExtractedFields, dict[str, Any]]:
-    fields = _regex_extract(document_text or "")
+    normalized_text = document_text or ""
+    fields = _regex_extract(normalized_text)
     missing_fields = _missing_required_fields(fields)
     metadata: dict[str, Any] = {
         "extraction_mode": "regex",
@@ -37,7 +38,7 @@ def extract_food_license_fields(
         "missing_fields": missing_fields,
     }
 
-    if not missing_fields or llm_adapter is None:
+    if not normalized_text.strip() or not missing_fields or llm_adapter is None:
         return fields, metadata
 
     metadata["llm_used"] = True
