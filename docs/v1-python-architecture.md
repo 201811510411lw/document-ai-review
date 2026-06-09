@@ -110,12 +110,14 @@ Skill facade 可以调用对应 workflow，但不应长期承载复杂规则、O
 当前新增目录：
 
 ```text
+app/workflows/food_license/
 app/workflows/qc_document/
 app/workflows/tobacco_license/
 app/workflows/contract/
 ```
 
-`food_license` 现有 `graph.py` 和 `nodes.py` 暂时保留，后续单独 Issue 迁移。
+`food_license` workflow runtime 位于 `app/workflows/food_license/`。历史
+`app/skills/food_license/graph.py`、`nodes.py` 和 `state.py` 仅保留兼容导入。
 
 ### 2.7 Tools / Adapter
 
@@ -159,6 +161,7 @@ ai-service/
     ├── rules/
     ├── tools/
     ├── workflows/
+    │   ├── food_license/
     │   ├── qc_document/
     │   ├── tobacco_license/
     │   └── contract/

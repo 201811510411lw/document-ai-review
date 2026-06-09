@@ -134,6 +134,7 @@ ai-service/
     │   ├── oa_adapter.py
     │   └── im_adapter.py
     ├── workflows/
+    │   ├── food_license/
     │   ├── qc_document/
     │   ├── tobacco_license/
     │   └── contract/
