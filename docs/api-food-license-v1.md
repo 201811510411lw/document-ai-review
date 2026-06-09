@@ -265,13 +265,13 @@ API 中的日期和时间使用：
 PDF / 图片
 -> food_license OCR adapter
 -> OCR text
--> LangChain LLM structured extraction
--> regex fallback
+-> regex extraction
+-> optional LangChain LLM supplement for missing fields
 -> normalize_fields
 -> deterministic rules
 ```
 
-`extract_fields` 节点优先尝试 LangChain LLM 结构化抽取，输出模型为 `FoodLicenseExtractedFields`。如果 LLM 未启用、未配置 API Key、调用失败、输出解析失败或关键字段缺失，则自动 fallback 到确定性正则抽取。fallback 不应导致审核接口失败。
+`extract_fields` 节点先执行确定性正则抽取，输出模型为 `FoodLicenseExtractedFields`。如果关键字段已完整，不调用 LLM。只有关键字段缺失，且 `FOOD_LICENSE_LLM_ENABLED=true` 时，才尝试 LangChain LLM 结构化抽取。LLM 结果只能补充正则缺失字段，不覆盖已由正则稳定抽出的关键字段。LLM 未配置 API Key、调用失败或输出解析失败时，不应导致审核接口失败，主流程继续使用正则结果。
 
 真实 LLM 只在环境变量启用并配置完整时运行：
 
@@ -285,7 +285,7 @@ PDF / 图片
 
 测试默认不调用真实 LLM，不依赖 API Key 或网络。测试可以使用 LangChain fake LLM 或自定义 Runnable 验证结构化抽取边界。
 
-抽取方式、是否 fallback 和 fallback 原因只能作为 Skill 专属 payload 放入 `skill_result.extraction_metadata`，不得提升到 `ReviewResult` 顶层。
+抽取方式只能作为 Skill 专属 payload 放入 `skill_result.extraction_metadata`，不得提升到 `ReviewResult` 顶层。`extraction_mode` 当前取值为 `regex_only`、`regex_with_llm_supplement` 或 `regex_fallback_after_llm_failed`。
 
 #### 响应字段
 
@@ -575,7 +575,7 @@ PDF / 图片
 - `ReviewInput.file` 可表达 PDF / 图片输入；
 - Skill 内部存在 document loader / OCR adapter 边界；
 - 测试可通过 fake OCR / `stub_ocr_text` 返回固定 OCR 文本；
-- `extract_fields` 节点存在可配置 LangChain LLM 结构化抽取边界，并保留确定性正则 fallback；
+- `extract_fields` 节点优先执行确定性正则抽取，并保留可配置 LangChain LLM 结构化补充边界；
 - 真实 LLM 仅在 `FOOD_LICENSE_LLM_ENABLED=true` 且 API Key、模型等配置完整时运行；
 - 测试默认使用 fake LLM / stub，不依赖真实 API Key 或网络；
 - API 层不得直接调用 OCR、LangChain、LangGraph 节点或规则实现。
@@ -668,7 +668,7 @@ API 实现应通过 Service / Repository 将以下数据保存到 SQLite / MySQL
 - API 契约明确 LangGraph 负责食品安全证照检测 V1 Skill 内部流程编排；
 - API 契约明确 LangChain / LLM 只负责字段抽取、结构化输出和摘要建议；
 - API 契约明确真实 LLM 通过 `FOOD_LICENSE_LLM_*` 环境变量启用，测试默认不调用真实 LLM；
-- API 契约明确 LLM 抽取失败、解析失败或未配置时必须 fallback 到确定性正则抽取；
+- API 契约明确 LLM 抽取失败、解析失败或未配置时必须继续使用确定性正则结果；
 - API 契约明确 LLM 不直接做最终规则判定；
 - API 契约明确 Python 规则引擎负责规则判断和最终风险等级汇总；
 - API 契约明确 `app/rules/` 只放通用规则基础设施，具体业务规则和 `rules.yaml` 放在 Skill 内部；

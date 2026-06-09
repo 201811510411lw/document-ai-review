@@ -176,3 +176,36 @@ def test_unknown_document_type_requires_manual_review():
     assert result.needs_manual_review is True
     assert result.manual_review.status == ManualReviewStatus.PENDING
     assert result.manual_review.reasons == ["文档类型无法识别，需要人工复核"]
+
+
+def test_food_license_review_uses_regex_result_and_requires_manual_review_when_llm_fails(
+    monkeypatch,
+):
+    monkeypatch.setenv("FOOD_LICENSE_LLM_ENABLED", "true")
+    monkeypatch.delenv("FOOD_LICENSE_LLM_API_KEY", raising=False)
+
+    input_context = ReviewInputContext(
+        task_id="review-task-llm-failed",
+        input=ReviewInput(
+            ocr_text="食品经营许可证\n经营者名称：成都示例食品有限公司\n许可证编号：JY15101000000000\n经营项目：预包装食品销售\n有效期至：2099-01-01",
+            supplier_name="成都示例食品有限公司",
+            supplier_credit_code="91510100MA00000000",
+            declared_document_type="food_license",
+        ),
+        skill_name="food_license",
+        skill_version="v1",
+        ruleset_version="food-license-rules-v1",
+    )
+
+    result = food_license_skill.review(input_context)
+    payload = result.model_dump(mode="json")
+
+    assert payload["skill_result"]["extracted_fields"]["license_no"] == "JY15101000000000"
+    assert payload["skill_result"]["extracted_fields"]["credit_code"] is None
+    assert (
+        payload["skill_result"]["extraction_metadata"]["extraction_mode"]
+        == "regex_fallback_after_llm_failed"
+    )
+    assert result.risk_level == RiskLevel.HIGH
+    assert result.needs_manual_review is True
+    assert result.manual_review.status == ManualReviewStatus.PENDING

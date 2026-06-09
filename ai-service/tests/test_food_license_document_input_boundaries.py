@@ -110,6 +110,7 @@ def test_extract_fields_falls_back_to_regex_when_structured_extraction_has_gaps(
     assert fields.subject_name == "成都示例食品有限公司"
     assert fields.credit_code == "91510100MA00000000"
     assert fields.license_no == "JY15101000000000"
+    assert result.metadata["extraction_mode"] == "regex_only"
 
 
 def test_extract_fields_node_uses_food_license_extractor_boundary():
@@ -143,6 +144,6 @@ def test_food_license_review_accepts_file_input_via_stub_ocr_boundary():
 
     assert result.needs_manual_review is False
     assert payload["skill_result"]["extracted_fields"]["license_no"] == "JY15101000000000"
-    assert payload["skill_result"]["extraction_metadata"]["extraction_mode"] == "fallback"
+    assert payload["skill_result"]["extraction_metadata"]["extraction_mode"] == "regex_only"
     assert "extraction_metadata" not in payload
     assert "extracted_fields" not in payload

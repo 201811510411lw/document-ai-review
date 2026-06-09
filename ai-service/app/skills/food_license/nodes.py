@@ -1,7 +1,10 @@
 import re
 
 from app.models import ManualReview, ManualReviewStatus, RiskLevel, RuleResult
-from app.skills.food_license.extractors import extract_food_license_fields
+from app.skills.food_license.extractors import (
+    extract_food_license_fields,
+    regex_extract_food_license_fields,
+)
 from app.skills.food_license.loaders import load_food_license_document
 from app.skills.food_license.models import (
     FoodLicenseDocumentClassification,
@@ -47,7 +50,11 @@ def classify_document(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowSta
 
 def extract_fields(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
     document_text = state.get("document_text", "")
-    extraction_result = extract_food_license_fields(document_text)
+    regex_fields = regex_extract_food_license_fields(document_text)
+    extraction_result = extract_food_license_fields(
+        document_text,
+        regex_fields=regex_fields,
+    )
     return {
         **state,
         "extracted_fields": extraction_result.fields,

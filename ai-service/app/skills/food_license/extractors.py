@@ -32,42 +32,53 @@ def build_llm_structured_extraction_chain(llm):
 
 def extract_food_license_fields(
     document_text: str,
+    regex_fields: FoodLicenseExtractedFields | None = None,
     structured_extractor=None,
     llm_enabled: bool | None = None,
     llm_chain=None,
 ) -> FoodLicenseExtractionResult:
+    regex_fields = regex_fields or regex_extract_food_license_fields(document_text)
+    if _has_required_fields(regex_fields):
+        return FoodLicenseExtractionResult(
+            fields=regex_fields,
+            metadata={
+                "extraction_mode": "regex_only",
+                "llm_used": False,
+                "llm_reason": "required_fields_present",
+            },
+        )
+
     llm_should_run = (
         settings.food_license_llm_enabled if llm_enabled is None else llm_enabled
     )
-    fallback_fields = regex_extract_food_license_fields(document_text)
     metadata: dict[str, Any] = {
-        "extraction_mode": "fallback",
-        "fallback_used": True,
-        "fallback_reason": "llm_disabled",
+        "extraction_mode": "regex_only",
+        "llm_used": False,
+        "llm_reason": "llm_disabled",
     }
 
     if llm_should_run:
         try:
             extractor = llm_chain or structured_extractor or build_configured_llm_chain()
             if extractor is None:
-                metadata["fallback_reason"] = "llm_not_configured"
+                metadata["extraction_mode"] = "regex_fallback_after_llm_failed"
+                metadata["llm_reason"] = "llm_not_configured"
             else:
-                structured_fields = extractor.invoke({"document_text": document_text})
-                merged_fields = _merge_fields(structured_fields, fallback_fields)
-                if _has_required_fields(merged_fields):
-                    return FoodLicenseExtractionResult(
-                        fields=merged_fields,
-                        metadata={
-                            "extraction_mode": "llm",
-                            "fallback_used": False,
-                            "fallback_reason": None,
-                        },
-                    )
-                metadata["fallback_reason"] = "missing_required_fields"
+                llm_fields = extractor.invoke({"document_text": document_text})
+                supplemented_fields = _supplement_missing_fields(regex_fields, llm_fields)
+                return FoodLicenseExtractionResult(
+                    fields=supplemented_fields,
+                    metadata={
+                        "extraction_mode": "regex_with_llm_supplement",
+                        "llm_used": True,
+                        "llm_reason": "missing_required_fields",
+                    },
+                )
         except Exception:
-            metadata["fallback_reason"] = "llm_error"
+            metadata["extraction_mode"] = "regex_fallback_after_llm_failed"
+            metadata["llm_reason"] = "llm_error"
 
-    return FoodLicenseExtractionResult(fields=fallback_fields, metadata=metadata)
+    return FoodLicenseExtractionResult(fields=regex_fields, metadata=metadata)
 
 
 def build_configured_llm_chain():
@@ -119,13 +130,13 @@ def _build_extraction_prompt(parser: PydanticOutputParser) -> PromptTemplate:
     )
 
 
-def _merge_fields(
-    structured_fields: FoodLicenseExtractedFields,
-    fallback_fields: FoodLicenseExtractedFields,
+def _supplement_missing_fields(
+    regex_fields: FoodLicenseExtractedFields,
+    llm_fields: FoodLicenseExtractedFields,
 ) -> FoodLicenseExtractedFields:
-    merged = structured_fields.model_dump()
-    fallback = fallback_fields.model_dump()
-    for key, value in fallback.items():
+    merged = regex_fields.model_dump()
+    supplement = llm_fields.model_dump()
+    for key, value in supplement.items():
         if merged.get(key) in (None, [], "") and value not in (None, [], ""):
             merged[key] = value
     return FoodLicenseExtractedFields.model_validate(merged)
