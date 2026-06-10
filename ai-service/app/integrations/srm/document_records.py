@@ -36,6 +36,7 @@ class DocumentRecord(BaseModel):
 
 
 DOCUMENT_TYPE_BY_SRM_TYPE_NAME = {
+    "营业执照": "business_license",
     "产品报告": "product_report",
 }
 
