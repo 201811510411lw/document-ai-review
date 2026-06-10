@@ -4,7 +4,6 @@ from app.use_cases.registry import use_case_registry
 
 def test_placeholder_use_cases_return_clear_not_implemented_result():
     for use_case_name, declared_document_type in [
-        ("qc_document_review", "qc_document_review"),
         ("tobacco_license_consistency_review", "tobacco_license_consistency_review"),
         ("contract_review", "contract_review"),
     ]:
