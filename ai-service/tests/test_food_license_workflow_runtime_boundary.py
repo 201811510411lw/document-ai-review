@@ -7,7 +7,7 @@ from app.models import (
     ReviewInputContext,
     RiskLevel,
 )
-from app.use_cases.food_license import skill as food_license_use_case_module
+from app.use_cases.food_license import use_case as food_license_use_case_module
 
 
 def test_food_license_workflow_runtime_exposes_review_boundary():

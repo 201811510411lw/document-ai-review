@@ -16,6 +16,8 @@ def build_review_result(task_id: str = "review-task-sqlite") -> ReviewResult:
     now = datetime(2026, 6, 8, 14, 30, tzinfo=timezone.utc)
     return ReviewResult(
         task_id=task_id,
+        use_case_name="food_license",
+        use_case_version="v1",
         skill_name="food_license",
         skill_version="v1",
         ruleset_version="food-license-rules-v1",
@@ -59,7 +61,7 @@ def test_review_service_can_save_result_with_injected_repository(monkeypatch, tm
     repository = SQLiteReviewResultRepository(tmp_path / "reviews.sqlite3")
     result = build_review_result("review-task-000001")
 
-    class StubSkill:
+    class StubUseCase:
         name = "food_license"
         version = "v1"
         ruleset_version = "food-license-rules-v1"
@@ -68,8 +70,8 @@ def test_review_service_can_save_result_with_injected_repository(monkeypatch, tm
             return result.model_copy(update={"task_id": input_context.task_id})
 
     class StubRegistry:
-        def get(self, skill_name):
-            return StubSkill()
+        def get(self, use_case_name):
+            return StubUseCase()
 
     from app.services import review_service as review_service_module
 

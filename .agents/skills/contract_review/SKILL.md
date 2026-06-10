@@ -51,4 +51,4 @@ description: 法务合同内容审核的 Agent Skill 描述层。
 
 ## 与 Python Runtime 的关系
 
-Python Runtime facade 对应 `ai-service/app/use_cases/contract_review/skill.py`。平台通过 use case 入口调用 Runtime。后续 workflow 位于 `ai-service/app/workflows/contract/`；如需要可执行能力拆分，应落在 `ai-service/app/capabilities/`。
+Python Runtime facade 对应 `ai-service/app/use_cases/contract_review/use_case.py`。平台通过 use case 入口调用 Runtime。后续 workflow 位于 `ai-service/app/workflows/contract/`；如需要可执行能力拆分，应落在 `ai-service/app/capabilities/`。

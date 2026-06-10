@@ -11,18 +11,18 @@ from app.models import (
     ReviewStatus,
     RiskLevel,
 )
-from app.workflows.contract import run_contract_workflow
+from app.workflows.tobacco_license import run_tobacco_license_workflow
 
 
-class ContractReviewUseCase:
-    name = "contract_review"
+class TobaccoLicenseConsistencyReviewUseCase:
+    name = "tobacco_license_consistency_review"
     version = "v1"
-    ruleset_version = "contract-rules-v1-placeholder"
+    ruleset_version = "tobacco-license-consistency-rules-v1-placeholder"
     supported_document_types = (
-        "contract_review",
-        "contract",
-        "lease_contract",
-        "food_supply_contract",
+        "tobacco_license_consistency_review",
+        "tobacco_license_consistency",
+        "business_license",
+        "tobacco_license",
     )
 
     def supports(self, input_context: ReviewInputContext) -> bool:
@@ -30,7 +30,7 @@ class ContractReviewUseCase:
 
     def review(self, input_context: ReviewInputContext) -> ReviewResult:
         now = datetime.now(ZoneInfo(settings.timezone))
-        workflow_result = run_contract_workflow(input_context)
+        workflow_result = run_tobacco_license_workflow(input_context)
         return ReviewResult.model_validate(
             {
                 "task_id": input_context.task_id,
@@ -41,20 +41,28 @@ class ContractReviewUseCase:
                 "ruleset_version": self.ruleset_version,
                 "capability_names": [],
                 "document_type": input_context.input.declared_document_type
-                or "contract",
+                or "tobacco_license_consistency",
                 "status": ReviewStatus.PENDING_MANUAL_REVIEW,
                 "risk_level": RiskLevel.MEDIUM,
                 "needs_manual_review": True,
                 "rule_results": [],
-                "summary": "contract_review 仅为多 Skill 架构占位，尚未执行业务审核。",
+                "summary": (
+                    "tobacco_license_consistency_review 仅为 use_case 架构占位，"
+                    "尚未执行业务审核。"
+                ),
                 "manual_review": ManualReview(
                     status=ManualReviewStatus.PENDING,
-                    reasons=["contract_review Runtime 尚未实现，需要人工复核"],
+                    reasons=[
+                        "tobacco_license_consistency_review use_case 尚未实现，需要人工复核"
+                    ],
                 ),
                 "audit_events": [
                     AuditEvent(
-                        event_type="contract_review.placeholder",
-                        message="contract_review 占位 Skill 已返回未实现状态",
+                        event_type="tobacco_license_consistency_review.placeholder",
+                        message=(
+                            "tobacco_license_consistency_review 占位 use_case "
+                            "已返回未实现状态"
+                        ),
                         occurred_at=now,
                     )
                 ],
@@ -65,4 +73,6 @@ class ContractReviewUseCase:
         )
 
 
-contract_review_use_case = ContractReviewUseCase()
+tobacco_license_consistency_review_use_case = (
+    TobaccoLicenseConsistencyReviewUseCase()
+)

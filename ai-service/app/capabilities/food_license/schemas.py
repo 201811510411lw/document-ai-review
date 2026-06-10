@@ -46,6 +46,3 @@ class FoodLicenseCapabilityResult(BaseModel):
     extracted_fields: FoodLicenseExtractedFields | None = None
     normalized_fields: FoodLicenseNormalizedFields | None = None
     extraction_metadata: dict = Field(default_factory=dict)
-
-
-FoodLicenseSkillResult = FoodLicenseCapabilityResult

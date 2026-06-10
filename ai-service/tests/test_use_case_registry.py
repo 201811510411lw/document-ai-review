@@ -12,7 +12,7 @@ from app.models import (
 from app.use_cases.registry import UseCaseRegistry, use_case_registry
 
 
-class StubSkill:
+class StubUseCase:
     def __init__(self, name: str, supported_document_types: tuple[str, ...]) -> None:
         self.name = name
         self.version = "v1"
@@ -26,6 +26,8 @@ class StubSkill:
         now = datetime(2026, 6, 8, 14, 30, tzinfo=timezone.utc)
         return ReviewResult(
             task_id=input_context.task_id,
+            use_case_name=self.name,
+            use_case_version=self.version,
             skill_name=self.name,
             skill_version=self.version,
             ruleset_version=self.ruleset_version,
@@ -45,10 +47,10 @@ class StubSkill:
 
 def test_use_case_registry_can_register_and_select_multiple_use_cases():
     registry = UseCaseRegistry()
-    contract_skill = StubSkill("contract_review", ("contract_review",))
-    qc_skill = StubSkill("qc_document_review", ("qc_document_review",))
-    registry.register(contract_skill)
-    registry.register(qc_skill)
+    contract_use_case = StubUseCase("contract_review", ("contract_review",))
+    qc_use_case = StubUseCase("qc_document_review", ("qc_document_review",))
+    registry.register(contract_use_case)
+    registry.register(qc_use_case)
 
     input_context = ReviewInputContext(
         task_id="review-task-001",
@@ -58,14 +60,14 @@ def test_use_case_registry_can_register_and_select_multiple_use_cases():
             supplier_credit_code="91510100MA00000000",
             declared_document_type="contract_review",
         ),
-        skill_name="",
-        skill_version="",
+        use_case_name="",
+        use_case_version="",
         ruleset_version="",
     )
 
-    assert registry.list() == [contract_skill, qc_skill]
-    assert registry.get("contract_review") is contract_skill
-    assert registry.select(input_context) is contract_skill
+    assert registry.list() == [contract_use_case, qc_use_case]
+    assert registry.get("contract_review") is contract_use_case
+    assert registry.select(input_context) is contract_use_case
 
 
 def test_global_use_case_registry_keeps_food_license_and_placeholders():

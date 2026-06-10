@@ -10,7 +10,7 @@ def test_review_service_gets_food_license_use_case_from_registry_and_calls_revie
 ):
     calls = []
 
-    class StubSkill:
+    class StubUseCase:
         name = "food_license"
         version = "v1"
         ruleset_version = "food-license-rules-v1"
@@ -25,6 +25,8 @@ def test_review_service_gets_food_license_use_case_from_registry_and_calls_revie
             return ReviewResult.model_validate(
                 {
                     "task_id": input_context.task_id,
+                    "use_case_name": self.name,
+                    "use_case_version": self.version,
                     "skill_name": self.name,
                     "skill_version": self.version,
                     "ruleset_version": self.ruleset_version,
@@ -48,7 +50,7 @@ def test_review_service_gets_food_license_use_case_from_registry_and_calls_revie
 
         def get(self, use_case_name: str):
             self.requested_use_case_names.append(use_case_name)
-            return StubSkill()
+            return StubUseCase()
 
     registry = StubRegistry()
     monkeypatch.setattr(review_service_module, "use_case_registry", registry)
@@ -63,15 +65,17 @@ def test_review_service_gets_food_license_use_case_from_registry_and_calls_revie
 
     assert registry.requested_use_case_names == ["food_license"]
     assert len(calls) == 1
+    assert calls[0].use_case_name == "food_license"
     assert calls[0].skill_name == "food_license"
     assert calls[0].input.supplier_credit_code == "91510100MA00000000"
+    assert result.use_case_name == "food_license"
     assert result.skill_name == "food_license"
 
 
 def test_review_service_review_can_call_use_case_by_name(monkeypatch):
     calls = []
 
-    class StubSkill:
+    class StubUseCase:
         name = "contract_review"
         version = "v1"
         ruleset_version = "contract-rules-v1-placeholder"
@@ -86,6 +90,8 @@ def test_review_service_review_can_call_use_case_by_name(monkeypatch):
             return ReviewResult.model_validate(
                 {
                     "task_id": input_context.task_id,
+                    "use_case_name": self.name,
+                    "use_case_version": self.version,
                     "skill_name": self.name,
                     "skill_version": self.version,
                     "ruleset_version": self.ruleset_version,
@@ -112,7 +118,7 @@ def test_review_service_review_can_call_use_case_by_name(monkeypatch):
 
         def get(self, use_case_name: str):
             self.requested_use_case_names.append(use_case_name)
-            return StubSkill()
+            return StubUseCase()
 
     registry = StubRegistry()
     monkeypatch.setattr(review_service_module, "use_case_registry", registry)
@@ -129,14 +135,15 @@ def test_review_service_review_can_call_use_case_by_name(monkeypatch):
 
     assert registry.requested_use_case_names == ["contract_review"]
     assert len(calls) == 1
-    assert calls[0].skill_name == "contract_review"
+    assert calls[0].use_case_name == "contract_review"
+    assert result.use_case_name == "contract_review"
     assert result.skill_name == "contract_review"
 
 
-def test_review_service_review_can_select_skill(monkeypatch):
+def test_review_service_review_can_select_use_case(monkeypatch):
     calls = []
 
-    class StubSkill:
+    class StubUseCase:
         name = "contract_review"
         version = "v1"
         ruleset_version = "contract-rules-v1-placeholder"
@@ -151,6 +158,8 @@ def test_review_service_review_can_select_skill(monkeypatch):
             return ReviewResult.model_validate(
                 {
                     "task_id": input_context.task_id,
+                    "use_case_name": self.name,
+                    "use_case_version": self.version,
                     "skill_name": self.name,
                     "skill_version": self.version,
                     "ruleset_version": self.ruleset_version,
@@ -174,7 +183,7 @@ def test_review_service_review_can_select_skill(monkeypatch):
 
         def select(self, input_context: ReviewInputContext):
             self.select_calls.append(input_context)
-            return StubSkill()
+            return StubUseCase()
 
     registry = StubRegistry()
     monkeypatch.setattr(review_service_module, "use_case_registry", registry)
@@ -189,7 +198,8 @@ def test_review_service_review_can_select_skill(monkeypatch):
     )
 
     assert len(registry.select_calls) == 1
-    assert registry.select_calls[0].skill_name == ""
+    assert registry.select_calls[0].use_case_name == ""
     assert len(calls) == 1
-    assert calls[0].skill_name == "contract_review"
+    assert calls[0].use_case_name == "contract_review"
+    assert result.use_case_name == "contract_review"
     assert result.skill_name == "contract_review"

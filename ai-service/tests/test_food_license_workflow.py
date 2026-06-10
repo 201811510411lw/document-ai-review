@@ -6,7 +6,7 @@ from app.models import (
     ReviewStatus,
     RiskLevel,
 )
-from app.use_cases.food_license.skill import food_license_use_case
+from app.use_cases.food_license.use_case import food_license_use_case
 from app.workflows.food_license import run_food_license_workflow
 
 

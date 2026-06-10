@@ -15,8 +15,8 @@ API 契约目标：
 - 优先支持 OCR 文本输入跑通食品安全证照审核闭环；
 - 为 FastAPI 创建审核任务、查询审核结果和人工复核提供稳定 HTTP 边界；
 - 明确请求字段、响应字段、错误语义和状态流转；
-- 明确 FastAPI、Review Service、Skill Registry、Skill、LangGraph、LangChain、Python 规则引擎和 SQLite / MySQL 的职责边界；
-- 明确 `/api/v1/food-license/reviews` 是 `food_license` Skill 快捷入口，后续 `/api/v1/reviews` 是平台通用入口；
+- 明确 FastAPI、Review Service、use_case、capability、LangGraph、LangChain、Python 规则引擎和 SQLite / MySQL 的职责边界；
+- 明确 `/api/v1/food-license/reviews` 是 `food_license` use_case 快捷入口，后续 `/api/v1/reviews` 是平台通用入口；
 - 为后续文件上传、图片解析和 PDF 解析保留接口扩展空间，但不把它们列为第一阶段必实现能力。
 
 ## 2. 职责边界
@@ -24,16 +24,17 @@ API 契约目标：
 | 模块 | API 契约中的职责 |
 | --- | --- |
 | FastAPI | 暴露 HTTP API，完成请求解析、基础校验、响应封装和错误映射 |
-| Review Service | 创建审核任务，构造 `input_context`，调用 Skill Registry，协调结果保存和人工复核动作 |
-| Skill Registry | 显式注册内置 Skill，加载 `metadata.yaml`，路由到 `Skill.review(input_context)` |
-| Skill | 运行时一等业务对象，封装配置、Prompt、规则、模型、工作流和 Skill 文档 |
-| LangGraph | 在 `food_license` Skill 内部编排核心流程和节点状态流转 |
-| LangChain | 在 Skill 内部负责模型调用、Prompt、结构化输出和工具封装 |
+| Review Service | 创建审核任务，构造 `input_context`，调用 `use_case_registry`，协调结果保存和人工复核动作 |
+| use_case_registry | 显式注册内置 use_case，路由到 `use_case.review(input_context)` |
+| use_case | 运行时业务入口，负责承接平台请求并启动 workflow |
+| capability | 运行时能力单元，组织 Prompt、schema、规则和能力结果 payload |
+| LangGraph | 在 `food_license` workflow 内部编排核心流程和节点状态流转 |
+| LangChain | 在 capability 或 workflow 内部负责模型调用、Prompt、结构化输出和工具封装 |
 | LLM | 只用于字段抽取、结构化输出和摘要建议，不直接做最终规则判定 |
 | Python 规则引擎 | 执行确定性规则校验，并基于规则结果汇总最终风险等级 |
 | SQLite / MySQL | 保存审核任务、审核结果、规则结果、人工复核记录和审计日志 |
 
-平台只调用 `Skill.review(input_context) -> ReviewResult`。API 层不得直接实现食品安全证照规则判断，也不得直接调用 `extract_fields`、`run_rules`、`summarize_risk` 或 `route_review` 等 Skill 内部节点。最终风险等级不得由 LLM 直接给出，必须由 Python 规则引擎结果汇总得到。
+平台只调用 `use_case.review(input_context) -> ReviewResult`。API 层不得直接实现食品安全证照规则判断，也不得直接调用 `extract_fields`、`run_rules`、`summarize_risk` 或 `route_review` 等 workflow / capability 内部节点。最终风险等级不得由 LLM 直接给出，必须由 Python 规则引擎结果汇总得到。
 
 ## 3. 通用约定
 
@@ -51,13 +52,13 @@ http://localhost:8000
 /api/v1/food-license
 ```
 
-`/api/v1/food-license/reviews` 是 `food_license` Skill 的快捷入口。后续平台通用入口为：
+`/api/v1/food-license/reviews` 是 `food_license` use_case 的快捷入口。后续平台通用入口为：
 
 ```text
 /api/v1/reviews
 ```
 
-快捷入口和通用入口都必须经过 Review Service + Skill Registry，不能维护两套审核逻辑。
+快捷入口和通用入口都必须经过 Review Service + `use_case_registry`，不能维护两套审核逻辑。
 
 ### 3.2 Content Type
 
@@ -231,15 +232,18 @@ API 中的日期和时间使用：
 | `task_id` | 审核任务 ID |
 | `status` | 审核任务状态 |
 | `document_type` | 证照类型识别结果 |
-| `skill_name` | 执行本次审核的 Skill 名称，例如 `food_license` |
-| `skill_version` | 执行本次审核的 Skill 版本 |
+| `use_case_name` | 执行本次审核的 use_case 名称，例如 `food_license` |
+| `use_case_version` | 执行本次审核的 use_case 版本 |
+| `skill_name` | 兼容字段，短期镜像 `use_case_name` |
+| `skill_version` | 兼容字段，短期镜像 `use_case_version` |
 | `ruleset_version` | 执行本次审核的规则集版本 |
+| `capability_names` | 本次审核使用的 capability 名称列表 |
 | `risk_level` | 最终风险等级 |
 | `needs_manual_review` | 是否需要人工复核 |
 | `rule_results` | Python 规则引擎输出的规则结果；其中 `risk_level_on_failure` 表示该规则未通过时产生的风险等级 |
 | `manual_review` | 人工复核状态、原因和后续人工动作信息 |
 | `summary` | 摘要建议，可由规则结果和 LLM 辅助生成 |
-| `skill_result` | Skill 专属 payload，例如食品安全证照的抽取字段和规范化字段 |
+| `skill_result` | 兼容容器，当前承载 capability 专属 payload，例如食品安全证照的抽取字段和规范化字段 |
 | `created_at` | 任务创建时间 |
 | `updated_at` | 任务更新时间 |
 
@@ -250,9 +254,12 @@ API 中的日期和时间使用：
   "task_id": "review-task-001",
   "status": "REVIEWED",
   "document_type": "food_license",
+  "use_case_name": "food_license",
+  "use_case_version": "v1",
   "skill_name": "food_license",
   "skill_version": "v1",
   "ruleset_version": "food-license-rules-v1",
+  "capability_names": ["food_license"],
   "risk_level": "NONE",
   "needs_manual_review": false,
   "rule_results": [
@@ -568,35 +575,35 @@ API 中的日期和时间使用：
 API 实现应通过 Service / Repository 将以下数据保存到 SQLite / MySQL：
 
 - 审核任务：任务 ID、输入来源、供应商信息、任务状态、创建时间、更新时间；
-- 审核结果：证照类型、`skill_name`、`skill_version`、`ruleset_version`、最终风险等级、审核建议、是否需要人工复核；
-- Skill 专属结果：通过 `skill_result` 保存 LangChain / LLM 输出的食品安全证照结构化字段、规范化字段和其他 Skill 专属 payload；
+- 审核结果：证照类型、`use_case_name`、`use_case_version`、`capability_names`、`ruleset_version`、最终风险等级、审核建议、是否需要人工复核；
+- 兼容字段：短期继续保存 `skill_name`、`skill_version` 和 `skill_result`；
+- capability 专属结果：当前通过兼容容器 `skill_result` 保存食品安全证照结构化字段、规范化字段和其他 capability 专属 payload；
 - 规则结果：Python 规则引擎输出的规则编码、规则名称、是否通过、未通过时产生的风险等级和提示信息；
 - 人工复核记录：复核动作、复核人、复核备注、复核时间；
-- 审计日志：任务创建、Skill 路由、工作流开始、节点执行、规则校验、风险汇总、人工复核等关键事件。
+- 审计日志：任务创建、use_case 路由、工作流开始、节点执行、规则校验、风险汇总、人工复核等关键事件。
 
-每个 `ReviewResult` 和审计日志都应记录 `skill_name`、`skill_version` 和 `ruleset_version`。这些值来自 Skill `metadata.yaml` 和 Skill 包内静态 `rules.yaml`。
+每个 `ReviewResult` 和审计日志都应记录 `use_case_name`、`use_case_version`、`capability_names` 和 `ruleset_version`。`skill_name`、`skill_version` 和 `skill_result` 当前作为兼容字段继续保留。
 
 ## 13. 验收标准
 
 - API 契约明确第一阶段优先支持 OCR 文本输入闭环；
 - API 契约包含健康检查、创建 OCR 文本审核任务、查询审核结果和人工复核接口；
 - API 契约明确请求字段包括 `ocr_text`、供应商名称、统一社会信用代码、供应商经营地址和可选证照类型；
-- API 契约明确响应字段包括任务状态、证照类型、Skill 身份信息、规则结果、最终风险等级、人工复核标记、摘要建议和 `skill_result`；
-- API 契约明确食品安全证照抽取字段和规范化字段属于 `skill_result`，不是长期平台顶层字段；
+- API 契约明确响应字段包括任务状态、证照类型、use_case 身份信息、capability 名称、规则结果、最终风险等级、人工复核标记、摘要建议和 `skill_result` 兼容容器；
+- API 契约明确食品安全证照抽取字段和规范化字段当前属于 `skill_result`，不是长期平台顶层字段；
 - API 契约明确规则结果使用 `risk_level_on_failure` 表示该规则未通过时产生的风险等级；
 - API 契约明确 FastAPI 只负责 HTTP API 边界；
-- API 契约明确 `/api/v1/food-license/reviews` 是 `food_license` Skill 快捷入口；
+- API 契约明确 `/api/v1/food-license/reviews` 是 `food_license` use_case 快捷入口；
 - API 契约明确后续 `/api/v1/reviews` 是平台通用入口；
-- API 契约明确所有入口都必须走 Review Service + Skill Registry；
-- API 契约明确平台只调用 `Skill.review(input_context) -> ReviewResult`；
-- API 契约明确 `metadata.yaml` 是 Skill 运行时 manifest；
-- API 契约明确 Registry V1 使用显式注册内置 Skill；
-- API 契约明确 LangGraph 负责食品安全证照检测 V1 Skill 内部流程编排；
+- API 契约明确所有入口都必须走 Review Service + `use_case_registry`；
+- API 契约明确平台只调用 `use_case.review(input_context) -> ReviewResult`；
+- API 契约明确 `use_case_registry` V1 使用显式注册内置 use_case；
+- API 契约明确 LangGraph 负责食品安全证照检测 V1 workflow 编排；
 - API 契约明确 LangChain / LLM 只负责字段抽取、结构化输出和摘要建议；
 - API 契约明确 LLM 不直接做最终规则判定；
 - API 契约明确 Python 规则引擎负责规则判断和最终风险等级汇总；
-- API 契约明确 `app/rules/` 只放通用规则基础设施，具体业务规则和 `rules.yaml` 放在 Skill 内部；
-- API 契约明确人工复核基础设施属于平台，复核决策由 Skill 决定；
+- API 契约明确 `app/rules/` 只放通用规则基础设施，具体业务规则和 `rules.yaml` 放在 capability 内部；
+- API 契约明确人工复核基础设施属于平台，复核决策由 use_case / workflow 根据规则结果决定；
 - API 契约明确 SQLite / MySQL 保存审核任务、审核结果、规则结果、人工复核和审计日志；
 - API 契约没有把 Java / Spring Boot 或任何 Java 模块放入 V1 技术栈或实现范围；
 - 本文档只描述契约，不要求实现接口代码。

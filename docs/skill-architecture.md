@@ -1,29 +1,32 @@
-# Document AI Review Skill 架构边界
+# Document AI Review Runtime 架构边界
 
-本文档明确 `document-ai-review` 的多场景 Skill 架构边界。`README.md` 仍然是项目唯一主上下文；本文档细化 Agent Skill 描述层、Python Runtime、workflow、rules、tools 和平台入口之间的关系。
+本文档基于 `main` 最新代码，明确 `document-ai-review` 当前主线的三层边界：Agent Skill 描述层、runtime use_case、runtime capability。
+
+`README.md` 是项目唯一主上下文；本文档只细化运行时职责和命名边界。
 
 ---
 
-## 1. Skill 分层定义
+## 1. 三层对象
 
-Skill 是平台中的一等业务能力对象，但不同层的 Skill 职责不同，不能混为一个文件或一个类。
+当前主线不能再把所有运行时对象都叫做 Skill，而必须区分三层：
 
 | 层级 | 位置 | 职责 |
 | --- | --- | --- |
 | Agent Skill 描述层 | `.agents/skills/<skill>/SKILL.md` | 描述能力边界、输入输出、规则摘要、提示边界和人工复核边界 |
-| Python Skill Runtime facade | `ai-service/app/skills/<skill>/skill.py` | 实现平台可调用的 `Skill.review(input_context)` 入口 |
-| Workflow Runtime | `ai-service/app/workflows/<domain>/` | 编排 LangGraph、LangChain、OCR、LLM、规则执行和人工复核路由，不承载具体规则判断细节 |
-| Business Rule 规则层 | `ai-service/app/rules/` 和 `ai-service/app/skills/<skill>/rules/` | 执行确定性、可测试的业务规则；通用协议、上下文、执行器和聚合逻辑位于 `app/rules/` |
-| Tool / Adapter 层 | `ai-service/app/tools/` | 封装 OCR、LLM、PDF、图片、ERP、OA、IM 等外部能力 |
-| API / Service 平台层 | `ai-service/app/api/`、`ai-service/app/services/`、`ai-service/app/skills/registry.py` | 解析请求、选择 Skill、执行统一 review 入口并返回平台结果 |
+| runtime use_case | `ai-service/app/use_cases/<use_case>/` | 承接平台入口，负责选择 workflow 并组装 `ReviewResult` |
+| runtime capability | `ai-service/app/capabilities/<capability>/` | 承接字段 schema、提示边界、规则归属、能力结果构造等可复用执行能力 |
 
-`Skill.md` 可以描述规则摘要，但不能承载规则执行逻辑。具体业务规则必须保留在 rules 目录，并通过测试验证。
+这三层的区别：
+
+- Agent Skill 面向“怎么描述一种审核能力”；
+- use_case 面向“平台从哪里进入一个业务场景”；
+- capability 面向“workflow 里面真正复用哪些执行能力”。
 
 ---
 
 ## 2. 平台调用契约
 
-平台只调用稳定的 Skill 级接口：
+平台当前只调用稳定的 use_case 级契约：
 
 ```text
 name
@@ -34,16 +37,6 @@ supports(input_context)
 review(input_context) -> ReviewResult
 ```
 
-平台不得直接调用 Skill 内部节点或步骤，例如：
-
-- `load_document`
-- `extract_fields`
-- `run_rules`
-- `summarize_risk`
-- `route_review`
-
-这些名称可以作为 Skill 内部 workflow 节点或函数存在，但不是平台公共接口。
-
 统一执行链路：
 
 ```text
@@ -51,124 +44,172 @@ FastAPI HTTP API
     ↓
 Review Service
     ↓
-Skill Registry
+use_case_registry
     ↓
-Skill.review(input_context)
+use_case.review(input_context)
     ↓
-Workflow Runtime
+workflow
     ↓
-Rules / Tools
+capabilities
+    ↓
+rules / tools
     ↓
 ReviewResult
 ```
 
-快捷入口和通用入口都必须复用这条链路，不能维护两套审核逻辑。
+平台层不得直接调用内部节点，例如：
+
+- `load_document`
+- `extract_fields`
+- `run_rules`
+- `summarize_risk`
+- `route_review`
+
+这些名称可以在 workflow 内部存在，但不是平台公共接口。
 
 ---
 
-## 3. 多场景 Skill
+## 3. use_case 边界
 
-目标产品至少包含三个主线场景：
-
-| Skill | 场景 | 状态 |
-| --- | --- | --- |
-| `qc_document_review` | QC 证照及批次报告审核 | 本轮创建 Agent Skill 描述和 Runtime 占位 |
-| `tobacco_license_consistency_review` | 营业执照与烟草证一致性校验 | 本轮创建 Agent Skill 描述和 Runtime 占位 |
-| `contract_review` | 法务合同内容审核 | 本轮创建 Agent Skill 描述和 Runtime 占位 |
-| `food_license` | 食品安全证照检测 V1 骨架 | 历史兼容 Skill，短期保留 |
-
-`food_license` 是历史 V1 骨架。后续可以演进为 `qc_document_review` 的子能力，或作为兼容 Skill 保留快捷入口。迁移必须分 Issue 进行，不能在多 Skill 架构骨架中直接删除。
-
----
-
-## 4. Registry 边界
-
-V1 Skill Registry 继续采用显式注册内置 Skill。
-
-V1 不做：
-
-- 目录扫描。
-- 外部 Skill 加载。
-- 插件市场。
-- 热加载。
-- 租户级 Skill 覆盖。
-- 运行时动态启停 Skill。
-
-Registry 负责：
-
-- 注册多个内置 Skill。
-- 提供 `get(skill_name)` 和 `list()`。
-- 根据 `supports(input_context)` 选择 Skill。
-- 将请求路由到 `Skill.review(input_context)`。
-- 在结果和审计日志中保留 Skill 身份信息。
-
-Registry 不执行业务规则，不调用 workflow 节点，也不直接访问 OCR、LLM、ERP、OA 或 IM Adapter。
-
----
-
-## 5. 目录边界
-
-推荐多场景结构：
+路径：
 
 ```text
-ai-service/
-└── app/
-    ├── api/
-    ├── core/
-    ├── models/
-    ├── repositories/
-    ├── services/
-    │   └── review_service.py
-    ├── rules/
-    │   ├── engine.py
-    │   ├── protocol.py
-    │   └── result.py
-    ├── tools/
-    │   ├── ocr_adapter.py
-    │   ├── llm_adapter.py
-    │   ├── document_loader.py
-    │   ├── file_adapter.py
-    │   ├── pdf_adapter.py
-    │   ├── image_adapter.py
-    │   ├── erp_adapter.py
-    │   ├── oa_adapter.py
-    │   └── im_adapter.py
-    ├── workflows/
-    │   ├── food_license/
-    │   ├── qc_document/
-    │   ├── tobacco_license/
-    │   └── contract/
-    └── skills/
-        ├── base.py
-        ├── registry.py
-        ├── food_license/
-        ├── qc_document_review/
-        ├── tobacco_license_consistency_review/
-        └── contract_review/
+ai-service/app/use_cases/
 ```
 
-`app/rules/` 只放通用规则基础设施，包括规则协议、规则执行上下文、规则执行状态、执行器、风险聚合和平台 `RuleResult` 映射。具体业务规则放在对应 Skill 包内，例如：
+当前内置 use_case：
 
-- `app/skills/food_license/rules/`
-- `app/skills/qc_document_review/rules/`
-- `app/skills/tobacco_license_consistency_review/rules/`
-- `app/skills/contract_review/rules/`
+- `food_license`
+- `qc_document_review`
+- `tobacco_license_consistency_review`
+- `contract_review`
 
-本轮只建立骨架，不实现完整业务规则。
+职责：
+
+- 对外暴露 runtime 业务入口；
+- 声明支持的文档类型；
+- 接收 `ReviewInputContext`；
+- 调用 workflow；
+- 将 workflow 结果映射为平台级 `ReviewResult`。
+
+当前主线中：
+
+- `food_license` 是历史 V1 兼容 use_case；
+- 其他三个 use_case 当前仍以占位实现为主。
 
 ---
 
-## 6. ReviewResult 边界
+## 4. capability 边界
 
-`ReviewResult` 是平台级返回契约，必须保留稳定的跨 Skill 字段：
+路径：
+
+```text
+ai-service/app/capabilities/
+```
+
+当前首个 capability 样板：
+
+```text
+ai-service/app/capabilities/food_license/
+```
+
+当前结构：
+
+```text
+food_license/
+├── __init__.py
+├── prompt.py
+├── schemas.py
+├── executor.py
+├── extractor.py
+└── rules/
+```
+
+职责：
+
+- 定义 capability 自身 schema；
+- 组织提示边界；
+- 组织字段抽取逻辑；
+- 挂载 capability 专属规则；
+- 构造 capability 结果。
+
+capability 不直接充当平台入口，也不替代 workflow。
+
+---
+
+## 5. workflow 边界
+
+路径：
+
+```text
+ai-service/app/workflows/<domain>/
+```
+
+职责：
+
+- 编排 LangGraph 主流程；
+- 组织文档加载、字段抽取、规则执行、风险汇总和人工复核路由；
+- 调用 capability 与 tools adapter；
+- 不承载平台入口职责。
+
+当前 `food_license` workflow 已经与 capability 分离：
+
+- workflow 负责编排；
+- capability 负责能力结果和规则归属。
+
+---
+
+## 6. rules 与 tools 边界
+
+通用规则基础设施：
+
+```text
+ai-service/app/rules/
+```
+
+具体业务规则：
+
+```text
+ai-service/app/capabilities/<capability>/rules/
+```
+
+当前约定：
+
+- `app/rules/` 只放通用规则协议、上下文、执行器、聚合逻辑；
+- capability 自带自己的 `rules/`；
+- Agent Skill 只描述规则摘要；
+- workflow 不内嵌业务规则实现。
+
+`app/tools/` 只封装外部能力 Stub：
+
+- OCR
+- LLM
+- 文档加载
+- 文件读取
+- PDF 解析
+- 图片解析
+- ERP
+- OA
+- IM
+
+当前主线不接真实外部服务。
+
+---
+
+## 7. ReviewResult 边界
+
+当前 `ReviewResult` 同时包含主线字段和兼容字段：
 
 ```text
 task_id
-status
 document_type
+use_case_name
+use_case_version
 skill_name
 skill_version
 ruleset_version
+capability_names
+status
 risk_level
 needs_manual_review
 manual_review
@@ -179,70 +220,50 @@ updated_at
 skill_result
 ```
 
-`skill_result` 用于承载 Skill 专属 payload。平台字段不能被某个业务场景的专属字段污染。
+当前解释：
+
+- `use_case_name` / `use_case_version`：当前主入口字段；
+- `capability_names`：执行中用到的 capability；
+- `skill_name` / `skill_version`：兼容字段；
+- `skill_result`：兼容容器，当前承载 capability 专属 payload。
+
+因此文档和新代码应优先使用：
+
+- `use_case_*`
+- `capability_names`
+
+而不是继续把 `skill_*` 当作主字段语义。
 
 ---
 
-## 7. Agent Skill 描述层
+## 8. Agent Skill 描述层边界
 
 `.agents/skills/<skill>/SKILL.md` 只描述：
 
-- Skill 名称。
-- 能力边界。
-- 支持的输入。
-- 输出结构摘要。
-- 规则摘要。
-- 人工复核边界。
-- 禁止事项。
-- 与 Python Runtime 的关系。
+- 能力边界；
+- 支持的输入；
+- 输出结构摘要；
+- 规则摘要；
+- 人工复核边界；
+- 与 runtime use_case / capability 的关系。
 
-`SKILL.md` 不做：
+不做：
 
-- 不写 `if/else` 规则执行逻辑。
-- 不保存真实模型配置。
-- 不引用公有云 API 作为必需依赖。
-- 不绕过 ReviewService 或 SkillRegistry。
-- 不直接调用 workflow 节点。
+- 不写规则执行逻辑；
+- 不写 workflow 编排逻辑；
+- 不绕过 ReviewService 或 `use_case_registry`；
+- 不直接调用 OCR / LLM / OA / ERP；
+- 不直接充当 runtime 入口。
 
 ---
 
-## 8. Tools / Adapter 边界
+## 9. 当前主线约束
 
-`app/tools/` 封装外部能力，当前只提供 Stub。
+当前收口阶段不做：
 
-Adapter 可以表示：
-
-- OCR。
-- LLM。
-- 文档加载。
-- 文件读取。
-- PDF 解析。
-- 图片解析。
-- ERP 查询或回写。
-- OA 回写。
-- IM 通知。
-
-Adapter Stub 必须可以本地测试，不依赖外部服务。真实接入必须后续单独 Issue 完成。
-
-Workflow 可以调用 Adapter 获取 OCR、LLM、文件、ERP、OA 或 IM 能力，但 Adapter 返回值不能直接替代确定性规则判定。LLM 可以辅助字段抽取、摘要和修改建议；最终风险等级和是否需要人工复核必须来自规则执行结果和明确的路由策略。
-
----
-
-## 9. 规则约束
-
-确定性业务规则必须位于 rules 目录并可测试。规则执行状态包括：
-
-- `passed`：规则通过，不产生风险。
-- `failed`：规则失败，产生对应风险 finding。
-- `not_applicable`：规则不适用于当前材料或场景，不拉高风险等级。
-- `error`：规则执行异常，默认进入人工复核，不由 LLM 或 workflow 静默吞掉。
-
-LLM 可以辅助字段抽取、摘要和修改建议，但不能直接替代最终规则判定。
-
-V1 不做：
-
-- 数据库规则管理。
-- 外部规则覆盖。
-- 热加载规则。
-- 租户级规则覆盖。
-- 运行时动态编辑规则。
+- 不重新把 runtime 入口命名回 `app/skills`；
+- 不引入 Java / Spring Boot；
+- 不接真实 OCR / LLM / OA / ERP；
+- 不删除 `food_license` 兼容入口；
+- 不继续扩展 `food_license` 规则；
+- 不把 capability 上升为平台入口。

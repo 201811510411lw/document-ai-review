@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.models import RiskLevel, ReviewDocumentInput, ReviewInput, ReviewInputContext
-from app.use_cases.food_license.skill import food_license_use_case
+from app.use_cases.food_license.use_case import food_license_use_case
 from app.tools.document_loader import LocalPdfDocumentLoader
 from app.workflows.food_license import nodes as food_license_nodes
 

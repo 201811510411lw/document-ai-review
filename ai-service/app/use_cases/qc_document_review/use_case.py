@@ -11,18 +11,21 @@ from app.models import (
     ReviewStatus,
     RiskLevel,
 )
-from app.workflows.tobacco_license import run_tobacco_license_workflow
+from app.workflows.qc_document import run_qc_document_workflow
 
 
-class TobaccoLicenseConsistencyReviewUseCase:
-    name = "tobacco_license_consistency_review"
+class QcDocumentReviewUseCase:
+    name = "qc_document_review"
     version = "v1"
-    ruleset_version = "tobacco-license-consistency-rules-v1-placeholder"
+    ruleset_version = "qc-document-rules-v1-placeholder"
     supported_document_types = (
-        "tobacco_license_consistency_review",
-        "tobacco_license_consistency",
+        "qc_document_review",
+        "qc_document",
         "business_license",
-        "tobacco_license",
+        "food_license",
+        "food_production_license",
+        "batch_report",
+        "third_party_inspection_report",
     )
 
     def supports(self, input_context: ReviewInputContext) -> bool:
@@ -30,7 +33,7 @@ class TobaccoLicenseConsistencyReviewUseCase:
 
     def review(self, input_context: ReviewInputContext) -> ReviewResult:
         now = datetime.now(ZoneInfo(settings.timezone))
-        workflow_result = run_tobacco_license_workflow(input_context)
+        workflow_result = run_qc_document_workflow(input_context)
         return ReviewResult.model_validate(
             {
                 "task_id": input_context.task_id,
@@ -41,28 +44,20 @@ class TobaccoLicenseConsistencyReviewUseCase:
                 "ruleset_version": self.ruleset_version,
                 "capability_names": [],
                 "document_type": input_context.input.declared_document_type
-                or "tobacco_license_consistency",
+                or "qc_document",
                 "status": ReviewStatus.PENDING_MANUAL_REVIEW,
                 "risk_level": RiskLevel.MEDIUM,
                 "needs_manual_review": True,
                 "rule_results": [],
-                "summary": (
-                    "tobacco_license_consistency_review 仅为多 Skill 架构占位，"
-                    "尚未执行业务审核。"
-                ),
+                "summary": "qc_document_review 仅为 use_case 架构占位，尚未执行业务审核。",
                 "manual_review": ManualReview(
                     status=ManualReviewStatus.PENDING,
-                    reasons=[
-                        "tobacco_license_consistency_review Runtime 尚未实现，需要人工复核"
-                    ],
+                    reasons=["qc_document_review use_case 尚未实现，需要人工复核"],
                 ),
                 "audit_events": [
                     AuditEvent(
-                        event_type="tobacco_license_consistency_review.placeholder",
-                        message=(
-                            "tobacco_license_consistency_review 占位 Skill "
-                            "已返回未实现状态"
-                        ),
+                        event_type="qc_document_review.placeholder",
+                        message="qc_document_review 占位 use_case 已返回未实现状态",
                         occurred_at=now,
                     )
                 ],
@@ -73,6 +68,4 @@ class TobaccoLicenseConsistencyReviewUseCase:
         )
 
 
-tobacco_license_consistency_review_use_case = (
-    TobaccoLicenseConsistencyReviewUseCase()
-)
+qc_document_review_use_case = QcDocumentReviewUseCase()
