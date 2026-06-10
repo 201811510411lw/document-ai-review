@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, SerializeAsAny
 
 
 class RiskLevel(StrEnum):
@@ -53,9 +53,21 @@ class ReviewInput(BaseModel):
 class ReviewInputContext(BaseModel):
     task_id: str
     input: ReviewInput
-    skill_name: str
-    skill_version: str
+    use_case_name: str = Field(
+        validation_alias=AliasChoices("use_case_name", "skill_name")
+    )
+    use_case_version: str = Field(
+        validation_alias=AliasChoices("use_case_version", "skill_version")
+    )
     ruleset_version: str
+
+    @property
+    def skill_name(self) -> str:
+        return self.use_case_name
+
+    @property
+    def skill_version(self) -> str:
+        return self.use_case_version
 
 
 class RuleResult(BaseModel):
@@ -87,9 +99,16 @@ class ReviewResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     task_id: str
+    use_case_name: str = Field(
+        validation_alias=AliasChoices("use_case_name", "skill_name")
+    )
+    use_case_version: str = Field(
+        validation_alias=AliasChoices("use_case_version", "skill_version")
+    )
     skill_name: str
     skill_version: str
     ruleset_version: str
+    capability_names: list[str] = Field(default_factory=list)
     document_type: str
     status: ReviewStatus
     risk_level: RiskLevel

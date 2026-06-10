@@ -14,7 +14,7 @@ from app.models import (
 from app.workflows.contract import run_contract_workflow
 
 
-class ContractReviewSkill:
+class ContractReviewUseCase:
     name = "contract_review"
     version = "v1"
     ruleset_version = "contract-rules-v1-placeholder"
@@ -34,9 +34,12 @@ class ContractReviewSkill:
         return ReviewResult.model_validate(
             {
                 "task_id": input_context.task_id,
+                "use_case_name": self.name,
+                "use_case_version": self.version,
                 "skill_name": self.name,
                 "skill_version": self.version,
                 "ruleset_version": self.ruleset_version,
+                "capability_names": [],
                 "document_type": input_context.input.declared_document_type
                 or "contract",
                 "status": ReviewStatus.PENDING_MANUAL_REVIEW,
@@ -62,4 +65,4 @@ class ContractReviewSkill:
         )
 
 
-contract_review_skill = ContractReviewSkill()
+contract_review_use_case = ContractReviewUseCase()

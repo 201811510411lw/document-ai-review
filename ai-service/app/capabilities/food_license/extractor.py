@@ -2,7 +2,7 @@ import re
 from collections.abc import Mapping
 from typing import Any, Protocol
 
-from app.skills.food_license.models import FoodLicenseExtractedFields
+from app.capabilities.food_license.schemas import FoodLicenseExtractedFields
 
 
 class MissingFieldsLlmAdapter(Protocol):

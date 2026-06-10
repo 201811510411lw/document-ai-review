@@ -3,14 +3,14 @@ from datetime import date
 
 from app.models import ManualReview, ManualReviewStatus, RiskLevel
 from app.rules import RuleContext, RuleExecutor
-from app.skills.food_license.extractor import extract_food_license_fields
-from app.skills.food_license.models import (
+from app.capabilities.food_license.extractor import extract_food_license_fields
+from app.capabilities.food_license.schemas import (
     FoodLicenseDocumentClassification,
     FoodLicenseDocumentInputResult,
     FoodLicenseExtractedFields,
     FoodLicenseNormalizedFields,
 )
-from app.skills.food_license.rules import build_food_license_rules
+from app.capabilities.food_license.rules import build_food_license_rules
 from app.tools import StubDocumentLoader, StubLlmAdapter, StubOcrAdapter
 from app.tools.document_loader import LocalPdfDocumentLoader
 from app.workflows.food_license.state import FoodLicenseWorkflowState

@@ -1,6 +1,6 @@
-"""food_license Skill rule definitions."""
+"""food_license capability rule definitions."""
 
-from app.skills.food_license.rules.rule_defs import (
+from app.capabilities.food_license.rules.rule_defs import (
     FoodLicenseCreditCodeMatchRule,
     FoodLicenseDocumentTypeRule,
     FoodLicenseRuleEngineStubRule,

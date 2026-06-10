@@ -8,13 +8,11 @@ from app.models import (
     ReviewResult,
     ReviewStatus,
 )
-from app.skills.food_license.models import (
-    FoodLicenseSkillResult,
-)
+from app.capabilities.food_license.executor import build_food_license_capability_result
 from app.workflows.food_license import run_food_license_workflow
 
 
-class FoodLicenseSkill:
+class FoodLicenseUseCase:
     name = "food_license"
     version = "v1"
     ruleset_version = "food-license-rules-v1"
@@ -27,19 +25,16 @@ class FoodLicenseSkill:
     def review(self, input_context: ReviewInputContext) -> ReviewResult:
         now = datetime.now(ZoneInfo(settings.timezone))
         workflow_state = run_food_license_workflow(input_context)
-        skill_result = FoodLicenseSkillResult(
-            document_input=workflow_state.get("document_input"),
-            document_classification=workflow_state["document_classification"],
-            extracted_fields=workflow_state["extracted_fields"],
-            normalized_fields=workflow_state["normalized_fields"],
-            extraction_metadata=workflow_state.get("extraction_metadata", {}),
-        )
+        capability_result = build_food_license_capability_result(workflow_state)
 
         return ReviewResult(
             task_id=input_context.task_id,
+            use_case_name=self.name,
+            use_case_version=self.version,
             skill_name=self.name,
             skill_version=self.version,
             ruleset_version=self.ruleset_version,
+            capability_names=["food_license"],
             document_type="food_license",
             status=ReviewStatus.REVIEWED,
             risk_level=workflow_state["risk_level"],
@@ -56,8 +51,8 @@ class FoodLicenseSkill:
             ],
             created_at=now,
             updated_at=now,
-            skill_result=skill_result,
+            skill_result=capability_result,
         )
 
 
-food_license_skill = FoodLicenseSkill()
+food_license_use_case = FoodLicenseUseCase()
