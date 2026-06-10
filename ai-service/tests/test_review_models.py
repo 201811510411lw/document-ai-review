@@ -14,17 +14,17 @@ from app.models import (
     RiskLevel,
     RuleResult,
 )
-from app.skills.food_license.models import (
+from app.capabilities.food_license.schemas import (
+    FoodLicenseCapabilityResult,
     FoodLicenseDocumentClassification,
     FoodLicenseExtractedFields,
     FoodLicenseNormalizedFields,
-    FoodLicenseSkillResult,
 )
 
 
 def test_review_result_serializes_platform_fields_and_skill_result_boundary():
     now = datetime(2026, 6, 8, 14, 30, tzinfo=timezone.utc)
-    skill_result = FoodLicenseSkillResult(
+    skill_result = FoodLicenseCapabilityResult(
         document_classification=FoodLicenseDocumentClassification(
             document_type="food_license",
             confidence=0.98,
@@ -48,9 +48,12 @@ def test_review_result_serializes_platform_fields_and_skill_result_boundary():
 
     result = ReviewResult(
         task_id="review-task-001",
+        use_case_name="food_license",
+        use_case_version="v1",
         skill_name="food_license",
         skill_version="v1",
         ruleset_version="food-license-rules-v1",
+        capability_names=["food_license"],
         document_type="food_license",
         status=ReviewStatus.REVIEWED,
         risk_level=RiskLevel.NONE,
@@ -82,9 +85,12 @@ def test_review_result_serializes_platform_fields_and_skill_result_boundary():
 
     assert list(payload.keys()) == [
         "task_id",
+        "use_case_name",
+        "use_case_version",
         "skill_name",
         "skill_version",
         "ruleset_version",
+        "capability_names",
         "document_type",
         "status",
         "risk_level",
@@ -125,8 +131,8 @@ def test_review_input_context_keeps_document_input_separate_from_skill_result():
     context = ReviewInputContext(
         task_id="review-task-001",
         input=review_input,
-        skill_name="food_license",
-        skill_version="v1",
+        use_case_name="food_license",
+        use_case_version="v1",
         ruleset_version="food-license-rules-v1",
     )
 
@@ -134,7 +140,7 @@ def test_review_input_context_keeps_document_input_separate_from_skill_result():
 
     assert payload["input"]["ocr_text"].startswith("食品经营许可证")
     assert payload["input"]["supplier_credit_code"] == "91510100MA00000000"
-    assert payload["skill_name"] == "food_license"
+    assert payload["use_case_name"] == "food_license"
     assert "skill_result" not in payload
 
 
@@ -142,9 +148,12 @@ def test_review_result_rejects_food_license_fields_at_top_level():
     now = datetime(2026, 6, 8, 14, 30, tzinfo=timezone.utc)
     base_payload = {
         "task_id": "review-task-001",
+        "use_case_name": "food_license",
+        "use_case_version": "v1",
         "skill_name": "food_license",
         "skill_version": "v1",
         "ruleset_version": "food-license-rules-v1",
+        "capability_names": ["food_license"],
         "document_type": "food_license",
         "status": "REVIEWED",
         "risk_level": "NONE",

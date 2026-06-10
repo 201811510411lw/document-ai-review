@@ -2,7 +2,7 @@ from typing import TypedDict
 
 from app.models import ManualReview, ReviewInputContext, RiskLevel, RuleResult
 from app.rules import RuleExecutionSummary
-from app.skills.food_license.models import (
+from app.capabilities.food_license.schemas import (
     FoodLicenseDocumentClassification,
     FoodLicenseDocumentInputResult,
     FoodLicenseExtractedFields,

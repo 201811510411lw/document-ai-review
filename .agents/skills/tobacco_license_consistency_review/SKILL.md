@@ -46,9 +46,9 @@ description: 营业执照与烟草证一致性校验的 Agent Skill 描述层。
 - 不在 `SKILL.md` 中编写字段比对执行逻辑。
 - 不直接调用真实 OA、飞书或企微。
 - 不声明公有云 OCR 或 LLM 为必需依赖。
-- 不绕过 ReviewService 和 SkillRegistry。
+- 不绕过 ReviewService 和 use case registry。
 - 不直接调用 workflow 内部节点。
 
 ## 与 Python Runtime 的关系
 
-Python Runtime facade 对应 `ai-service/app/skills/tobacco_license_consistency_review/skill.py`。平台只通过 `Skill.review(input_context)` 调用该 Runtime。后续 workflow 应位于 `ai-service/app/workflows/tobacco_license/`，确定性规则应位于 `ai-service/app/skills/tobacco_license_consistency_review/rules/`。
+Python Runtime facade 对应 `ai-service/app/use_cases/tobacco_license_consistency_review/skill.py`。平台通过 use case 入口调用 Runtime。后续 workflow 位于 `ai-service/app/workflows/tobacco_license/`；如需要可执行能力拆分，应落在 `ai-service/app/capabilities/`。

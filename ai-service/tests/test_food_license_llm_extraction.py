@@ -1,5 +1,5 @@
 from app.models import ReviewInput, ReviewInputContext, RiskLevel
-from app.skills.food_license.extractor import extract_food_license_fields
+from app.capabilities.food_license.extractor import extract_food_license_fields
 from app.workflows.food_license import nodes as food_license_nodes
 from app.workflows.food_license import run_food_license_workflow
 
@@ -113,3 +113,4 @@ def test_llm_supplement_does_not_decide_risk_level(monkeypatch):
     assert len(llm.calls) == 1
     assert state["risk_level"] == RiskLevel.NONE
     assert state["rule_results"][0].rule_code == "FOOD_LICENSE_RULE_ENGINE_STUB"
+    assert all(rule_result.passed is True for rule_result in state["rule_results"])

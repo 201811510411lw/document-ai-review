@@ -46,9 +46,9 @@ description: 法务合同内容审核的 Agent Skill 描述层。
 - 不在 `SKILL.md` 中编写合同规则执行逻辑。
 - 不直接调用真实 LLM、OA 或外部合同系统。
 - 不声明公有云大模型 API 为必需依赖。
-- 不绕过 ReviewService 和 SkillRegistry。
+- 不绕过 ReviewService 和 use case registry。
 - 不直接调用 workflow 内部节点。
 
 ## 与 Python Runtime 的关系
 
-Python Runtime facade 对应 `ai-service/app/skills/contract_review/skill.py`。平台只通过 `Skill.review(input_context)` 调用该 Runtime。后续 workflow 应位于 `ai-service/app/workflows/contract/`，确定性规则应位于 `ai-service/app/skills/contract_review/rules/`。
+Python Runtime facade 对应 `ai-service/app/use_cases/contract_review/skill.py`。平台通过 use case 入口调用 Runtime。后续 workflow 位于 `ai-service/app/workflows/contract/`；如需要可执行能力拆分，应落在 `ai-service/app/capabilities/`。

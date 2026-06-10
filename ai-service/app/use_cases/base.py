@@ -3,7 +3,7 @@ from typing import Protocol
 from app.models import ReviewInputContext, ReviewResult
 
 
-class Skill(Protocol):
+class UseCase(Protocol):
     name: str
     version: str
     ruleset_version: str

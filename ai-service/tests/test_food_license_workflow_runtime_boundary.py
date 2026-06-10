@@ -7,7 +7,7 @@ from app.models import (
     ReviewInputContext,
     RiskLevel,
 )
-from app.skills.food_license import skill as food_license_skill_module
+from app.use_cases.food_license import skill as food_license_use_case_module
 
 
 def test_food_license_workflow_runtime_exposes_review_boundary():
@@ -15,7 +15,14 @@ def test_food_license_workflow_runtime_exposes_review_boundary():
     input_context = ReviewInputContext(
         task_id="review-task-workflow-boundary",
         input=ReviewInput(
-            ocr_text="食品经营许可证\n许可证编号：JY15101000000000",
+            ocr_text=(
+                "食品经营许可证\n"
+                "经营者名称：成都示例食品有限公司\n"
+                "统一社会信用代码：91510100MA00000000\n"
+                "许可证编号：JY15101000000000\n"
+                "经营项目：预包装食品销售、散装食品销售\n"
+                "有效期至：2028年06月05日"
+            ),
             supplier_name="成都示例食品有限公司",
             supplier_credit_code="91510100MA00000000",
             declared_document_type="food_license",
@@ -33,7 +40,7 @@ def test_food_license_workflow_runtime_exposes_review_boundary():
     assert state["manual_review"].status == ManualReviewStatus.NOT_REQUIRED
 
 
-def test_food_license_skill_facade_calls_workflow_entrypoint(monkeypatch):
+def test_food_license_use_case_facade_calls_workflow_entrypoint(monkeypatch):
     calls = []
 
     def stub_workflow(input_context):
@@ -49,7 +56,11 @@ def test_food_license_skill_facade_calls_workflow_entrypoint(monkeypatch):
             "manual_review": {"status": "NOT_REQUIRED"},
         }
 
-    monkeypatch.setattr(food_license_skill_module, "run_food_license_workflow", stub_workflow)
+    monkeypatch.setattr(
+        food_license_use_case_module,
+        "run_food_license_workflow",
+        stub_workflow,
+    )
     input_context = ReviewInputContext(
         task_id="review-task-skill-facade",
         input=ReviewInput(
@@ -63,7 +74,7 @@ def test_food_license_skill_facade_calls_workflow_entrypoint(monkeypatch):
         ruleset_version="food-license-rules-v1",
     )
 
-    result = food_license_skill_module.food_license_skill.review(input_context)
+    result = food_license_use_case_module.food_license_use_case.review(input_context)
 
     assert calls == [input_context]
     assert result.task_id == "review-task-skill-facade"
@@ -75,11 +86,11 @@ def test_platform_layer_does_not_import_food_license_workflow_nodes():
     platform_files = [
         *app_root.joinpath("api").glob("*.py"),
         *app_root.joinpath("services").glob("*.py"),
-        app_root / "skills" / "registry.py",
+        app_root / "use_cases" / "registry.py",
     ]
 
     for source_file in platform_files:
         source = source_file.read_text(encoding="utf-8")
 
         assert "app.workflows.food_license.nodes" not in source
-        assert "app.skills.food_license.nodes" not in source
+        assert "app.capabilities.food_license.nodes" not in source

@@ -5,7 +5,9 @@ from app.services import review_service as review_service_module
 from app.services.review_service import ReviewService
 
 
-def test_review_service_gets_food_license_skill_from_registry_and_calls_review(monkeypatch):
+def test_review_service_gets_food_license_use_case_from_registry_and_calls_review(
+    monkeypatch,
+):
     calls = []
 
     class StubSkill:
@@ -42,14 +44,14 @@ def test_review_service_gets_food_license_skill_from_registry_and_calls_review(m
 
     class StubRegistry:
         def __init__(self) -> None:
-            self.requested_skill_names = []
+            self.requested_use_case_names = []
 
-        def get(self, skill_name: str):
-            self.requested_skill_names.append(skill_name)
+        def get(self, use_case_name: str):
+            self.requested_use_case_names.append(use_case_name)
             return StubSkill()
 
     registry = StubRegistry()
-    monkeypatch.setattr(review_service_module, "skill_registry", registry)
+    monkeypatch.setattr(review_service_module, "use_case_registry", registry)
 
     result = ReviewService().review_food_license(
         ReviewInput(
@@ -59,14 +61,14 @@ def test_review_service_gets_food_license_skill_from_registry_and_calls_review(m
         )
     )
 
-    assert registry.requested_skill_names == ["food_license"]
+    assert registry.requested_use_case_names == ["food_license"]
     assert len(calls) == 1
     assert calls[0].skill_name == "food_license"
     assert calls[0].input.supplier_credit_code == "91510100MA00000000"
     assert result.skill_name == "food_license"
 
 
-def test_review_service_review_can_call_skill_by_name(monkeypatch):
+def test_review_service_review_can_call_use_case_by_name(monkeypatch):
     calls = []
 
     class StubSkill:
@@ -106,14 +108,14 @@ def test_review_service_review_can_call_skill_by_name(monkeypatch):
 
     class StubRegistry:
         def __init__(self) -> None:
-            self.requested_skill_names = []
+            self.requested_use_case_names = []
 
-        def get(self, skill_name: str):
-            self.requested_skill_names.append(skill_name)
+        def get(self, use_case_name: str):
+            self.requested_use_case_names.append(use_case_name)
             return StubSkill()
 
     registry = StubRegistry()
-    monkeypatch.setattr(review_service_module, "skill_registry", registry)
+    monkeypatch.setattr(review_service_module, "use_case_registry", registry)
 
     result = ReviewService().review(
         ReviewInput(
@@ -122,10 +124,10 @@ def test_review_service_review_can_call_skill_by_name(monkeypatch):
             supplier_credit_code="91510100MA00000000",
             declared_document_type="contract_review",
         ),
-        skill_name="contract_review",
+        use_case_name="contract_review",
     )
 
-    assert registry.requested_skill_names == ["contract_review"]
+    assert registry.requested_use_case_names == ["contract_review"]
     assert len(calls) == 1
     assert calls[0].skill_name == "contract_review"
     assert result.skill_name == "contract_review"
@@ -175,7 +177,7 @@ def test_review_service_review_can_select_skill(monkeypatch):
             return StubSkill()
 
     registry = StubRegistry()
-    monkeypatch.setattr(review_service_module, "skill_registry", registry)
+    monkeypatch.setattr(review_service_module, "use_case_registry", registry)
 
     result = ReviewService().review(
         ReviewInput(

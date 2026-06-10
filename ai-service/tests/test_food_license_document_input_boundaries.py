@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.models import RiskLevel, ReviewDocumentInput, ReviewInput, ReviewInputContext
-from app.skills.food_license.skill import food_license_skill
+from app.use_cases.food_license.skill import food_license_use_case
 from app.tools.document_loader import LocalPdfDocumentLoader
 from app.workflows.food_license import nodes as food_license_nodes
 
@@ -141,7 +141,7 @@ def _pdf_unicode_map(text: str) -> str:
 
 
 def test_ocr_text_input_stays_compatible():
-    result = food_license_skill.review(
+    result = food_license_use_case.review(
         ReviewInputContext(
             task_id="review-task-ocr-text",
             input=ReviewInput(
@@ -164,7 +164,7 @@ def test_ocr_text_input_stays_compatible():
 
 
 def test_pdf_metadata_with_stub_text_runs_review_flow_without_file_access():
-    result = food_license_skill.review(
+    result = food_license_use_case.review(
         ReviewInputContext(
             task_id="review-task-pdf",
             input=ReviewInput(
@@ -234,7 +234,14 @@ def test_pdf_local_path_input_reads_pdf_text_and_completes_review_result(tmp_pat
         "needs_ocr": False,
         "source": "local_path",
     }
-    assert payload["rule_results"][0]["rule_code"] == "FOOD_LICENSE_RULE_ENGINE_STUB"
+    assert [rule_result["rule_code"] for rule_result in payload["rule_results"]] == [
+        "FOOD_LICENSE_RULE_ENGINE_STUB",
+        "FOOD_LICENSE_TYPE_MATCH",
+        "FOOD_LICENSE_SUBJECT_NAME_MATCH",
+        "FOOD_LICENSE_CREDIT_CODE_MATCH",
+        "FOOD_LICENSE_VALIDITY_PERIOD",
+    ]
+    assert all(rule_result["passed"] is True for rule_result in payload["rule_results"])
 
 
 def test_pdf_local_path_missing_file_returns_stable_error(tmp_path):
@@ -280,7 +287,7 @@ def test_pdf_local_path_without_embedded_text_marks_needs_ocr_and_skips_llm(
         TrackingLlmAdapter(),
     )
 
-    result = food_license_skill.review(
+    result = food_license_use_case.review(
         ReviewInputContext(
             task_id="review-task-blank-local-pdf",
             input=ReviewInput(
@@ -312,7 +319,7 @@ def test_pdf_file_path_alias_reads_pdf_text(tmp_path):
     pdf_path = tmp_path / "food-license-alias.pdf"
     write_minimal_pdf(pdf_path, FOOD_LICENSE_TEXT)
 
-    result = food_license_skill.review(
+    result = food_license_use_case.review(
         ReviewInputContext(
             task_id="review-task-file-path",
             input=ReviewInput(
@@ -369,7 +376,7 @@ def test_local_pdf_loader_does_not_access_network_or_llm_and_does_not_decide_ris
             document_format="pdf",
         )
     )
-    review_result = food_license_skill.review(
+    review_result = food_license_use_case.review(
         ReviewInputContext(
             task_id="review-task-local-pdf",
             input=ReviewInput(
@@ -413,7 +420,7 @@ def test_file_input_uses_stub_document_loader(monkeypatch):
 
     monkeypatch.setattr(food_license_nodes, "food_license_document_loader", StubLoader())
 
-    result = food_license_skill.review(
+    result = food_license_use_case.review(
         ReviewInputContext(
             task_id="review-task-loader",
             input=ReviewInput(
@@ -456,7 +463,7 @@ def test_file_input_can_use_stub_ocr_adapter_when_loader_has_no_text(monkeypatch
         MetadataOnlyLoader(),
     )
 
-    result = food_license_skill.review(
+    result = food_license_use_case.review(
         ReviewInputContext(
             task_id="review-task-stub-ocr",
             input=ReviewInput(
@@ -482,7 +489,7 @@ def test_file_input_can_use_stub_ocr_adapter_when_loader_has_no_text(monkeypatch
 
 
 def test_image_metadata_with_stub_text_runs_review_flow_without_file_access():
-    result = food_license_skill.review(
+    result = food_license_use_case.review(
         ReviewInputContext(
             task_id="review-task-image",
             input=ReviewInput(

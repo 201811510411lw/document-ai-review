@@ -40,9 +40,12 @@ class FoodLicenseDocumentInputResult(BaseModel):
     document_format: str | None = None
 
 
-class FoodLicenseSkillResult(BaseModel):
+class FoodLicenseCapabilityResult(BaseModel):
     document_input: FoodLicenseDocumentInputResult | None = None
     document_classification: FoodLicenseDocumentClassification | None = None
     extracted_fields: FoodLicenseExtractedFields | None = None
     normalized_fields: FoodLicenseNormalizedFields | None = None
     extraction_metadata: dict = Field(default_factory=dict)
+
+
+FoodLicenseSkillResult = FoodLicenseCapabilityResult

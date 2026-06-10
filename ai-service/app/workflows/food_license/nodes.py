@@ -1,14 +1,16 @@
 import re
+from datetime import date
 
 from app.models import ManualReview, ManualReviewStatus, RiskLevel
-from app.rules import RuleContext, RuleExecutionResult, RuleExecutor
-from app.skills.food_license.extractor import extract_food_license_fields
-from app.skills.food_license.models import (
+from app.rules import RuleContext, RuleExecutor
+from app.capabilities.food_license.extractor import extract_food_license_fields
+from app.capabilities.food_license.schemas import (
     FoodLicenseDocumentClassification,
     FoodLicenseDocumentInputResult,
     FoodLicenseExtractedFields,
     FoodLicenseNormalizedFields,
 )
+from app.capabilities.food_license.rules import build_food_license_rules
 from app.tools import StubDocumentLoader, StubLlmAdapter, StubOcrAdapter
 from app.tools.document_loader import LocalPdfDocumentLoader
 from app.workflows.food_license.state import FoodLicenseWorkflowState
@@ -159,19 +161,6 @@ def normalize_fields(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowStat
     }
 
 
-class FoodLicenseRuleEngineStubRule:
-    code = "FOOD_LICENSE_RULE_ENGINE_STUB"
-    name = "food_license 规则执行器接入占位规则"
-    risk_level_on_failure = RiskLevel.LOW
-
-    def evaluate(self, context: RuleContext) -> RuleExecutionResult:
-        return RuleExecutionResult.passed(
-            rule=self,
-            message="food_license 已接入通用规则执行器。",
-            details={"document_type": context.facts.get("document_type")},
-        )
-
-
 def run_rules(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
     document_classification = state.get("document_classification")
     rule_context = RuleContext(
@@ -186,9 +175,10 @@ def run_rules(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
             "extracted_fields": state.get("extracted_fields"),
             "normalized_fields": state.get("normalized_fields"),
             "input_context": state["input_context"],
+            "current_date": _current_rule_date(),
         },
     )
-    rule_execution = RuleExecutor([FoodLicenseRuleEngineStubRule()]).run(rule_context)
+    rule_execution = RuleExecutor(build_food_license_rules()).run(rule_context)
     return {
         **state,
         "rule_execution": rule_execution,
@@ -306,3 +296,7 @@ def _pdf_loader_metadata(metadata: dict, *, needs_ocr: bool | None = None) -> di
         "needs_ocr": metadata.get("needs_ocr") if needs_ocr is None else needs_ocr,
         "source": metadata.get("source"),
     }
+
+
+def _current_rule_date() -> date:
+    return date.today()
