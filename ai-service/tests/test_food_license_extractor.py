@@ -1,4 +1,4 @@
-from app.skills.food_license.extractor import extract_food_license_fields
+from app.capabilities.food_license.extractor import extract_food_license_fields
 
 
 def test_regex_extractor_handles_food_license_sample_with_chinese_date():

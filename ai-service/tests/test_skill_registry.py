@@ -9,7 +9,7 @@ from app.models import (
     ReviewStatus,
     RiskLevel,
 )
-from app.skills.registry import SkillRegistry, skill_registry
+from app.use_cases.registry import UseCaseRegistry, use_case_registry
 
 
 class StubSkill:
@@ -43,8 +43,8 @@ class StubSkill:
         )
 
 
-def test_skill_registry_can_register_and_select_multiple_skills():
-    registry = SkillRegistry()
+def test_use_case_registry_can_register_and_select_multiple_use_cases():
+    registry = UseCaseRegistry()
     contract_skill = StubSkill("contract_review", ("contract_review",))
     qc_skill = StubSkill("qc_document_review", ("qc_document_review",))
     registry.register(contract_skill)
@@ -68,13 +68,13 @@ def test_skill_registry_can_register_and_select_multiple_skills():
     assert registry.select(input_context) is contract_skill
 
 
-def test_global_skill_registry_keeps_food_license_and_placeholders():
-    skill_names = {skill.name for skill in skill_registry.list()}
+def test_global_use_case_registry_keeps_food_license_and_placeholders():
+    use_case_names = {use_case.name for use_case in use_case_registry.list()}
 
-    assert skill_registry.get("food_license").name == "food_license"
+    assert use_case_registry.get("food_license").name == "food_license"
     assert {
         "food_license",
         "qc_document_review",
         "tobacco_license_consistency_review",
         "contract_review",
-    }.issubset(skill_names)
+    }.issubset(use_case_names)

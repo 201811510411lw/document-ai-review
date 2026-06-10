@@ -6,11 +6,11 @@ from app.models import (
     ReviewStatus,
     RiskLevel,
 )
-from app.skills.food_license.skill import food_license_skill
+from app.use_cases.food_license.skill import food_license_use_case
 from app.workflows.food_license import run_food_license_workflow
 
 
-def test_food_license_skill_review_extracts_fields_and_returns_review_result():
+def test_food_license_use_case_review_extracts_fields_and_returns_review_result():
     input_context = ReviewInputContext(
         task_id="review-task-001",
         input=ReviewInput(
@@ -31,7 +31,7 @@ def test_food_license_skill_review_extracts_fields_and_returns_review_result():
         ruleset_version="food-license-rules-v1",
     )
 
-    result = food_license_skill.review(input_context)
+    result = food_license_use_case.review(input_context)
     payload = result.model_dump(mode="json")
 
     assert isinstance(result, ReviewResult)
@@ -116,7 +116,7 @@ def test_unknown_document_type_requires_manual_review():
         ruleset_version="food-license-rules-v1",
     )
 
-    result = food_license_skill.review(input_context)
+    result = food_license_use_case.review(input_context)
     payload = result.model_dump(mode="json")
 
     assert payload["skill_result"]["document_classification"]["document_type"] == "unknown"

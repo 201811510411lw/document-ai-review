@@ -2,8 +2,8 @@ from datetime import date
 
 from app.models import ReviewInput, ReviewInputContext, RiskLevel
 from app.rules import RuleContext, RuleStatus
-from app.skills.food_license.models import FoodLicenseNormalizedFields
-from app.skills.food_license.rules import (
+from app.capabilities.food_license.schemas import FoodLicenseNormalizedFields
+from app.capabilities.food_license.rules import (
     FoodLicenseCreditCodeMatchRule,
     FoodLicenseDocumentTypeRule,
     FoodLicenseSubjectNameMatchRule,

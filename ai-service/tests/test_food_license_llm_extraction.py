@@ -1,5 +1,5 @@
 from app.models import ReviewInput, ReviewInputContext, RiskLevel
-from app.skills.food_license.extractor import extract_food_license_fields
+from app.capabilities.food_license.extractor import extract_food_license_fields
 from app.workflows.food_license import nodes as food_license_nodes
 from app.workflows.food_license import run_food_license_workflow
 

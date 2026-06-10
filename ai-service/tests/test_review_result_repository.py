@@ -73,7 +73,7 @@ def test_review_service_can_save_result_with_injected_repository(monkeypatch, tm
 
     from app.services import review_service as review_service_module
 
-    monkeypatch.setattr(review_service_module, "skill_registry", StubRegistry())
+    monkeypatch.setattr(review_service_module, "use_case_registry", StubRegistry())
 
     saved = ReviewService(repository=repository).review_food_license(
         ReviewInput(

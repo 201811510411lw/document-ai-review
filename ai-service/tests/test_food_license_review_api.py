@@ -33,9 +33,12 @@ def test_food_license_review_accepts_ocr_text_and_returns_review_result():
 
     assert list(payload.keys()) == [
         "task_id",
+        "use_case_name",
+        "use_case_version",
         "skill_name",
         "skill_version",
         "ruleset_version",
+        "capability_names",
         "document_type",
         "status",
         "risk_level",
@@ -49,9 +52,12 @@ def test_food_license_review_accepts_ocr_text_and_returns_review_result():
         "skill_result",
     ]
     assert payload["task_id"].startswith("review-task-")
+    assert payload["use_case_name"] == "food_license"
+    assert payload["use_case_version"] == "v1"
     assert payload["skill_name"] == "food_license"
     assert payload["skill_version"] == "v1"
     assert payload["ruleset_version"] == "food-license-rules-v1"
+    assert payload["capability_names"] == ["food_license"]
     assert payload["document_type"] == "food_license"
     assert payload["status"] == "REVIEWED"
     assert payload["risk_level"] == "NONE"
@@ -124,9 +130,12 @@ def test_food_license_review_route_calls_review_service_boundary():
             return ReviewResult.model_validate(
                 {
                     "task_id": "review-task-stub",
+                    "use_case_name": "food_license",
+                    "use_case_version": "v1",
                     "skill_name": "food_license",
                     "skill_version": "v1",
                     "ruleset_version": "food-license-rules-v1",
+                    "capability_names": ["food_license"],
                     "document_type": "food_license",
                     "status": "REVIEWED",
                     "risk_level": "NONE",
