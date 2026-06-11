@@ -1,3 +1,4 @@
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -54,8 +55,12 @@ def map_srm_certification_row(row: dict[str, Any]) -> DocumentRecord:
         business_num=_first_present(row, "num", "t1.num"),
         vendor_id=_first_present(row, "vendorId", "t1.vendorId"),
         vendor_name=_first_present(row, "vendorName", "t1.vendorName"),
-        source_expired_begin=_first_present(row, "expiredBegin", "t1.expiredBegin"),
-        source_expired_end=_first_present(row, "expiredEnd", "t1.expiredEnd"),
+        source_expired_begin=_to_source_string(
+            _first_present(row, "expiredBegin", "t1.expiredBegin")
+        ),
+        source_expired_end=_to_source_string(
+            _first_present(row, "expiredEnd", "t1.expiredEnd")
+        ),
         file_name=_first_present(row, "attachmentName", "t2.attachmentName"),
         file_store_key=_first_present(row, "storeId", "t2.storeId"),
         file_url=_first_present(row, "url", "t2.url"),
@@ -93,3 +98,11 @@ def _to_bool(value: Any) -> bool:
         if normalized in {"false", "0", "no", "n", ""}:
             return False
     return bool(value)
+
+
+def _to_source_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return str(value)

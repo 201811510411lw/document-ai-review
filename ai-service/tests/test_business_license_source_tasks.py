@@ -24,7 +24,8 @@ def test_fetch_business_license_source_tasks_maps_sql_rows_to_review_inputs():
                 "refId": "attach-business-001",
                 "typeName": "营业执照",
                 "vendorName": "成都示例商贸有限公司",
-                "number": "91510100MA0000000X",
+                "number": "1092453497593159680",
+                "num": "91510100MA0000000X",
                 "url": "https://files.example.test/business-license.pdf",
                 "attachmentName": "business-license.pdf",
             }
@@ -109,6 +110,7 @@ def test_fetch_one_business_license_source_task_uses_default_srm_sql():
     assert task is not None
     assert task.review_input.file.file_uri == "https://files.example.test/business-license.png"
     assert "ods.ods_hd_srm_certification_di" in DEFAULT_BUSINESS_LICENSE_SOURCE_SQL
+    assert "t1.typeName='营业执照'" in DEFAULT_BUSINESS_LICENSE_SOURCE_SQL
     assert "limit 1" in DEFAULT_BUSINESS_LICENSE_SOURCE_SQL.lower()
 
 
