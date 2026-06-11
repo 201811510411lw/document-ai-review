@@ -31,6 +31,7 @@ select * from ods.ods_hd_srm_certification_di t1
                   left join  ods.ods_hd_srm_attachment_di t2 on t1.uuid=t2.refId
 where t1.category='vendor'
   and t2.tenant='8560'  and t2.refType ='certification'
+  and t1.typeName='营业执照'
   and removed =false limit 1;
 """.strip()
 
@@ -74,7 +75,7 @@ def fetch_business_license_source_tasks(
 def _to_review_input(record: DocumentRecord) -> ReviewInput:
     return ReviewInput(
         supplier_name=record.vendor_name or "",
-        supplier_credit_code=record.business_number or "",
+        supplier_credit_code=record.business_num or record.business_number or "",
         declared_document_type="business_license",
         file=ReviewDocumentInput(
             file_uri=record.file_url,

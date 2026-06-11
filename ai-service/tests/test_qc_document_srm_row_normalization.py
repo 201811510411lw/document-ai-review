@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from app.integrations.srm.document_records import (
     UnsupportedSrmDocumentTypeError,
     map_srm_certification_row,
@@ -61,8 +63,8 @@ def test_srm_business_license_row_maps_to_document_record():
         "num": "BL-NUM-001",
         "vendorId": "VENDOR-001",
         "vendorName": "成都示例商贸有限公司",
-        "expiredBegin": "2020-01-01",
-        "expiredEnd": "2030-01-01",
+        "expiredBegin": datetime(2020, 1, 1, 0, 0, 0),
+        "expiredEnd": datetime(2030, 1, 1, 23, 59, 59),
         "attachmentName": "business-license.pdf",
         "storeId": "srm/cert/business-license.pdf",
         "url": "https://files.example.test/business-license.pdf",
@@ -77,6 +79,8 @@ def test_srm_business_license_row_maps_to_document_record():
     assert record.attachment_ref_id == "attach-business-001"
     assert record.business_number == "91510100MA0000000X"
     assert record.vendor_name == "成都示例商贸有限公司"
+    assert record.source_expired_begin == "2020-01-01T00:00:00"
+    assert record.source_expired_end == "2030-01-01T23:59:59"
     assert record.file_name == "business-license.pdf"
     assert record.file_url == "https://files.example.test/business-license.pdf"
     assert record.source_payload == row
