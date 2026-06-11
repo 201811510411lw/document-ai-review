@@ -1,0 +1,10 @@
+# 企业微信证照机器人依赖
+# 安装: pip install -r requirements.txt
+
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+apscheduler>=3.10.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+pycryptodome>=3.20.0     # 企业微信消息解密（AES-256-CBC）
+pydantic>=2.0.0
