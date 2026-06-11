@@ -15,6 +15,11 @@ from app.tools.llm_adapter import StubLlmAdapter
 from app.tools.oa_adapter import StubOaAdapter
 from app.tools.ocr_adapter import StubOcrAdapter
 from app.tools.pdf_adapter import StubPdfAdapter
+from app.tools.vision_adapter import (
+    FakeVisionAdapter,
+    LangChainVisionAdapter,
+    build_business_license_vision_adapter,
+)
 
 __all__ = [
     "StubDocumentLoader",
@@ -30,4 +35,7 @@ __all__ = [
     "StubOaAdapter",
     "StubOcrAdapter",
     "StubPdfAdapter",
+    "FakeVisionAdapter",
+    "LangChainVisionAdapter",
+    "build_business_license_vision_adapter",
 ]

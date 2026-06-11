@@ -1,4 +1,5 @@
 from app.models import ReviewInput
+from app.models import ReviewDocumentInput
 from app.repositories.review_result_repository import SQLiteReviewResultRepository
 from app.services.review_service import ReviewService
 
@@ -43,3 +44,46 @@ def test_business_license_review_projection_is_saved_and_loaded(tmp_path):
     assert snapshot["extracted_fields"]["subject_name"] == "成都示例商贸有限公司"
     assert snapshot["source_evidence"]["source"]["record_id"] == "cert-business-001"
     assert snapshot["rule_results"][0]["rule_code"] == "BUSINESS_LICENSE_TYPE_MATCH"
+
+
+def test_business_license_projection_saves_file_and_vision_metadata(
+    tmp_path,
+    monkeypatch,
+):
+    image_path = tmp_path / "business-license.png"
+    image_path.write_bytes(b"fake-image-bytes")
+    monkeypatch.setenv(
+        "BUSINESS_LICENSE_FAKE_VISION_TEXT",
+        """
+        营业执照
+        统一社会信用代码：91510100MA0000000X
+        名称：成都示例商贸有限公司
+        住所：成都市高新区天府大道 1 号
+        法定代表人：张三
+        营业期限：2020年01月02日至2030年01月01日
+        """,
+    )
+    repository = SQLiteReviewResultRepository(tmp_path / "reviews.db")
+
+    result = ReviewService(repository=repository).review(
+        ReviewInput(
+            file=ReviewDocumentInput(
+                local_path=str(image_path),
+                file_name="business-license.png",
+                mime_type="image/png",
+                document_format="image",
+                file_uri="https://files.example.test/business-license.png",
+            ),
+            supplier_name="成都示例商贸有限公司",
+            supplier_credit_code="91510100MA0000000X",
+            declared_document_type="business_license",
+            source={"record_id": "cert-business-001"},
+        ),
+        use_case_name="business_license",
+    )
+
+    snapshot = repository.get_business_license_snapshot(result.task_id)
+
+    assert snapshot["source_url"] == "https://files.example.test/business-license.png"
+    assert snapshot["business_name"] == "成都示例商贸有限公司"
+    assert snapshot["extraction_metadata"]["vision_extractor"]["implementation_status"] == "fake"

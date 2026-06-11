@@ -1,5 +1,7 @@
 from app.integrations.srm.business_license_tasks import (
     BusinessLicenseSourceTaskError,
+    DEFAULT_BUSINESS_LICENSE_SOURCE_SQL,
+    fetch_one_business_license_source_task,
     fetch_business_license_source_tasks,
 )
 
@@ -85,3 +87,32 @@ def test_fetch_business_license_source_tasks_deduplicates_records_by_record_and_
     tasks = fetch_business_license_source_tasks(StubSqlClient([row, dict(row)]), "select 1")
 
     assert len(tasks) == 1
+
+
+def test_fetch_one_business_license_source_task_uses_default_srm_sql():
+    client = StubSqlClient(
+        [
+            {
+                "uuid": "cert-business-001",
+                "refId": "attach-business-001",
+                "typeName": "营业执照",
+                "vendorName": "成都示例商贸有限公司",
+                "number": "91510100MA0000000X",
+                "url": "https://files.example.test/business-license.png",
+            }
+        ]
+    )
+
+    task = fetch_one_business_license_source_task(client)
+
+    assert client.executed_sql == [DEFAULT_BUSINESS_LICENSE_SOURCE_SQL]
+    assert task is not None
+    assert task.review_input.file.file_uri == "https://files.example.test/business-license.png"
+    assert "ods.ods_hd_srm_certification_di" in DEFAULT_BUSINESS_LICENSE_SOURCE_SQL
+    assert "limit 1" in DEFAULT_BUSINESS_LICENSE_SOURCE_SQL.lower()
+
+
+def test_fetch_one_business_license_source_task_returns_none_when_no_rows():
+    task = fetch_one_business_license_source_task(StubSqlClient([]))
+
+    assert task is None

@@ -1,8 +1,10 @@
 from pathlib import Path
+from io import BytesIO
 from tempfile import gettempdir
 from typing import Any, Protocol
 
 from pypdf import PdfReader
+from app.tools.document_constraints import DocumentInputLimitError, enforce_pdf_page_limit
 
 
 class DocumentLoader(Protocol):
@@ -45,6 +47,31 @@ class LocalPdfDocumentLoader:
 
         path = _validate_local_pdf_path(local_path)
         text = _extract_pdf_text(path).strip()
+        metadata["needs_ocr"] = not bool(text)
+        return {
+            "implementation_status": self.implementation_status,
+            "text": text,
+            "metadata": metadata,
+        }
+
+    def load_bytes(
+        self,
+        content: bytes,
+        *,
+        file_name: str | None = None,
+        mime_type: str | None = None,
+        document_format: str | None = None,
+    ) -> dict[str, Any]:
+        metadata = {
+            "file_name": file_name,
+            "mime_type": mime_type or "application/pdf",
+            "document_format": document_format or "pdf",
+            "local_path": None,
+            "implementation_status": self.implementation_status,
+            "source": "remote_content",
+            "needs_ocr": False,
+        }
+        text = _extract_pdf_text_from_bytes(content).strip()
         metadata["needs_ocr"] = not bool(text)
         return {
             "implementation_status": self.implementation_status,
@@ -99,8 +126,23 @@ def _validate_local_pdf_path(local_path: Any) -> Path:
 def _extract_pdf_text(path: Path) -> str:
     try:
         reader = PdfReader(str(path))
+        enforce_pdf_page_limit(len(reader.pages))
         page_texts = [page.extract_text() or "" for page in reader.pages]
     except LocalPdfDocumentLoadError:
+        raise
+    except DocumentInputLimitError:
+        raise
+    except Exception as error:
+        raise LocalPdfDocumentLoadError(LocalPdfDocumentLoadError.message) from error
+    return "\n".join(text for text in page_texts if text)
+
+
+def _extract_pdf_text_from_bytes(content: bytes) -> str:
+    try:
+        reader = PdfReader(BytesIO(content))
+        enforce_pdf_page_limit(len(reader.pages))
+        page_texts = [page.extract_text() or "" for page in reader.pages]
+    except DocumentInputLimitError:
         raise
     except Exception as error:
         raise LocalPdfDocumentLoadError(LocalPdfDocumentLoadError.message) from error

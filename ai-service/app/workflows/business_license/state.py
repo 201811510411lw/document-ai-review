@@ -12,6 +12,7 @@ from app.models import ManualReview, ReviewInputContext, RiskLevel, RuleResult
 class BusinessLicenseWorkflowState(TypedDict, total=False):
     input_context: ReviewInputContext
     document_text: str
+    vision_structured_fields: dict[str, Any]
     document_input: BusinessLicenseDocumentInputResult
     document_classification: BusinessLicenseDocumentClassification
     extracted_fields: BusinessLicenseExtractedFields

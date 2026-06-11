@@ -26,6 +26,23 @@ class BusinessLicenseSourceTask(BaseModel):
     review_input: ReviewInput
 
 
+DEFAULT_BUSINESS_LICENSE_SOURCE_SQL = """
+select * from ods.ods_hd_srm_certification_di t1
+                  left join  ods.ods_hd_srm_attachment_di t2 on t1.uuid=t2.refId
+where t1.category='vendor'
+  and t2.tenant='8560'  and t2.refType ='certification'
+  and removed =false limit 1;
+""".strip()
+
+
+def fetch_one_business_license_source_task(
+    sql_client: SqlFetchClient,
+    sql: str = DEFAULT_BUSINESS_LICENSE_SOURCE_SQL,
+) -> BusinessLicenseSourceTask | None:
+    tasks = fetch_business_license_source_tasks(sql_client, sql)
+    return tasks[0] if tasks else None
+
+
 def fetch_business_license_source_tasks(
     sql_client: SqlFetchClient,
     sql: str,
