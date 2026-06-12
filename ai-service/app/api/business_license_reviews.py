@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.models import ReviewInput
 from app.services.review_service import ReviewService, review_service
-from app.tools import LocalPdfDocumentLoadError
 from app.tools.document_constraints import DocumentInputLimitError
+from app.tools.license_file_recognition import LocalPdfDocumentLoadError
 
 
 router = APIRouter(prefix="/api/v1/business-license", tags=["business-license"])
@@ -30,20 +30,20 @@ def create_business_license_review(
     )
     has_file_uri = bool((file_input.file_uri or "").strip()) if file_input else False
 
-    if has_ocr_text and (has_stub_text or has_local_path or has_file_uri):
+    if has_ocr_text or has_stub_text:
         raise HTTPException(
             status_code=400,
             detail={
-                "code": "AMBIGUOUS_DOCUMENT_INPUT",
-                "message": "ocr_text 和文件输入只能二选一",
+                "code": "UNSUPPORTED_TEXT_DOCUMENT_INPUT",
+                "message": "营业执照审核不支持 ocr_text 或 file.stub_text，请提供 PDF/JPG/JPEG/PNG 文件",
             },
         )
-    if not has_ocr_text and not has_stub_text and not has_local_path and not has_file_uri:
+    if not has_local_path and not has_file_uri:
         raise HTTPException(
             status_code=400,
             detail={
                 "code": "EMPTY_DOCUMENT_INPUT",
-                "message": "ocr_text、file.stub_text、file.local_path 或 file.file_uri 至少提供一个",
+                "message": "file.local_path 或 file.file_uri 至少提供一个",
             },
         )
 

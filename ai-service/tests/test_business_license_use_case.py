@@ -1,8 +1,8 @@
-from app.models import ManualReviewStatus, ReviewInput, ReviewStatus, RiskLevel
+from app.models import ReviewDocumentInput, ReviewInput, ReviewStatus, RiskLevel
 from app.services.review_service import ReviewService
 
 
-def test_business_license_review_returns_review_result_for_text_input():
+def test_business_license_review_rejects_text_only_input():
     result = ReviewService().review(
         ReviewInput(
             ocr_text="""
@@ -24,19 +24,18 @@ def test_business_license_review_returns_review_result_for_text_input():
     assert result.use_case_name == "business_license"
     assert result.document_type == "business_license"
     assert result.capability_names == ["business_license"]
-    assert result.status == ReviewStatus.REVIEWED
-    assert result.risk_level == RiskLevel.NONE
-    assert result.needs_manual_review is False
-    assert result.manual_review.status == ManualReviewStatus.NOT_REQUIRED
-    assert result.skill_result["document_classification"]["document_type"] == "business_license"
-    assert result.skill_result["extracted_fields"]["subject_name"] == "成都示例商贸有限公司"
+    assert result.status == ReviewStatus.PENDING_MANUAL_REVIEW
+    assert result.risk_level == RiskLevel.HIGH
+    assert result.needs_manual_review is True
+    assert result.manual_review.reasons[0] == "营业执照审核不支持文本输入，请提供 PDF/JPG/JPEG/PNG 文件"
+    assert result.skill_result["document_input"]["input_type"] == "unsupported_text"
     assert result.skill_result["source_evidence"]["source"]["record_id"] == "cert-business-001"
 
 
-def test_business_license_review_routes_non_business_license_text_to_manual_review():
+def test_business_license_review_rejects_stub_text_input():
     result = ReviewService().review(
         ReviewInput(
-            ocr_text="产品检验报告\n检验结论：合格",
+            file=ReviewDocumentInput(stub_text="营业执照\n名称：成都示例商贸有限公司"),
             supplier_name="成都示例商贸有限公司",
             supplier_credit_code="91510100MA0000000X",
             declared_document_type="business_license",
@@ -47,18 +46,13 @@ def test_business_license_review_routes_non_business_license_text_to_manual_revi
     assert result.status == ReviewStatus.PENDING_MANUAL_REVIEW
     assert result.risk_level == RiskLevel.HIGH
     assert result.needs_manual_review is True
-    assert "文档类型不匹配" in result.manual_review.reasons
+    assert result.manual_review.reasons[0] == "营业执照审核不支持文本输入，请提供 PDF/JPG/JPEG/PNG 文件"
 
 
 def test_business_license_review_can_be_selected_by_declared_document_type():
     result = ReviewService().review(
         ReviewInput(
-            ocr_text="""
-            营业执照
-            统一社会信用代码：91510100MA0000000X
-            名称：成都示例商贸有限公司
-            营业期限：2020年01月02日至2030年01月01日
-            """,
+            file=ReviewDocumentInput(stub_text="营业执照"),
             supplier_name="成都示例商贸有限公司",
             supplier_credit_code="91510100MA0000000X",
             declared_document_type="business_license",

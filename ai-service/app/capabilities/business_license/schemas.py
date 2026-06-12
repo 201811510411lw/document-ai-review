@@ -18,6 +18,11 @@ class BusinessLicenseExtractedFields(BaseModel):
     valid_to: str | None = None
     issue_authority: str | None = None
     issue_date: str | None = None
+    source_page: int | None = None
+    ignored_pages: list[dict] = Field(default_factory=list)
+    subject_name_evidence: str | None = None
+    credit_code_evidence: str | None = None
+    valid_to_evidence: str | None = None
 
 
 class BusinessLicenseNormalizedFields(BusinessLicenseExtractedFields):

@@ -1,6 +1,7 @@
 from app.tools.vision_adapter import (
     FakeVisionAdapter,
     LangChainVisionAdapter,
+    _business_license_prompt,
     build_business_license_vision_adapter,
     content_block_for_business_license_file,
     parse_business_license_vision_json,
@@ -42,6 +43,49 @@ def test_langchain_vision_adapter_without_api_key_returns_stable_error(monkeypat
     }
 
 
+def test_langchain_vision_adapter_uses_responses_input_file_for_pdf(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    calls = {}
+
+    class StubResponse:
+        output_text = '{"document_type":"business_license"}'
+
+    class StubResponses:
+        def create(self, **kwargs):
+            calls.update(kwargs)
+            return StubResponse()
+
+    class StubOpenAI:
+        def __init__(self, **kwargs):
+            calls["client"] = kwargs
+            self.responses = StubResponses()
+
+    import app.tools.vision_adapter as vision_adapter
+
+    monkeypatch.setattr(vision_adapter, "OpenAI", StubOpenAI, raising=False)
+    adapter = LangChainVisionAdapter(provider="openai", model="gpt-5.4")
+
+    result = adapter.extract_text(
+        {
+            "content": b"%PDF-test",
+            "mime_type": "application/pdf",
+            "file_name": "business-license.pdf",
+        }
+    )
+
+    assert result["structured_fields"] == {"document_type": "business_license"}
+    assert result["metadata"]["api"] == "responses"
+    assert calls["client"]["api_key"] == "test-key"
+    assert calls["model"] == "gpt-5.4"
+    content = calls["input"][0]["content"]
+    assert content[0]["type"] == "input_text"
+    assert content[1] == {
+        "type": "input_file",
+        "filename": "business-license.pdf",
+        "file_data": "data:application/pdf;base64,JVBERi10ZXN0",
+    }
+
+
 def test_parse_business_license_vision_json_accepts_markdown_json_block():
     parsed = parse_business_license_vision_json(
         """
@@ -60,6 +104,17 @@ def test_parse_business_license_vision_json_accepts_markdown_json_block():
     }
 
 
+def test_business_license_prompt_requires_page_selection_and_evidence():
+    prompt = _business_license_prompt()
+
+    assert "只从营业执照页面提取字段" in prompt
+    assert "忽略身份证" in prompt
+    assert "subject_name_evidence" in prompt
+    assert "credit_code_evidence" in prompt
+    assert "source_page" in prompt
+    assert "不要从文件名" in prompt
+
+
 def test_pdf_content_block_uses_native_file_input():
     block = content_block_for_business_license_file(
         "base64-pdf",
@@ -69,8 +124,8 @@ def test_pdf_content_block_uses_native_file_input():
 
     assert block == {
         "type": "file",
-        "source_type": "base64",
-        "mime_type": "application/pdf",
-        "data": "base64-pdf",
-        "filename": "business-license.pdf",
+        "file": {
+            "filename": "business-license.pdf",
+            "file_data": "data:application/pdf;base64,base64-pdf",
+        },
     }

@@ -3,44 +3,49 @@ from pathlib import Path
 
 from app.models import (
     ManualReviewStatus,
+    ReviewDocumentInput,
     ReviewInput,
     ReviewInputContext,
     RiskLevel,
 )
 from app.use_cases.food_license import use_case as food_license_use_case_module
+from app.workflows.food_license import nodes as food_license_nodes
+from tests.pdf_helpers import write_minimal_pdf
 
 
-def test_food_license_workflow_runtime_exposes_review_boundary():
+class StubFileAdapter:
+    def extract_text(self, source):
+        return {
+            "text": "",
+            "structured_fields": {
+                "document_type": "food_license",
+                "subject_name": "成都示例食品有限公司",
+                "credit_code": "91510100MA00000000",
+                "license_no": "JY15101000000000",
+                "business_items": ["预包装食品销售"],
+                "valid_to": "2028-06-05",
+            },
+            "metadata": {"implementation_status": "stub"},
+        }
+
+
+def test_food_license_workflow_runtime_exposes_file_review_boundary(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(food_license_nodes, "food_license_file_adapter", StubFileAdapter())
     workflow = importlib.import_module("app.workflows.food_license")
-    input_context = ReviewInputContext(
-        task_id="review-task-workflow-boundary",
-        input=ReviewInput(
-            ocr_text=(
-                "食品经营许可证\n"
-                "经营者名称：成都示例食品有限公司\n"
-                "统一社会信用代码：91510100MA00000000\n"
-                "许可证编号：JY15101000000000\n"
-                "经营项目：预包装食品销售、散装食品销售\n"
-                "有效期至：2028年06月05日"
-            ),
-            supplier_name="成都示例食品有限公司",
-            supplier_credit_code="91510100MA00000000",
-            declared_document_type="food_license",
-        ),
-        skill_name="food_license",
-        skill_version="v1",
-        ruleset_version="food-license-rules-v1",
-    )
 
-    state = workflow.run_food_license_workflow(input_context)
+    state = workflow.run_food_license_workflow(_input_context(tmp_path))
 
+    assert state["document_input"].input_type == "pdf"
     assert state["document_classification"].document_type == "food_license"
     assert state["risk_level"] == RiskLevel.NONE
     assert state["needs_manual_review"] is False
     assert state["manual_review"].status == ManualReviewStatus.NOT_REQUIRED
 
 
-def test_food_license_use_case_facade_calls_workflow_entrypoint(monkeypatch):
+def test_food_license_use_case_facade_calls_workflow_entrypoint(tmp_path, monkeypatch):
     calls = []
 
     def stub_workflow(input_context):
@@ -61,23 +66,12 @@ def test_food_license_use_case_facade_calls_workflow_entrypoint(monkeypatch):
         "run_food_license_workflow",
         stub_workflow,
     )
-    input_context = ReviewInputContext(
-        task_id="review-task-skill-facade",
-        input=ReviewInput(
-            ocr_text="食品经营许可证",
-            supplier_name="成都示例食品有限公司",
-            supplier_credit_code="91510100MA00000000",
-            declared_document_type="food_license",
-        ),
-        skill_name="food_license",
-        skill_version="v1",
-        ruleset_version="food-license-rules-v1",
-    )
+    input_context = _input_context(tmp_path)
 
     result = food_license_use_case_module.food_license_use_case.review(input_context)
 
     assert calls == [input_context]
-    assert result.task_id == "review-task-skill-facade"
+    assert result.task_id == "review-task-workflow-boundary"
     assert result.summary == "stub workflow result"
 
 
@@ -94,3 +88,25 @@ def test_platform_layer_does_not_import_food_license_workflow_nodes():
 
         assert "app.workflows.food_license.nodes" not in source
         assert "app.capabilities.food_license.nodes" not in source
+
+
+def _input_context(tmp_path):
+    pdf_path = tmp_path / "food-license.pdf"
+    write_minimal_pdf(pdf_path, "embedded text should not be used")
+    return ReviewInputContext(
+        task_id="review-task-workflow-boundary",
+        input=ReviewInput(
+            file=ReviewDocumentInput(
+                local_path=str(pdf_path),
+                file_name="food-license.pdf",
+                mime_type="application/pdf",
+                document_format="pdf",
+            ),
+            supplier_name="成都示例食品有限公司",
+            supplier_credit_code="91510100MA00000000",
+            declared_document_type="food_license",
+        ),
+        skill_name="food_license",
+        skill_version="v1",
+        ruleset_version="food-license-rules-v1",
+    )
