@@ -122,6 +122,30 @@ def test_srm_row_normalizes_deleted_flags():
     assert record.is_deleted is True
 
 
+def test_srm_attachment_row_maps_lowercase_join_columns():
+    row = {
+        "tenant": "8560",
+        "uuid": "cert-business-001",
+        "refid": "attach-business-001",
+        "category": "vendor",
+        "typeCode": "BUSINESS_LICENSE",
+        "typeName": "营业执照",
+        "num": "91510100MA0000000X",
+        "vendorName": "成都示例商贸有限公司",
+        "attachmentname": "business-license.pdf",
+        "storeid": "srm/cert/business-license.pdf",
+        "url": "https://files.example.test/business-license.pdf",
+        "deleted": "0",
+        "removed": "0",
+    }
+
+    record = map_srm_certification_row(row)
+
+    assert record.attachment_ref_id == "attach-business-001"
+    assert record.file_name == "business-license.pdf"
+    assert record.file_store_key == "srm/cert/business-license.pdf"
+
+
 def test_unknown_srm_type_name_is_rejected_explicitly():
     row = {"uuid": "cert-unknown", "typeName": "烟草证"}
 

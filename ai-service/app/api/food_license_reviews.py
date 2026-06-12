@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.models import ReviewInput
 from app.services.review_service import ReviewService, review_service
-from app.tools import LocalPdfDocumentLoadError
+from app.tools.document_constraints import DocumentInputLimitError
+from app.tools.license_file_recognition import LocalPdfDocumentLoadError
 
 router = APIRouter(prefix="/api/v1/food-license", tags=["food-license"])
 
@@ -26,25 +27,34 @@ def create_food_license_review(
         if file_input
         else False
     )
-    if has_ocr_text and (has_stub_text or has_local_path or file_input is not None):
+    has_file_uri = bool((file_input.file_uri or "").strip()) if file_input else False
+    if has_ocr_text or has_stub_text:
         raise HTTPException(
             status_code=400,
             detail={
-                "code": "AMBIGUOUS_DOCUMENT_INPUT",
-                "message": "ocr_text 和文件输入只能二选一",
+                "code": "UNSUPPORTED_TEXT_DOCUMENT_INPUT",
+                "message": "食品许可证审核不支持 ocr_text 或 file.stub_text，请提供 PDF/JPG/JPEG/PNG 文件",
             },
         )
-    if not has_ocr_text and not has_stub_text and not has_local_path:
+    if not has_local_path and not has_file_uri:
         raise HTTPException(
             status_code=400,
             detail={
                 "code": "EMPTY_DOCUMENT_INPUT",
-                "message": "ocr_text、file.stub_text 或 file.local_path 至少提供一个",
+                "message": "file.local_path 或 file.file_uri 至少提供一个",
             },
         )
 
     try:
         result = service.review_food_license(review_input)
+    except DocumentInputLimitError as error:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": error.code,
+                "message": error.message,
+            },
+        ) from error
     except LocalPdfDocumentLoadError as error:
         raise HTTPException(
             status_code=400,

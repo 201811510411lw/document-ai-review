@@ -1,9 +1,7 @@
-import re
 from datetime import date
 
 from app.models import ManualReview, ManualReviewStatus, RiskLevel
 from app.rules import RuleContext, RuleExecutor
-from app.capabilities.food_license.extractor import extract_food_license_fields
 from app.capabilities.food_license.schemas import (
     FoodLicenseDocumentClassification,
     FoodLicenseDocumentInputResult,
@@ -11,132 +9,90 @@ from app.capabilities.food_license.schemas import (
     FoodLicenseNormalizedFields,
 )
 from app.capabilities.food_license.rules import build_food_license_rules
-from app.tools import StubDocumentLoader, StubLlmAdapter, StubOcrAdapter
-from app.tools.document_loader import LocalPdfDocumentLoader
+from app.tools.license_file_recognition import recognize_license_file
+from app.tools.remote_document import RemoteDocumentDownloader
+from app.tools.vision_adapter import build_food_license_file_adapter
 from app.workflows.food_license.state import FoodLicenseWorkflowState
 
 
-food_license_llm_adapter = StubLlmAdapter()
-food_license_document_loader = StubDocumentLoader()
-food_license_pdf_document_loader = LocalPdfDocumentLoader()
-food_license_ocr_adapter = StubOcrAdapter()
+food_license_remote_downloader = RemoteDocumentDownloader()
+food_license_file_adapter = build_food_license_file_adapter()
 
 
 def load_document(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
     input_context = state["input_context"]
     review_input = input_context.input
-    ocr_text = (review_input.ocr_text or "").strip()
-    if ocr_text:
-        return {
-            **state,
-            "document_text": ocr_text,
-            "document_input": FoodLicenseDocumentInputResult(input_type="ocr_text"),
-        }
-
-    file_input = review_input.file or review_input.document
-    if file_input is not None:
-        if _has_stub_text(file_input):
-            loaded_document = food_license_document_loader.load(file_input)
-        elif _is_local_pdf_input(file_input):
-            loaded_document = food_license_pdf_document_loader.load(file_input)
-        else:
-            loaded_document = food_license_document_loader.load(file_input)
-
-        metadata = loaded_document.get("metadata", {})
-        document_text = (
-            (loaded_document.get("text") or "")
-            or (food_license_ocr_adapter.extract_text(file_input) if file_input else "")
-        ).strip()
-        if document_text:
-            extraction_metadata = dict(state.get("extraction_metadata", {}))
-            if metadata.get("implementation_status") == "implemented":
-                extraction_metadata["pdf_loader"] = _pdf_loader_metadata(metadata)
-            return {
-                **state,
-                "document_text": document_text,
-                "document_input": FoodLicenseDocumentInputResult(
-                    input_type=_input_type_from_file(metadata.get("mime_type")),
-                    file_name=metadata.get("file_name"),
-                    mime_type=metadata.get("mime_type"),
-                    document_format=metadata.get("document_format"),
-                ),
-                "extraction_metadata": extraction_metadata,
-            }
-        if _is_local_pdf_input(file_input):
-            return {
-                **state,
-                "document_text": "",
-                "document_input": FoodLicenseDocumentInputResult(
-                    input_type="pdf",
-                    file_name=metadata.get("file_name"),
-                    mime_type=metadata.get("mime_type"),
-                    document_format=metadata.get("document_format"),
-                ),
-                "extraction_metadata": {
-                    **state.get("extraction_metadata", {}),
-                    "pdf_loader": _pdf_loader_metadata(metadata, needs_ocr=True),
-                },
-            }
-
-    stub_text = (
-        food_license_ocr_adapter.extract_text(file_input) if file_input else ""
-    ).strip()
-    if file_input is not None and stub_text:
-        metadata = {
-            "file_name": file_input.file_name,
-            "mime_type": file_input.mime_type,
-            "document_format": file_input.document_format or file_input.file_type,
-        }
-        return {
-            **state,
-            "document_text": stub_text,
-            "document_input": FoodLicenseDocumentInputResult(
-                input_type=_input_type_from_file(metadata.get("mime_type")),
-                file_name=metadata.get("file_name"),
-                mime_type=metadata.get("mime_type"),
-                document_format=metadata.get("document_format"),
-            ),
-        }
-
+    recognition_result = recognize_license_file(
+        review_input,
+        adapter=food_license_file_adapter,
+        downloader=food_license_remote_downloader,
+    )
     return {
         **state,
-        "document_text": "",
-        "document_input": FoodLicenseDocumentInputResult(input_type="empty"),
+        "document_text": recognition_result.document_text,
+        "llm_structured_fields": recognition_result.structured_fields,
+        "document_input": FoodLicenseDocumentInputResult(
+            **{
+                key: value
+                for key, value in recognition_result.document_input.__dict__.items()
+                if key != "source_url"
+            }
+        ),
+        "extraction_metadata": {
+            **state.get("extraction_metadata", {}),
+            **recognition_result.extraction_metadata,
+        },
     }
 
 
 def classify_document(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
-    document_text = state.get("document_text", "")
-    has_food_license_marker = (
-        ("食品经营许可证" in document_text and "无法识别" not in document_text)
-        or re.search(r"\bJY\d{14,}\b", document_text) is not None
-    )
-    classification = FoodLicenseDocumentClassification(
-        document_type="food_license" if has_food_license_marker else "unknown",
-        confidence=1.0 if has_food_license_marker else 0.0,
-        reasons=(
-            ["OCR 文本包含食品经营许可证特征"]
-            if has_food_license_marker
-            else ["OCR 文本未检测到食品经营许可证特征"]
-        ),
-    )
+    structured_fields = state.get("llm_structured_fields") or {}
+    if structured_fields.get("document_type"):
+        document_type = structured_fields.get("document_type")
+        return {
+            **state,
+            "document_classification": FoodLicenseDocumentClassification(
+                document_type=document_type,
+                confidence=1.0 if document_type == "food_license" else 0.0,
+                reasons=["大模型文件识别返回结构化证照类型"],
+            ),
+        }
     return {
         **state,
-        "document_classification": classification,
+        "document_classification": FoodLicenseDocumentClassification(
+            document_type="unknown",
+            confidence=0.0,
+            reasons=["大模型文件识别未返回结构化证照类型"],
+        ),
     }
 
 
 def extract_fields(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
-    extracted_fields, metadata = extract_food_license_fields(
-        state.get("document_text", ""),
-        llm_adapter=food_license_llm_adapter,
-    )
+    structured_fields = state.get("llm_structured_fields") or {}
+    if structured_fields:
+        extracted_fields = FoodLicenseExtractedFields.model_validate(structured_fields)
+        return {
+            **state,
+            "extracted_fields": extracted_fields,
+            "extraction_metadata": {
+                **state.get("extraction_metadata", {}),
+                "structured_extraction": {
+                    "source": "llm_file_extractor",
+                    "schema": "FoodLicenseExtractedFields",
+                },
+            },
+        }
+
     return {
         **state,
-        "extracted_fields": extracted_fields,
+        "extracted_fields": FoodLicenseExtractedFields(),
         "extraction_metadata": {
             **state.get("extraction_metadata", {}),
-            **metadata,
+            "structured_extraction": {
+                "source": "llm_file_extractor",
+                "schema": "FoodLicenseExtractedFields",
+                "status": "missing_structured_fields",
+            },
         },
     }
 
@@ -236,6 +192,8 @@ def route_review(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
         or risk_level in {RiskLevel.HIGH, RiskLevel.MEDIUM}
     )
     reasons = []
+    if state.get("extraction_metadata", {}).get("input_error", {}).get("code") == "UNSUPPORTED_TEXT_DOCUMENT_INPUT":
+        reasons.append("食品许可证审核不支持文本输入，请提供 PDF/JPG/JPEG/PNG 文件")
     if unknown_document_type:
         reasons.append("文档类型无法识别，需要人工复核")
     elif rule_execution_needs_manual_review:
@@ -267,35 +225,6 @@ def _summarize_rule_execution(
     if risk_level == RiskLevel.NONE:
         return "未发现确定性规则风险。"
     return "发现确定性规则风险。"
-
-
-def _input_type_from_file(mime_type: str | None) -> str:
-    if mime_type == "application/pdf":
-        return "pdf"
-    if mime_type is not None and mime_type.startswith("image/"):
-        return "image"
-    return "file"
-
-
-def _has_stub_text(file_input) -> bool:
-    return bool((getattr(file_input, "stub_text", None) or "").strip())
-
-
-def _is_local_pdf_input(file_input) -> bool:
-    local_path = getattr(file_input, "local_path", None) or getattr(
-        file_input,
-        "file_path",
-        None,
-    )
-    return bool(local_path) and getattr(file_input, "mime_type", None) == "application/pdf"
-
-
-def _pdf_loader_metadata(metadata: dict, *, needs_ocr: bool | None = None) -> dict:
-    return {
-        "implementation_status": metadata.get("implementation_status"),
-        "needs_ocr": metadata.get("needs_ocr") if needs_ocr is None else needs_ocr,
-        "source": metadata.get("source"),
-    }
 
 
 def _current_rule_date() -> date:

@@ -13,7 +13,8 @@ def test_business_license_review_accepts_image_file_with_fake_vision_extractor(
     image_path = tmp_path / "business-license.png"
     image_path.write_bytes(b"fake-image-bytes")
 
-    monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", _business_license_text())
+    monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_JSON", _business_license_json())
+    monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
 
     client = TestClient(app)
     response = client.post(
@@ -43,7 +44,7 @@ def test_business_license_review_accepts_image_file_with_fake_vision_extractor(
         "input_type": "image",
         "file_name": "business-license.png",
         "mime_type": "image/png",
-        "document_format": "image",
+        "document_format": "png",
         "source_url": None,
     }
     assert (
@@ -106,7 +107,7 @@ def test_business_license_review_accepts_structured_fields_from_vision_adapter(
         == "成都示例商贸有限公司"
     )
     assert payload["skill_result"]["extraction_metadata"]["structured_extraction"] == {
-        "source": "vision_adapter",
+        "source": "llm_file_extractor",
         "schema": "BusinessLicenseExtractedFields",
     }
 
@@ -124,7 +125,8 @@ def test_business_license_local_image_passes_file_bytes_to_vision_adapter(
             seen["content"] = source.content
             seen["mime_type"] = source.mime_type
             return {
-                "text": _business_license_text(),
+                "text": "",
+                "structured_fields": _business_license_fields(),
                 "metadata": {"implementation_status": "stub"},
             }
 
@@ -171,11 +173,11 @@ def test_business_license_review_rejects_empty_document_input():
     assert response.status_code == 400
     assert response.json()["detail"] == {
         "code": "EMPTY_DOCUMENT_INPUT",
-        "message": "ocr_text、file.stub_text、file.local_path 或 file.file_uri 至少提供一个",
+        "message": "file.local_path 或 file.file_uri 至少提供一个",
     }
 
 
-def test_business_license_review_rejects_ambiguous_text_and_file_input(tmp_path):
+def test_business_license_review_rejects_text_and_file_input(tmp_path):
     image_path = tmp_path / "business-license.png"
     image_path.write_bytes(b"fake-image-bytes")
     client = TestClient(app)
@@ -198,14 +200,35 @@ def test_business_license_review_rejects_ambiguous_text_and_file_input(tmp_path)
 
     assert response.status_code == 400
     assert response.json()["detail"] == {
-        "code": "AMBIGUOUS_DOCUMENT_INPUT",
-        "message": "ocr_text 和文件输入只能二选一",
+        "code": "UNSUPPORTED_TEXT_DOCUMENT_INPUT",
+        "message": "营业执照审核不支持 ocr_text 或 file.stub_text，请提供 PDF/JPG/JPEG/PNG 文件",
     }
 
 
-def test_business_license_review_reads_text_from_local_pdf(tmp_path, monkeypatch):
+def test_business_license_review_rejects_text_only_input():
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/business-license/reviews",
+        json={
+            "ocr_text": _business_license_text(),
+            "supplier_name": "成都示例商贸有限公司",
+            "supplier_credit_code": "91510100MA0000000X",
+            "declared_document_type": "business_license",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == {
+        "code": "UNSUPPORTED_TEXT_DOCUMENT_INPUT",
+        "message": "营业执照审核不支持 ocr_text 或 file.stub_text，请提供 PDF/JPG/JPEG/PNG 文件",
+    }
+
+
+def test_business_license_review_uses_llm_file_extractor_for_text_pdf(tmp_path, monkeypatch):
     pdf_path = tmp_path / "business-license.pdf"
     write_minimal_pdf(pdf_path, _business_license_text())
+    monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_JSON", _business_license_json())
     monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
 
     client = TestClient(app)
@@ -236,10 +259,60 @@ def test_business_license_review_reads_text_from_local_pdf(tmp_path, monkeypatch
         "document_format": "pdf",
         "source_url": None,
     }
-    assert payload["skill_result"]["extraction_metadata"]["pdf_loader"] == {
-        "implementation_status": "implemented",
-        "needs_ocr": False,
-        "source": "local_path",
+    assert "pdf_loader" not in payload["skill_result"]["extraction_metadata"]
+    assert (
+        payload["skill_result"]["extraction_metadata"]["llm_file_extractor"][
+            "implementation_status"
+        ]
+        == "fake"
+    )
+
+
+def test_business_license_text_only_model_output_does_not_bypass_structured_fields(
+    tmp_path,
+    monkeypatch,
+):
+    pdf_path = tmp_path / "business-license.pdf"
+    write_minimal_pdf(pdf_path, _business_license_text())
+
+    class TextOnlyFileAdapter:
+        def extract_text(self, source):
+            return {
+                "text": _business_license_text(),
+                "metadata": {"implementation_status": "stub"},
+            }
+
+    monkeypatch.setattr(
+        business_license_nodes,
+        "business_license_vision_adapter",
+        TextOnlyFileAdapter(),
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/business-license/reviews",
+        json={
+            "file": {
+                "local_path": str(pdf_path),
+                "file_name": "business-license.pdf",
+                "mime_type": "application/pdf",
+                "document_format": "pdf",
+            },
+            "supplier_name": "成都示例商贸有限公司",
+            "supplier_credit_code": "91510100MA0000000X",
+            "declared_document_type": "business_license",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "PENDING_MANUAL_REVIEW"
+    assert payload["needs_manual_review"] is True
+    assert payload["skill_result"]["extracted_fields"]["subject_name"] is None
+    assert payload["skill_result"]["extraction_metadata"]["structured_extraction"] == {
+        "source": "llm_file_extractor",
+        "schema": "BusinessLicenseExtractedFields",
+        "status": "missing_structured_fields",
     }
 
 
@@ -273,6 +346,12 @@ def test_business_license_image_without_vision_configuration_routes_manual_revie
     assert payload["risk_level"] == "HIGH"
     assert payload["needs_manual_review"] is True
     assert "视觉模型未配置或未返回文本" in payload["manual_review"]["reasons"]
+    assert payload["skill_result"]["extraction_metadata"]["llm_file_extractor"] == {
+        "implementation_status": "fake",
+        "provider": "fake",
+        "model": "fake-business-license-vision",
+        "error_code": "VISION_EXTRACTOR_NOT_CONFIGURED",
+    }
     assert payload["skill_result"]["extraction_metadata"]["vision_extractor"] == {
         "implementation_status": "fake",
         "provider": "fake",
@@ -395,7 +474,8 @@ def test_business_license_rejects_image_over_pixel_limit(tmp_path, monkeypatch):
 def test_business_license_review_accepts_remote_image_file(
     monkeypatch,
 ):
-    monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", _business_license_text())
+    monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_JSON", _business_license_json())
+    monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
 
     class StubDownloader:
         def download(self, file_url):
@@ -443,13 +523,56 @@ def test_business_license_review_accepts_remote_image_file(
         "status_code": 200,
         "file_type": "png",
         "mime_type": "image/png",
-        "needs_vision": True,
+        "needs_llm_file_recognition": True,
     }
 
 
-def test_business_license_review_reads_text_from_remote_pdf(tmp_path, monkeypatch):
+def test_business_license_review_accepts_remote_jpeg_file(monkeypatch):
+    monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_JSON", _business_license_json())
+    monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
+
+    class StubDownloader:
+        def download(self, file_url):
+            return RemoteDocument(
+                source_url=file_url,
+                content=b"fake-remote-jpeg",
+                file_type="jpeg",
+                mime_type="image/jpeg",
+                status_code=200,
+                headers={"content-type": "image/jpeg"},
+            )
+
+    monkeypatch.setattr(
+        business_license_nodes,
+        "business_license_remote_downloader",
+        StubDownloader(),
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/business-license/reviews",
+        json={
+            "file": {
+                "file_uri": "https://files.example.test/business-license.jpeg",
+                "file_name": "business-license.jpeg",
+            },
+            "supplier_name": "成都示例商贸有限公司",
+            "supplier_credit_code": "91510100MA0000000X",
+            "declared_document_type": "business_license",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "REVIEWED"
+    assert payload["skill_result"]["document_input"]["input_type"] == "image"
+    assert payload["skill_result"]["document_input"]["document_format"] == "jpeg"
+
+
+def test_business_license_review_uses_llm_file_extractor_for_remote_pdf(tmp_path, monkeypatch):
     pdf_path = tmp_path / "business-license.pdf"
     write_minimal_pdf(pdf_path, _business_license_text())
+    monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_JSON", _business_license_json())
     monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
 
     class StubDownloader:
@@ -498,12 +621,15 @@ def test_business_license_review_reads_text_from_remote_pdf(tmp_path, monkeypatc
         "status_code": 200,
         "file_type": "pdf",
         "mime_type": "application/pdf",
+        "needs_llm_file_recognition": True,
     }
-    assert payload["skill_result"]["extraction_metadata"]["pdf_loader"] == {
-        "implementation_status": "implemented",
-        "needs_ocr": False,
-        "source": "remote_content",
-    }
+    assert "pdf_loader" not in payload["skill_result"]["extraction_metadata"]
+    assert (
+        payload["skill_result"]["extraction_metadata"]["llm_file_extractor"][
+            "implementation_status"
+        ]
+        == "fake"
+    )
 
 
 def test_business_license_scanned_local_pdf_uses_vision_extractor(
@@ -512,7 +638,8 @@ def test_business_license_scanned_local_pdf_uses_vision_extractor(
 ):
     pdf_path = tmp_path / "business-license-scan.pdf"
     write_blank_pdf(pdf_path)
-    monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", _business_license_text())
+    monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_JSON", _business_license_json())
+    monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
 
     client = TestClient(app)
     response = client.post(
@@ -535,13 +662,9 @@ def test_business_license_scanned_local_pdf_uses_vision_extractor(
     assert payload["status"] == "REVIEWED"
     assert payload["risk_level"] == "NONE"
     assert payload["skill_result"]["document_input"]["input_type"] == "pdf"
-    assert payload["skill_result"]["extraction_metadata"]["pdf_loader"] == {
-        "implementation_status": "implemented",
-        "needs_ocr": True,
-        "source": "local_path",
-    }
+    assert "pdf_loader" not in payload["skill_result"]["extraction_metadata"]
     assert (
-        payload["skill_result"]["extraction_metadata"]["vision_extractor"][
+        payload["skill_result"]["extraction_metadata"]["llm_file_extractor"][
             "implementation_status"
         ]
         == "fake"
@@ -561,7 +684,8 @@ def test_business_license_scanned_local_pdf_passes_pdf_bytes_to_vision_adapter(
             seen["content_prefix"] = source.content[:5]
             seen["mime_type"] = source.mime_type
             return {
-                "text": _business_license_text(),
+                "text": "",
+                "structured_fields": _business_license_fields(),
                 "metadata": {"implementation_status": "stub"},
             }
 
@@ -601,3 +725,29 @@ def _business_license_text() -> str:
         "法定代表人：张三\n"
         "营业期限：2020年01月02日至2030年01月01日\n"
     )
+
+
+def _business_license_json() -> str:
+    return """
+    {
+      "document_type": "business_license",
+      "subject_name": "成都示例商贸有限公司",
+      "credit_code": "91510100MA0000000X",
+      "business_address": "成都市高新区天府大道 1 号",
+      "legal_person": "张三",
+      "valid_from": "2020-01-02",
+      "valid_to": "2030-01-01"
+    }
+    """
+
+
+def _business_license_fields() -> dict:
+    return {
+        "document_type": "business_license",
+        "subject_name": "成都示例商贸有限公司",
+        "credit_code": "91510100MA0000000X",
+        "business_address": "成都市高新区天府大道 1 号",
+        "legal_person": "张三",
+        "valid_from": "2020-01-02",
+        "valid_to": "2030-01-01",
+    }

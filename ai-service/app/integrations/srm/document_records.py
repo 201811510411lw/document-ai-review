@@ -47,7 +47,7 @@ def map_srm_certification_row(row: dict[str, Any]) -> DocumentRecord:
     return DocumentRecord(
         tenant=_first_present(row, "tenant", "t1.tenant", "t2.tenant"),
         record_id=_first_present(row, "uuid", "t1.uuid"),
-        attachment_ref_id=_first_present(row, "refId", "t2.refId"),
+        attachment_ref_id=_first_present(row, "refId", "refid", "t2.refId", "t2.refid"),
         document_category=_first_present(row, "category", "t1.category"),
         declared_document_type=declared_document_type,
         document_type_code=_first_present(row, "typeCode", "t1.typeCode"),
@@ -61,8 +61,14 @@ def map_srm_certification_row(row: dict[str, Any]) -> DocumentRecord:
         source_expired_end=_to_source_string(
             _first_present(row, "expiredEnd", "t1.expiredEnd")
         ),
-        file_name=_first_present(row, "attachmentName", "t2.attachmentName"),
-        file_store_key=_first_present(row, "storeId", "t2.storeId"),
+        file_name=_first_present(
+            row,
+            "attachmentName",
+            "attachmentname",
+            "t2.attachmentName",
+            "t2.attachmentname",
+        ),
+        file_store_key=_first_present(row, "storeId", "storeid", "t2.storeId", "t2.storeid"),
         file_url=_first_present(row, "url", "t2.url"),
         business_deleted=_to_bool(_first_present(row, "deleted", "t1.deleted")),
         attachment_deleted=_to_bool(_first_present(row, "removed", "t2.removed")),

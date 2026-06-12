@@ -2,20 +2,26 @@ from app.models import ReviewInput
 from app.models import ReviewDocumentInput
 from app.repositories.review_result_repository import SQLiteReviewResultRepository
 from app.services.review_service import ReviewService
+from tests.pdf_helpers import write_minimal_pdf
 
 
-def test_business_license_review_projection_is_saved_and_loaded(tmp_path):
+def test_business_license_review_projection_is_saved_and_loaded(tmp_path, monkeypatch):
+    pdf_path = tmp_path / "business-license.pdf"
+    write_minimal_pdf(pdf_path, "embedded text should not be used")
+    monkeypatch.setenv(
+        "BUSINESS_LICENSE_FAKE_VISION_JSON",
+        _business_license_json(),
+    )
+    monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
     repository = SQLiteReviewResultRepository(tmp_path / "reviews.db")
     result = ReviewService(repository=repository).review(
         ReviewInput(
-            ocr_text="""
-            营业执照
-            统一社会信用代码：91510100MA0000000X
-            名称：成都示例商贸有限公司
-            住所：成都市高新区天府大道 1 号
-            法定代表人：张三
-            营业期限：2020年01月02日至2030年01月01日
-            """,
+            file=ReviewDocumentInput(
+                local_path=str(pdf_path),
+                file_name="business-license.pdf",
+                mime_type="application/pdf",
+                document_format="pdf",
+            ),
             supplier_name="成都示例商贸有限公司",
             supplier_credit_code="91510100MA0000000X",
             declared_document_type="business_license",
@@ -53,16 +59,10 @@ def test_business_license_projection_saves_file_and_vision_metadata(
     image_path = tmp_path / "business-license.png"
     image_path.write_bytes(b"fake-image-bytes")
     monkeypatch.setenv(
-        "BUSINESS_LICENSE_FAKE_VISION_TEXT",
-        """
-        营业执照
-        统一社会信用代码：91510100MA0000000X
-        名称：成都示例商贸有限公司
-        住所：成都市高新区天府大道 1 号
-        法定代表人：张三
-        营业期限：2020年01月02日至2030年01月01日
-        """,
+        "BUSINESS_LICENSE_FAKE_VISION_JSON",
+        _business_license_json(),
     )
+    monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
     repository = SQLiteReviewResultRepository(tmp_path / "reviews.db")
 
     result = ReviewService(repository=repository).review(
@@ -87,3 +87,17 @@ def test_business_license_projection_saves_file_and_vision_metadata(
     assert snapshot["source_url"] == "https://files.example.test/business-license.png"
     assert snapshot["business_name"] == "成都示例商贸有限公司"
     assert snapshot["extraction_metadata"]["vision_extractor"]["implementation_status"] == "fake"
+
+
+def _business_license_json() -> str:
+    return """
+    {
+      "document_type": "business_license",
+      "subject_name": "成都示例商贸有限公司",
+      "credit_code": "91510100MA0000000X",
+      "business_address": "成都市高新区天府大道 1 号",
+      "legal_person": "张三",
+      "valid_from": "2020-01-02",
+      "valid_to": "2030-01-01"
+    }
+    """
