@@ -34,7 +34,7 @@ LangChain 在 V1 中承担以下职责：
 - 对模型响应做解析、重试和错误归一；
 - 为 workflow 提供稳定的字段抽取接口。
 
-确定性规则仍由 Python 规则模块负责。大模型只负责“看懂材料并提取字段”，不负责最终合规判断。最终结论仍由现有 `business_license` use_case、workflow、capability、rules 和 `ReviewResult` 契约承接。
+营业执照合规规则由 `.agents/skills/business-license-review/SKILL.md` 维护。Python Runtime 负责读取 Skill、调用大模型执行规则、解析结构化 JSON，并由现有 `business_license` use_case、workflow、capability 和 `ReviewResult` 契约承接最终结论。
 
 ## User Stories
 

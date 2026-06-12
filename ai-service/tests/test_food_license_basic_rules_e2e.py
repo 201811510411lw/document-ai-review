@@ -88,7 +88,7 @@ def test_file_recognition_fields_drive_subject_name_manual_review(
     assert payload["risk_level"] == "MEDIUM"
     assert payload["needs_manual_review"] is True
     assert payload["manual_review"]["status"] == "PENDING"
-    assert payload["manual_review"]["reasons"] == ["确定性规则结果需要人工复核"]
+    assert payload["manual_review"]["reasons"] == ["主体名称与来源信息不一致"]
     assert subject_rule["passed"] is False
     assert subject_rule["risk_level_on_failure"] == "MEDIUM"
 
@@ -194,11 +194,14 @@ def test_file_recognition_missing_fields_enter_manual_review_without_model_decis
     assert payload["risk_level"] == "NONE"
     assert payload["needs_manual_review"] is True
     assert payload["manual_review"]["status"] == "PENDING"
-    assert payload["manual_review"]["reasons"] == ["规则执行异常或不完整，需要人工复核"]
-    assert _rule(payload, "FOOD_LICENSE_SUBJECT_NAME_MATCH")["details"]["status"] == "error"
-    assert _rule(payload, "FOOD_LICENSE_CREDIT_CODE_MATCH")["details"]["status"] == "error"
+    assert payload["manual_review"]["reasons"] == [
+        "证照主体名称缺失，需要人工复核。",
+        "证照统一社会信用代码缺失，需要人工复核。",
+    ]
+    assert _rule(payload, "FOOD_LICENSE_SUBJECT_NAME_MATCH")["passed"] is False
+    assert _rule(payload, "FOOD_LICENSE_CREDIT_CODE_MATCH")["passed"] is False
     validity_rule = _rule(payload, "FOOD_LICENSE_VALIDITY_PERIOD")
-    assert validity_rule["details"]["status"] == "passed"
+    assert validity_rule["passed"] is True
     assert validity_rule["details"]["assumed_long_term"] is True
 
 

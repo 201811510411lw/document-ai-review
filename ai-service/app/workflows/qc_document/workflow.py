@@ -1,12 +1,16 @@
 from typing import Any
 
 from app.models import ManualReview, ManualReviewStatus, ReviewInputContext
+from app.tools.skill_rule_review import (
+    build_qc_document_skill_rule_review_adapter,
+    load_skill_text,
+)
 from app.workflows.qc_document.product_report_extraction import (
     extract_product_report_fields,
 )
-from app.workflows.qc_document.product_report_rules import (
-    evaluate_product_report_rules,
-)
+
+
+qc_document_skill_rule_review_adapter = build_qc_document_skill_rule_review_adapter()
 
 
 def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any]:
@@ -82,24 +86,26 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
 
     extracted_fields, extraction_metadata = extract_product_report_fields(document_text)
     extracted_payload = extracted_fields.model_dump(mode="json")
-    rules_result = evaluate_product_report_rules(
-        declared_document_type="product_report",
-        source_vendor_name=review_input.supplier_name,
-        extracted_fields={
-            "vendor_name": extracted_payload.get("vendor_name_extracted")
-            or extracted_payload.get("entrusting_party")
-            or extracted_payload.get("manufacturer_name"),
-            "product_name": extracted_payload.get("product_name")
-            or extracted_payload.get("sample_name"),
-            "batch_number": extracted_payload.get("batch_no"),
-            "production_date": extracted_payload.get("production_date"),
-            "conclusion": extracted_payload.get("inspection_conclusion")
-            or extracted_payload.get("inspection_result"),
+    skill_name = "qc-document-review"
+    rules_result = qc_document_skill_rule_review_adapter.review(
+        skill_name=skill_name,
+        skill_text=load_skill_text(skill_name),
+        review_payload={
+            "task_id": input_context.task_id,
+            "declared_document_type": "product_report",
+            "source_fields": {
+                "supplier_name": review_input.supplier_name,
+                "supplier_credit_code": review_input.supplier_credit_code,
+            },
+            "extracted_fields": extracted_payload,
+            "extraction_metadata": extraction_metadata,
+            "source": review_input.source,
+            "options": review_input.options,
         },
     )
-    status = rules_result["status"]
-    needs_manual_review = rules_result["needs_manual_review"]
-    if rules_result["risk_level"] == "HIGH":
+    status = rules_result.get("status", "PENDING_MANUAL_REVIEW")
+    needs_manual_review = rules_result.get("needs_manual_review", True)
+    if rules_result.get("risk_level") == "HIGH":
         status = "FAILED"
         needs_manual_review = False
     manual_review = ManualReview(
@@ -109,7 +115,7 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
             else ManualReviewStatus.NOT_REQUIRED
         ),
         reasons=(
-            list(rules_result["manual_review_reasons"])
+            list(rules_result.get("manual_review_reasons", []))
             if needs_manual_review
             else []
         ),
@@ -117,11 +123,11 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
     return {
         "implementation_status": "implemented",
         "status": status,
-        "risk_level": rules_result["risk_level"],
+        "risk_level": rules_result.get("risk_level", "MEDIUM"),
         "needs_manual_review": needs_manual_review,
-        "summary": rules_result["summary"],
+        "summary": rules_result.get("summary", "产品报告 Skill 规则审核完成。"),
         "manual_review": manual_review,
-        "rule_results": rules_result["rule_results"],
+        "rule_results": rules_result.get("rule_results", []),
         "capability_names": ["product_report"],
         "document_type": "product_report",
         "skill_result": {
@@ -140,6 +146,10 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
                 "declared_document_type": review_input.declared_document_type,
                 "source": review_input.source,
                 "options": review_input.options,
+                "skill_rule_review_metadata": {
+                    **dict(rules_result.get("metadata") or {}),
+                    "skill_name": skill_name,
+                },
             },
         },
     }

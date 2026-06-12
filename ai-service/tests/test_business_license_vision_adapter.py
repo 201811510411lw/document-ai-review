@@ -21,7 +21,7 @@ def test_business_license_vision_adapter_unknown_provider_falls_back_to_fake(mon
     assert adapter.implementation_status == "fake"
 
 
-def test_reject_source_mismatched_fields_nulls_hallucinated_core_fields():
+def test_reject_source_mismatched_fields_records_mismatch_without_hiding_fields():
     result = reject_source_mismatched_fields(
         {
             "text": '{"document_type":"business_license"}',
@@ -40,22 +40,25 @@ def test_reject_source_mismatched_fields_nulls_hallucinated_core_fields():
         expected_credit_code="91510132 MA6AULU68M",
     )
 
-    assert result["structured_fields"]["subject_name"] is None
-    assert result["structured_fields"]["credit_code"] is None
-    assert result["structured_fields"]["business_address"] is None
-    assert result["structured_fields"]["issue_authority"] is None
-    assert result["structured_fields"]["subject_name_evidence"] is None
-    assert result["structured_fields"]["credit_code_evidence"] is None
-    assert result["metadata"]["rejected_fields"] == {
+    assert result["structured_fields"]["subject_name"] == "广安市屈臣氏食品有限公司"
+    assert result["structured_fields"]["credit_code"] == "91510132MA6ALUL68M"
+    assert result["structured_fields"]["business_address"] == "广安市岳池县花园镇广场街"
+    assert result["structured_fields"]["issue_authority"] == "广安市市场监督管理局"
+    assert result["structured_fields"]["subject_name_evidence"] == "名称：广安市屈臣氏食品有限公司"
+    assert result["structured_fields"]["credit_code_evidence"] == "统一社会信用代码：91510132MA6ALUL68M"
+    assert result["metadata"]["mismatched_fields"] == {
         "subject_name": {
             "expected": "廖记食品有限责任公司",
+            "actual": "广安市屈臣氏食品有限公司",
             "reason": "source_mismatch",
         },
         "credit_code": {
             "expected": "91510132 MA6AULU68M",
+            "actual": "91510132MA6ALUL68M",
             "reason": "source_mismatch",
         },
     }
+    assert result["metadata"]["rejected_fields"] == result["metadata"]["mismatched_fields"]
 
 
 def test_parse_business_license_vision_json_accepts_markdown_json_block():
@@ -74,4 +77,3 @@ def test_parse_business_license_vision_json_accepts_markdown_json_block():
         "document_type": "business_license",
         "subject_name": "成都示例商贸有限公司",
     }
-

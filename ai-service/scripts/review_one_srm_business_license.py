@@ -41,6 +41,12 @@ def _summary_payload(payload: dict[str, Any]) -> dict[str, Any]:
     skill_result = dict(payload.get("skill_result") or {})
     extracted_fields = dict(skill_result.get("extracted_fields") or {})
     document_input = dict(skill_result.get("document_input") or {})
+    review_metadata = dict(
+        (dict(skill_result.get("source_evidence") or {})).get(
+            "skill_rule_review_metadata"
+        )
+        or {}
+    )
     failed_rules = [
         {
             "rule_code": item.get("rule_code"),
@@ -54,8 +60,10 @@ def _summary_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "task_id": payload.get("task_id"),
         "document_type": payload.get("document_type"),
-        "status": payload.get("status"),
-        "risk_level": payload.get("risk_level"),
+        "status": review_metadata.get("status_label")
+        or _status_label(payload.get("status")),
+        "risk_level": review_metadata.get("risk_level_label")
+        or _risk_level_label(payload.get("risk_level")),
         "needs_manual_review": payload.get("needs_manual_review"),
         "summary": payload.get("summary"),
         "manual_review_reasons": (
@@ -74,6 +82,29 @@ def _summary_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "source_url": document_input.get("source_url"),
         },
     }
+
+
+def _status_label(status: Any) -> str | None:
+    labels = {
+        "CREATED": "已创建",
+        "RUNNING": "审核中",
+        "REVIEWED": "已审核",
+        "PENDING_MANUAL_REVIEW": "待人工复核",
+        "MANUAL_REVIEWED": "人工已复核",
+        "FAILED": "审核失败",
+        "NO_SOURCE_TASK": "无待审核任务",
+    }
+    return labels.get(str(status), status) if status is not None else None
+
+
+def _risk_level_label(risk_level: Any) -> str | None:
+    labels = {
+        "HIGH": "高风险",
+        "MEDIUM": "中风险",
+        "LOW": "低风险",
+        "NONE": "无风险",
+    }
+    return labels.get(str(risk_level), risk_level) if risk_level is not None else None
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ class BusinessLicenseWorkflowState(TypedDict, total=False):
     risk_level: RiskLevel
     needs_manual_review: bool
     manual_review_reasons: list[str]
+    skill_rule_review_metadata: dict[str, Any]
     manual_review: ManualReview
     summary: str
     status: str

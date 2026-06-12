@@ -57,6 +57,11 @@ def test_business_license_review_accepts_image_file_with_fake_vision_extractor(
         ]
         == "fake"
     )
+    rule_metadata = payload["skill_result"]["source_evidence"][
+        "skill_rule_review_metadata"
+    ]
+    assert rule_metadata["status_label"] == "已审核"
+    assert rule_metadata["risk_level_label"] == "无风险"
 
 
 def test_business_license_review_accepts_structured_fields_from_vision_adapter(

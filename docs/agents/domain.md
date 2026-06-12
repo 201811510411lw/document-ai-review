@@ -35,7 +35,7 @@
 - FastAPI
 - LangGraph
 - LangChain
-- Python 规则引擎
+- Skill 规则审核
 - 审核任务
 - 字段抽取
 - 字段规范化
@@ -51,7 +51,7 @@
 - FastAPI 负责 HTTP API。
 - LangGraph 是食品安全证照检测 V1 审核流程的核心编排方式。
 - LangChain 负责模型调用、Prompt、结构化输出和工具封装。
-- Python 规则引擎负责确定性规则校验。
+- Agent Skill 维护规则口径，Python Runtime 读取 Skill 并调用 LLM 输出结构化规则结果。
 - Python 服务同时承担审核任务管理、审核结果保存、人工复核和审计日志。
 - 后续企业系统可以通过 HTTP API 调用该 Python 服务。
 
