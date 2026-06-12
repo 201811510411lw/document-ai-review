@@ -75,6 +75,8 @@ def recognize_license_file(
             file_input,
             local_path=local_path,
             adapter=adapter,
+            expected_subject_name=getattr(review_input, "supplier_name", None),
+            expected_credit_code=getattr(review_input, "supplier_credit_code", None),
             include_legacy_vision_metadata=include_legacy_vision_metadata,
         )
     if file_input.file_uri:
@@ -82,6 +84,8 @@ def recognize_license_file(
             file_input,
             adapter=adapter,
             downloader=downloader or RemoteDocumentDownloader(),
+            expected_subject_name=getattr(review_input, "supplier_name", None),
+            expected_credit_code=getattr(review_input, "supplier_credit_code", None),
             include_legacy_vision_metadata=include_legacy_vision_metadata,
         )
     return _empty_result()
@@ -92,6 +96,8 @@ def _recognize_local_file(
     *,
     local_path: str,
     adapter: LlmFileAdapter,
+    expected_subject_name: str | None,
+    expected_credit_code: str | None,
     include_legacy_vision_metadata: bool,
 ) -> LicenseFileRecognitionResult:
     try:
@@ -125,6 +131,8 @@ def _recognize_local_file(
             mime_type=mime_type,
             file_name=file_input.file_name,
             source_url=file_input.file_uri,
+            expected_subject_name=expected_subject_name,
+            expected_credit_code=expected_credit_code,
         )
     )
     return _recognition_result(
@@ -145,6 +153,8 @@ def _recognize_remote_file(
     *,
     adapter: LlmFileAdapter,
     downloader: RemoteDocumentDownloader,
+    expected_subject_name: str | None,
+    expected_credit_code: str | None,
     include_legacy_vision_metadata: bool,
 ) -> LicenseFileRecognitionResult:
     try:
@@ -192,6 +202,8 @@ def _recognize_remote_file(
             mime_type=remote_document.mime_type,
             file_name=file_input.file_name,
             source_url=remote_document.source_url,
+            expected_subject_name=expected_subject_name,
+            expected_credit_code=expected_credit_code,
         )
     )
     result = _recognition_result(
