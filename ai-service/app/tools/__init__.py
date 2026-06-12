@@ -13,7 +13,6 @@ from app.tools.oa_adapter import StubOaAdapter
 from app.tools.pdf_adapter import StubPdfAdapter
 from app.tools.vision_adapter import (
     FakeVisionAdapter,
-    LangChainVisionAdapter,
     build_business_license_vision_adapter,
 )
 
@@ -28,6 +27,5 @@ __all__ = [
     "StubOaAdapter",
     "StubPdfAdapter",
     "FakeVisionAdapter",
-    "LangChainVisionAdapter",
     "build_business_license_vision_adapter",
 ]

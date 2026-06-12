@@ -316,6 +316,71 @@ def test_business_license_text_only_model_output_does_not_bypass_structured_fiel
     }
 
 
+def test_business_license_hallucinated_fields_route_high_risk_manual_review(
+    tmp_path,
+    monkeypatch,
+):
+    pdf_path = tmp_path / "liaoji-business-license.pdf"
+    write_minimal_pdf(pdf_path, _business_license_text())
+    monkeypatch.setenv(
+        "BUSINESS_LICENSE_FAKE_VISION_JSON",
+        """
+        {
+          "document_type": "business_license",
+          "subject_name": "会唐县唐咖甲醇甲醇批发厂",
+          "credit_code": "92130123MA6UUU68N",
+          "business_address": "陕西市道江区新城甲醇甲醇批发厂",
+          "legal_person": null,
+          "established_date": "2020-11-11",
+          "valid_to": "长期",
+          "source_page": 1,
+          "subject_name_evidence": "名称 会唐县唐咖甲醇甲醇批发厂",
+          "credit_code_evidence": "统一社会信用代码 92130123MA6UUU68N"
+        }
+        """,
+    )
+    monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/business-license/reviews",
+        json={
+            "file": {
+                "local_path": str(pdf_path),
+                "file_name": "廖记食品有限责任公司-营业执照&法人身份证.pdf",
+                "mime_type": "application/pdf",
+                "document_format": "pdf",
+            },
+            "supplier_name": "廖记食品有限责任公司",
+            "supplier_credit_code": "91510132MA6AULU68M",
+            "declared_document_type": "business_license",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "PENDING_MANUAL_REVIEW"
+    assert payload["risk_level"] == "HIGH"
+    assert payload["needs_manual_review"] is True
+    assert "主体名称与来源信息不一致" in payload["manual_review"]["reasons"]
+    assert "统一社会信用代码格式异常" in payload["manual_review"]["reasons"]
+    assert (
+        payload["skill_result"]["extracted_fields"]["subject_name"]
+        == "会唐县唐咖甲醇甲醇批发厂"
+    )
+    credit_rule = next(
+        item
+        for item in payload["rule_results"]
+        if item["rule_code"] == "BUSINESS_LICENSE_CREDIT_CODE_MATCH"
+    )
+    assert credit_rule["passed"] is False
+    assert credit_rule["details"] == {
+        "field": "credit_code",
+        "expected": "91510132MA6AULU68M",
+        "actual": "92130123MA6UUU68N",
+    }
+
+
 def test_business_license_image_without_vision_configuration_routes_manual_review(
     tmp_path,
     monkeypatch,
