@@ -157,11 +157,14 @@ class FoodLicenseValidityRule:
         fields = _normalized_fields(context)
         actual = _get_field(fields, "valid_to")
         if not _has_text(actual):
-            return _manual_review(
-                self,
-                "证照有效期截止日期缺失，需要人工复核。",
-                field="valid_to",
-                actual=actual,
+            return RuleExecutionResult.passed(
+                rule=self,
+                message="证照未识别到有效期，按长期有效处理。",
+                details={
+                    "field": "valid_to",
+                    "actual": actual,
+                    "assumed_long_term": True,
+                },
             )
 
         valid_to = _parse_date(str(actual))
