@@ -79,12 +79,28 @@ def test_business_license_rules_flag_expired_license_as_high_risk():
     assert _rule(result, "BUSINESS_LICENSE_VALIDITY_PERIOD").passed is False
 
 
-def test_business_license_rules_route_unparseable_validity_to_manual_review():
+def test_business_license_rules_treat_missing_validity_as_long_term():
     result = evaluate_business_license_rules(
         document_type="business_license",
         source_subject_name="成都示例商贸有限公司",
         source_credit_code="91510100MA0000000X",
         extracted_fields={**BASE_FIELDS, "valid_to": None},
+        current_date=date(2026, 6, 10),
+    )
+
+    assert result["risk_level"] == RiskLevel.NONE
+    assert result["needs_manual_review"] is False
+    validity_rule = _rule(result, "BUSINESS_LICENSE_VALIDITY_PERIOD")
+    assert validity_rule.passed is True
+    assert validity_rule.details["assumed_long_term"] is True
+
+
+def test_business_license_rules_route_unparseable_validity_to_manual_review():
+    result = evaluate_business_license_rules(
+        document_type="business_license",
+        source_subject_name="成都示例商贸有限公司",
+        source_credit_code="91510100MA0000000X",
+        extracted_fields={**BASE_FIELDS, "valid_to": "无法识别"},
         current_date=date(2026, 6, 10),
     )
 

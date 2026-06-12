@@ -197,7 +197,9 @@ def test_file_recognition_missing_fields_enter_manual_review_without_model_decis
     assert payload["manual_review"]["reasons"] == ["规则执行异常或不完整，需要人工复核"]
     assert _rule(payload, "FOOD_LICENSE_SUBJECT_NAME_MATCH")["details"]["status"] == "error"
     assert _rule(payload, "FOOD_LICENSE_CREDIT_CODE_MATCH")["details"]["status"] == "error"
-    assert _rule(payload, "FOOD_LICENSE_VALIDITY_PERIOD")["details"]["status"] == "error"
+    validity_rule = _rule(payload, "FOOD_LICENSE_VALIDITY_PERIOD")
+    assert validity_rule["details"]["status"] == "passed"
+    assert validity_rule["details"]["assumed_long_term"] is True
 
 
 def _write_pdf(tmp_path):

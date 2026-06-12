@@ -200,17 +200,22 @@ def test_validity_rule_fails_medium_risk_when_expiring_within_thirty_days():
     assert result.details["days_until_expiry"] == 30
 
 
-def test_validity_rule_requires_manual_review_when_missing_or_unreadable():
-    missing = FoodLicenseValidityRule().evaluate(
+def test_validity_rule_treats_missing_validity_as_long_term():
+    result = FoodLicenseValidityRule().evaluate(
         build_context(normalized_fields=FoodLicenseNormalizedFields()),
     )
+
+    assert result.status == RuleStatus.PASSED
+    assert result.details["field"] == "valid_to"
+    assert result.details["assumed_long_term"] is True
+
+
+def test_validity_rule_requires_manual_review_when_unreadable():
     unreadable = FoodLicenseValidityRule().evaluate(
         build_context(
             normalized_fields=FoodLicenseNormalizedFields(valid_to="无法识别"),
         ),
     )
 
-    assert missing.status == RuleStatus.ERROR
-    assert missing.details["field"] == "valid_to"
     assert unreadable.status == RuleStatus.ERROR
     assert unreadable.details["field"] == "valid_to"

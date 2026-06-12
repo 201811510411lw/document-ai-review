@@ -110,6 +110,15 @@ def _credit_code_outcome(source_credit_code: str, fields: dict[str, Any]) -> _Ou
 
 def _validity_outcome(fields: dict[str, Any], today: date) -> _Outcome:
     valid_to = fields.get("valid_to")
+    if not _normalize_text(valid_to):
+        return _Outcome(
+            "BUSINESS_LICENSE_VALIDITY_PERIOD",
+            "营业执照有效期",
+            True,
+            RiskLevel.HIGH,
+            "营业执照未识别到有效期，按长期有效处理",
+            {"valid_to": valid_to, "assumed_long_term": True},
+        )
     if valid_to == "长期":
         return _Outcome(
             "BUSINESS_LICENSE_VALIDITY_PERIOD",
@@ -147,7 +156,7 @@ def _validity_outcome(fields: dict[str, Any], today: date) -> _Outcome:
 def _required_fields_outcome(fields: dict[str, Any]) -> _Outcome:
     missing = [
         field_name
-        for field_name in ("subject_name", "credit_code", "valid_to")
+        for field_name in ("subject_name", "credit_code")
         if not fields.get(field_name)
     ]
     passed = not missing
