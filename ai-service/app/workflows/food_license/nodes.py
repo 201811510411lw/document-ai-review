@@ -1,22 +1,29 @@
-from datetime import date
-
 from app.models import ManualReview, ManualReviewStatus, RiskLevel
-from app.rules import RuleContext, RuleExecutor
 from app.capabilities.food_license.schemas import (
     FoodLicenseDocumentClassification,
     FoodLicenseDocumentInputResult,
     FoodLicenseExtractedFields,
     FoodLicenseNormalizedFields,
 )
-from app.capabilities.food_license.rules import build_food_license_rules
 from app.tools.license_file_recognition import recognize_license_file
 from app.tools.remote_document import RemoteDocumentDownloader
+from app.tools.skill_rule_review import (
+    build_food_license_skill_rule_review_adapter,
+    load_skill_text,
+)
 from app.tools.vision_adapter import build_food_license_file_adapter
 from app.workflows.food_license.state import FoodLicenseWorkflowState
 
 
 food_license_remote_downloader = RemoteDocumentDownloader()
 food_license_file_adapter = build_food_license_file_adapter()
+food_license_skill_rule_review_adapter = build_food_license_skill_rule_review_adapter()
+
+
+def _current_rule_date():
+    from datetime import date
+
+    return date.today()
 
 
 def load_document(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
@@ -118,63 +125,54 @@ def normalize_fields(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowStat
 
 
 def run_rules(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
+    input_context = state["input_context"]
     document_classification = state.get("document_classification")
-    rule_context = RuleContext(
-        input_context=state["input_context"],
-        facts={
-            "document_text": state.get("document_text", ""),
-            "document_type": (
-                document_classification.document_type
-                if document_classification is not None
-                else None
-            ),
-            "extracted_fields": state.get("extracted_fields"),
-            "normalized_fields": state.get("normalized_fields"),
-            "input_context": state["input_context"],
-            "current_date": _current_rule_date(),
+    normalized_fields = state.get("normalized_fields")
+    skill_name = "food-license-review"
+    review_payload = {
+        "task_id": input_context.task_id,
+        "declared_document_type": input_context.input.declared_document_type,
+        "document_type": (
+            document_classification.document_type
+            if document_classification is not None
+            else None
+        ),
+        "source_fields": {
+            "supplier_name": input_context.input.supplier_name,
+            "supplier_credit_code": input_context.input.supplier_credit_code,
+            "supplier_address": input_context.input.supplier_address,
         },
+        "extracted_fields": (
+            normalized_fields.model_dump(mode="json") if normalized_fields else {}
+        ),
+        "current_date": _current_rule_date().isoformat(),
+        "extraction_metadata": state.get("extraction_metadata", {}),
+    }
+    rules_result = food_license_skill_rule_review_adapter.review(
+        skill_name=skill_name,
+        skill_text=load_skill_text(skill_name),
+        review_payload=review_payload,
     )
-    rule_execution = RuleExecutor(build_food_license_rules()).run(rule_context)
     return {
         **state,
-        "rule_execution": rule_execution,
-        "rule_results": rule_execution.to_rule_results(),
+        "rule_results": rules_result.get("rule_results", []),
+        "risk_level": rules_result.get("risk_level", RiskLevel.MEDIUM),
+        "needs_manual_review": rules_result.get("needs_manual_review", True),
+        "summary": rules_result.get("summary", "食品许可证 Skill 规则审核完成。"),
+        "manual_review_reasons": rules_result.get("manual_review_reasons", []),
+        "skill_rule_review_metadata": {
+            **dict(rules_result.get("metadata") or {}),
+            "skill_name": skill_name,
+        },
     }
 
 
 def summarize_risk(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
-    rule_execution = state.get("rule_execution")
-    if rule_execution is not None:
-        return {
-            **state,
-            "risk_level": rule_execution.risk_level,
-            "needs_manual_review": rule_execution.needs_manual_review,
-            "summary": _summarize_rule_execution(
-                rule_execution.risk_level,
-                rule_execution.needs_manual_review,
-            ),
-        }
-
-    rule_results = state.get("rule_results", [])
-    failed_risks = [
-        rule_result.risk_level_on_failure
-        for rule_result in rule_results
-        if not rule_result.passed
-    ]
-
-    if RiskLevel.HIGH in failed_risks:
-        risk_level = RiskLevel.HIGH
-    elif RiskLevel.MEDIUM in failed_risks:
-        risk_level = RiskLevel.MEDIUM
-    elif RiskLevel.LOW in failed_risks:
-        risk_level = RiskLevel.LOW
-    else:
-        risk_level = RiskLevel.NONE
-
     return {
         **state,
-        "risk_level": risk_level,
-        "summary": "未发现确定性规则风险。" if risk_level == RiskLevel.NONE else "发现确定性规则风险。",
+        "risk_level": state.get("risk_level", RiskLevel.MEDIUM),
+        "needs_manual_review": state.get("needs_manual_review", True),
+        "summary": state.get("summary", "食品许可证 Skill 规则审核完成。"),
     }
 
 
@@ -197,9 +195,9 @@ def route_review(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
     if unknown_document_type:
         reasons.append("文档类型无法识别，需要人工复核")
     elif rule_execution_needs_manual_review:
-        reasons.append("规则执行异常或不完整，需要人工复核")
+        reasons.extend(state.get("manual_review_reasons", []))
     elif needs_manual_review:
-        reasons.append("确定性规则结果需要人工复核")
+        reasons.append("Skill 规则结果需要人工复核")
 
     manual_review = ManualReview(
         status=(
@@ -214,18 +212,3 @@ def route_review(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
         "needs_manual_review": needs_manual_review,
         "manual_review": manual_review,
     }
-
-
-def _summarize_rule_execution(
-    risk_level: RiskLevel,
-    needs_manual_review: bool,
-) -> str:
-    if needs_manual_review:
-        return "规则执行需要人工复核。"
-    if risk_level == RiskLevel.NONE:
-        return "未发现确定性规则风险。"
-    return "发现确定性规则风险。"
-
-
-def _current_rule_date() -> date:
-    return date.today()

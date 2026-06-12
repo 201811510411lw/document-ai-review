@@ -159,25 +159,24 @@ ai-service/app/workflows/<domain>/
 
 ---
 
-## 6. rules 与 tools 边界
+## 6. Skill 规则与 tools 边界
 
-通用规则基础设施：
+业务规则口径：
 
 ```text
-ai-service/app/rules/
+.agents/skills/<skill>/SKILL.md
 ```
 
-具体业务规则：
+Skill 规则审核 adapter：
 
 ```text
-ai-service/app/capabilities/<capability>/rules/
+ai-service/app/tools/skill_rule_review.py
 ```
 
 当前约定：
 
-- `app/rules/` 只放通用规则协议、上下文、执行器、聚合逻辑；
-- capability 自带自己的 `rules/`；
-- Agent Skill 只描述规则摘要；
+- Agent Skill 维护业务规则口径；
+- `skill_rule_review.py` 负责读取 Skill、调用 LLM、解析结构化 JSON；
 - workflow 不内嵌业务规则实现。
 
 `app/tools/` 只封装外部能力 Stub：

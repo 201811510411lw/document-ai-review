@@ -43,6 +43,12 @@ def test_summary_payload_keeps_compliance_signal_without_full_skill_result():
             "normalized_fields": {
                 "business_address": "不应出现在摘要输出里",
             },
+            "source_evidence": {
+                "skill_rule_review_metadata": {
+                    "status_label": "已审核",
+                    "risk_level_label": "无风险",
+                },
+            },
         },
     }
 
@@ -51,8 +57,8 @@ def test_summary_payload_keeps_compliance_signal_without_full_skill_result():
     assert summary == {
         "task_id": "review-task-000001",
         "document_type": "business_license",
-        "status": "REVIEWED",
-        "risk_level": "NONE",
+        "status": "已审核",
+        "risk_level": "无风险",
         "needs_manual_review": False,
         "summary": "营业执照规则校验通过",
         "manual_review_reasons": [],

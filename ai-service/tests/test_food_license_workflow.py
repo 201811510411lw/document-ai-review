@@ -103,8 +103,8 @@ def test_food_license_workflow_public_entrypoint_runs_rules_after_file_recogniti
         "FOOD_LICENSE_VALIDITY_PERIOD",
     ]
     assert all(rule_result.passed is True for rule_result in state["rule_results"])
-    assert state["rule_execution"].risk_level == RiskLevel.NONE
-    assert state["rule_execution"].needs_manual_review is False
+    assert state["risk_level"] == RiskLevel.NONE
+    assert state["needs_manual_review"] is False
 
 
 def test_unknown_file_recognition_document_type_requires_manual_review(

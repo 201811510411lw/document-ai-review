@@ -41,6 +41,7 @@ class AliyunCloudMarketOcrAdapter:
             os.environ.get("BUSINESS_LICENSE_VISION_MODEL", "gpt-4o-mini"),
         )
         self.llm_base_url = os.environ.get("OPENAI_BASE_URL")
+        self.llm_max_attempts = int(os.environ.get("OPENAI_MAX_ATTEMPTS", "3"))
 
     def extract_text(self, source: Any) -> dict[str, Any]:
         if not self.api_url or not self.appcode:
@@ -181,7 +182,8 @@ class AliyunCloudMarketOcrAdapter:
                 base_url=self.llm_base_url,
                 timeout=self.timeout,
             )
-            response = client.chat.completions.create(
+            content, attempts = _create_chat_completion_content(
+                client=client,
                 model=self.llm_model,
                 messages=[
                     {
@@ -194,9 +196,8 @@ class AliyunCloudMarketOcrAdapter:
                         ],
                     }
                 ],
-                temperature=0,
+                max_attempts=self.llm_max_attempts,
             )
-            content = _chat_completion_content(response)
         except Exception as error:
             return {
                 "structured_fields": {},
@@ -207,6 +208,7 @@ class AliyunCloudMarketOcrAdapter:
                     "error_code": "ALIYUN_OCR_LLM_PARSE_FAILED",
                     "error_type": type(error).__name__,
                     "error_message": str(error),
+                    "attempts": self.llm_max_attempts,
                 },
             }
 
@@ -216,6 +218,7 @@ class AliyunCloudMarketOcrAdapter:
             "provider": "openai_compatible_chat_completions",
             "model": self.llm_model,
             "api": "chat.completions",
+            "attempts": attempts,
         }
         if not structured_fields:
             metadata["error_code"] = "ALIYUN_OCR_LLM_PARSE_JSON_MISSING"
@@ -387,6 +390,30 @@ def _chat_completion_content(response: Any) -> str:
         return ""
     message = getattr(choices[0], "message", None)
     return str(getattr(message, "content", "") or "").strip()
+
+
+def _create_chat_completion_content(
+    *,
+    client: Any,
+    model: str,
+    messages: list[dict[str, Any]],
+    max_attempts: int,
+) -> tuple[str, int]:
+    attempts = max(1, max_attempts)
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0,
+            )
+            return _chat_completion_content(response), attempt
+        except Exception as error:
+            last_error = error
+    if last_error is not None:
+        raise last_error
+    return "", attempts
 
 
 def _source_pages(content: bytes, mime_type: str) -> list[dict[str, str]]:

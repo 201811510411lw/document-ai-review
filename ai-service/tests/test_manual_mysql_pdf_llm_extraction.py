@@ -1,16 +1,15 @@
 import json
 import os
-from datetime import date
 from typing import Any
 
 import pytest
 
-from app.capabilities.business_license.rules import evaluate_business_license_rules
 from app.core.config import load_local_env
 from app.integrations.mysql_client import MySqlFetchClient, mysql_settings_from_env
 from app.integrations.srm.business_license_tasks import (
     fetch_one_business_license_source_task,
 )
+from app.services.review_service import ReviewService
 from app.tools.license_file_recognition import recognize_license_file
 from app.tools.remote_document import RemoteDocumentDownloader
 from app.tools.vision_adapter import build_business_license_vision_adapter
@@ -96,13 +95,11 @@ def test_manual_mysql_pdf_llm_extraction_snapshot():
         downloader=downloader,
         include_legacy_vision_metadata=True,
     )
-    compliance_result = evaluate_business_license_rules(
-        document_type=recognition_result.structured_fields.get("document_type"),
-        source_subject_name=task.review_input.supplier_name,
-        source_credit_code=task.review_input.supplier_credit_code,
-        extracted_fields=recognition_result.structured_fields,
-        current_date=date.today(),
+    review_result = ReviewService().review(
+        task.review_input,
+        use_case_name="business_license",
     )
+    compliance_result = review_result.model_dump(mode="json")
 
     if _debug_enabled():
         _print_json(
@@ -114,7 +111,7 @@ def test_manual_mysql_pdf_llm_extraction_snapshot():
                     "structured_fields": recognition_result.structured_fields,
                     "extraction_metadata": recognition_result.extraction_metadata,
                 },
-                "compliance_result": _compliance_result_snapshot(compliance_result),
+                "compliance_result": compliance_result,
             }
         )
     else:
@@ -171,38 +168,25 @@ def _compact_compliance_result(result: dict[str, Any]) -> dict[str, Any]:
     failed_rules = [
         _rule_result_snapshot(rule)
         for rule in result["rule_results"]
-        if not rule.passed
+        if not rule["passed"]
     ]
     return {
         "compliant": not result["needs_manual_review"],
         "risk_level": result["risk_level"],
         "needs_manual_review": result["needs_manual_review"],
-        "manual_review_reasons": result["manual_review_reasons"],
+        "manual_review_reasons": result["manual_review"]["reasons"],
         "failed_rules": failed_rules,
-    }
-
-
-def _compliance_result_snapshot(result: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "compliant": not result["needs_manual_review"],
-        "risk_level": result["risk_level"],
-        "needs_manual_review": result["needs_manual_review"],
-        "manual_review_reasons": result["manual_review_reasons"],
-        "rule_results": [
-            _rule_result_snapshot(rule)
-            for rule in result["rule_results"]
-        ],
     }
 
 
 def _rule_result_snapshot(rule: Any) -> dict[str, Any]:
     return {
-        "rule_code": rule.rule_code,
-        "rule_name": rule.rule_name,
-        "passed": rule.passed,
-        "risk_level_on_failure": rule.risk_level_on_failure,
-        "message": rule.message,
-        "details": rule.details,
+        "rule_code": rule["rule_code"],
+        "rule_name": rule["rule_name"],
+        "passed": rule["passed"],
+        "risk_level_on_failure": rule["risk_level_on_failure"],
+        "message": rule["message"],
+        "details": rule["details"],
     }
 
 

@@ -147,49 +147,34 @@ def reject_source_mismatched_fields(
     if not structured_fields:
         return result
 
-    rejected_fields: dict[str, dict[str, Any]] = {}
+    mismatched_fields: dict[str, dict[str, Any]] = {}
     expected_subject = _normalize_compare_text(expected_subject_name)
     actual_subject = _normalize_compare_text(structured_fields.get("subject_name"))
     if expected_subject and actual_subject and actual_subject != expected_subject:
-        rejected_fields["subject_name"] = {
+        mismatched_fields["subject_name"] = {
             "expected": expected_subject_name,
+            "actual": structured_fields.get("subject_name"),
             "reason": "source_mismatch",
         }
-        structured_fields["subject_name"] = None
-        structured_fields["subject_name_evidence"] = None
 
     expected_credit = _normalize_credit_code(expected_credit_code)
     actual_credit = _normalize_credit_code(structured_fields.get("credit_code"))
     if expected_credit and actual_credit and actual_credit != expected_credit:
-        rejected_fields["credit_code"] = {
+        mismatched_fields["credit_code"] = {
             "expected": expected_credit_code,
+            "actual": structured_fields.get("credit_code"),
             "reason": "source_mismatch",
         }
-        structured_fields["credit_code"] = None
-        structured_fields["credit_code_evidence"] = None
 
-    if not rejected_fields:
+    if not mismatched_fields:
         return result
-
-    if "subject_name" in rejected_fields or "credit_code" in rejected_fields:
-        for field_name in (
-            "business_address",
-            "legal_person",
-            "established_date",
-            "valid_from",
-            "valid_to",
-            "issue_authority",
-            "issue_date",
-            "valid_to_evidence",
-        ):
-            structured_fields[field_name] = None
 
     sanitized = {**result, "structured_fields": structured_fields}
     sanitized["metadata"] = {
         **dict(result.get("metadata") or {}),
-        "rejected_fields": rejected_fields,
+        "mismatched_fields": mismatched_fields,
+        "rejected_fields": mismatched_fields,
     }
-    sanitized["text"] = json.dumps(structured_fields, ensure_ascii=False)
     return sanitized
 
 

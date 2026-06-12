@@ -13,6 +13,15 @@ PROJECT_ENV_KEYS = {
     "DOCUMENT_AI_REVIEW_DEBUG",
     "BUSINESS_LICENSE_VISION_PROVIDER",
     "BUSINESS_LICENSE_VISION_MODEL",
+    "BUSINESS_LICENSE_SKILL_REVIEW_PROVIDER",
+    "BUSINESS_LICENSE_SKILL_REVIEW_MODEL",
+    "BUSINESS_LICENSE_SKILL_REVIEW_FAKE_JSON",
+    "FOOD_LICENSE_SKILL_REVIEW_PROVIDER",
+    "FOOD_LICENSE_SKILL_REVIEW_MODEL",
+    "FOOD_LICENSE_SKILL_REVIEW_FAKE_JSON",
+    "QC_DOCUMENT_SKILL_REVIEW_PROVIDER",
+    "QC_DOCUMENT_SKILL_REVIEW_MODEL",
+    "QC_DOCUMENT_SKILL_REVIEW_FAKE_JSON",
     "ALIYUN_OCR_API_URL",
     "ALIYUN_OCR_APPCODE",
     "ALIYUN_OCR_IMAGE_FIELD",
@@ -34,10 +43,10 @@ def load_local_env() -> None:
         **dotenv_values(project_root / "ai-service" / ".env"),
     }
     for key in PROJECT_ENV_KEYS:
+        if key in os.environ:
+            continue
         if key in env_values and env_values[key] is not None:
             os.environ[key] = env_values[key] or ""
-        else:
-            os.environ.pop(key, None)
     if not os.environ.get("OPENAI_API_KEY") and os.environ.get("OPENAI_API_KEY1"):
         os.environ["OPENAI_API_KEY"] = os.environ["OPENAI_API_KEY1"]
 

@@ -1,6 +1,3 @@
-from datetime import date
-
-from app.capabilities.business_license.rules import evaluate_business_license_rules
 from app.capabilities.business_license.schemas import (
     BusinessLicenseDocumentClassification,
     BusinessLicenseDocumentInputResult,
@@ -11,11 +8,18 @@ from app.models import ManualReview, ManualReviewStatus, ReviewStatus, RiskLevel
 from app.tools import build_business_license_vision_adapter
 from app.tools.license_file_recognition import recognize_license_file
 from app.tools.remote_document import RemoteDocumentDownloader
+from app.tools.skill_rule_review import (
+    build_business_license_skill_rule_review_adapter,
+    load_skill_text,
+)
 from app.workflows.business_license.state import BusinessLicenseWorkflowState
 
 
 business_license_remote_downloader = RemoteDocumentDownloader()
 business_license_vision_adapter = build_business_license_vision_adapter()
+business_license_skill_rule_review_adapter = (
+    build_business_license_skill_rule_review_adapter()
+)
 
 
 def load_document(state: BusinessLicenseWorkflowState) -> BusinessLicenseWorkflowState:
@@ -114,22 +118,43 @@ def run_rules(state: BusinessLicenseWorkflowState) -> BusinessLicenseWorkflowSta
     input_context = state["input_context"]
     classification = state.get("document_classification")
     normalized_fields = state.get("normalized_fields")
-    rules_result = evaluate_business_license_rules(
-        document_type=classification.document_type if classification else None,
-        source_subject_name=input_context.input.supplier_name,
-        source_credit_code=input_context.input.supplier_credit_code,
-        extracted_fields=normalized_fields.model_dump() if normalized_fields else {},
-        current_date=date.today(),
+    skill_name = "business-license-review"
+    review_payload = {
+        "task_id": input_context.task_id,
+        "declared_document_type": input_context.input.declared_document_type,
+        "document_type": classification.document_type if classification else None,
+        "source_fields": {
+            "supplier_name": input_context.input.supplier_name,
+            "supplier_credit_code": input_context.input.supplier_credit_code,
+            "supplier_address": input_context.input.supplier_address,
+        },
+        "extracted_fields": (
+            normalized_fields.model_dump(mode="json") if normalized_fields else {}
+        ),
+        "source_evidence": state.get("source_evidence", {}),
+        "extraction_metadata": state.get("extraction_metadata", {}),
+    }
+    rules_result = business_license_skill_rule_review_adapter.review(
+        skill_name=skill_name,
+        skill_text=load_skill_text(skill_name),
+        review_payload=review_payload,
     )
     return {
         **state,
-        "rule_results": rules_result["rule_results"],
-        "risk_level": rules_result["risk_level"],
-        "needs_manual_review": rules_result["needs_manual_review"],
+        "rule_results": rules_result.get("rule_results", []),
+        "risk_level": rules_result.get("risk_level", RiskLevel.MEDIUM),
+        "needs_manual_review": rules_result.get("needs_manual_review", True),
         "manual_review_reasons": _manual_review_reasons(
             state,
-            rules_result["manual_review_reasons"],
+            rules_result.get("manual_review_reasons", []),
         ),
+        "skill_rule_review_metadata": {
+            **dict(rules_result.get("metadata") or {}),
+            "skill_name": skill_name,
+            "status_label": rules_result.get("status_label"),
+            "risk_level_label": rules_result.get("risk_level_label"),
+        },
+        "summary": rules_result.get("summary"),
     }
 
 
@@ -190,4 +215,3 @@ def _manual_review_reasons(
     if vision_metadata.get("error_code") == "VISION_EXTRACTOR_MODEL_CALL_FAILED":
         return ["视觉模型调用失败", *reasons]
     return reasons
-

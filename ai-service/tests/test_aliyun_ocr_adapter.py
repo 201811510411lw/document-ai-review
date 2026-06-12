@@ -122,6 +122,45 @@ def test_aliyun_adapter_parses_ocr_text_with_llm(monkeypatch):
     assert "OCR 文本" in calls["messages"][0]["content"][0]["text"]
 
 
+def test_aliyun_adapter_retries_llm_parse_connection_errors(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    calls = {"count": 0}
+
+    class StubMessage:
+        content = '{"document_type":"business_license","subject_name":"东鹏饮料"}'
+
+    class StubChoice:
+        message = StubMessage()
+
+    class StubResponse:
+        choices = [StubChoice()]
+
+    class StubCompletions:
+        def create(self, **kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise ConnectionError("temporary connection error")
+            return StubResponse()
+
+    class StubChat:
+        completions = StubCompletions()
+
+    class StubOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = StubChat()
+
+    import app.tools.aliyun_ocr_adapter as aliyun_ocr_adapter
+
+    monkeypatch.setattr(aliyun_ocr_adapter, "OpenAI", StubOpenAI, raising=False)
+    adapter = AliyunCloudMarketOcrAdapter(api_url="https://example.test", appcode="code")
+
+    result = adapter._parse_ocr_text_with_llm("营业执照 东鹏饮料")
+
+    assert calls["count"] == 2
+    assert result["structured_fields"]["subject_name"] == "东鹏饮料"
+    assert result["metadata"]["attempts"] == 2
+
+
 def test_aliyun_llm_merge_only_uses_rule_fields_for_safe_fallbacks():
     merged = _merge_rule_and_llm_fields(
         {

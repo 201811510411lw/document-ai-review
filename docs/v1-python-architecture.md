@@ -172,21 +172,15 @@ workflow 负责编排，不承接平台入口职责。
 
 当前主线不接真实外部服务。
 
-### 2.9 rules
+### 2.9 Skill 规则审核
 
-通用规则基础设施位于：
-
-```text
-ai-service/app/rules/
-```
-
-具体业务规则位于：
+业务规则口径位于：
 
 ```text
-ai-service/app/capabilities/<capability>/rules/
+.agents/skills/<skill>/SKILL.md
 ```
 
-`SKILL.md` 只描述规则摘要，不承载规则执行逻辑。
+运行时通过 `ai-service/app/tools/skill_rule_review.py` 读取 Skill、调用 LLM、解析结构化审核结果。workflow 只负责编排，不内嵌业务规则实现。
 
 ### 2.10 Repository
 
@@ -204,7 +198,6 @@ ai-service/
     ├── core/
     ├── models/
     ├── repositories/
-    ├── rules/
     ├── services/
     ├── tools/
     ├── use_cases/
@@ -215,9 +208,7 @@ Agent Skill 描述层独立位于：
 
 ```text
 .agents/skills/
-├── qc_document_review/SKILL.md
-├── tobacco_license_consistency_review/SKILL.md
-└── contract_review/SKILL.md
+└── business-license-review/SKILL.md
 ```
 
 ---

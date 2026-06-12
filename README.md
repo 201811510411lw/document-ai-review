@@ -12,7 +12,7 @@
 
 平台不是单一 OCR 工具，也不是单一 `food_license` 审核服务。OCR、LLM、PDF、图片解析、OA 回写和 IM 通知都只是底层 Adapter。平台核心是：
 
-- 用 Agent Skill 描述层沉淀审核语义边界；
+- 用 Agent Skill 沉淀审核语义边界和业务规则口径；
 - 用 runtime use_case 承接业务场景入口；
 - 用 runtime capability 组织可复用执行能力；
 - 用 workflow 编排字段抽取、规则执行、风险汇总和人工复核路由；
@@ -23,8 +23,8 @@
 - Agent Skill：位于 `.agents/skills/<skill>/SKILL.md` 的描述层，只定义能力边界、输入输出、规则摘要和人工复核边界。
 - use_case：位于 `ai-service/app/use_cases/` 的运行时业务入口，负责承接平台请求并启动对应 workflow。
 - capability：位于 `ai-service/app/capabilities/` 的运行时能力单元，负责字段 schema、提示边界、规则归属和能力结果构造。
-- workflow：位于 `ai-service/app/workflows/` 的 LangGraph 编排层，负责编排文档加载、字段抽取、规则执行、风险汇总和人工复核路由。
-- RuleResult：确定性规则执行结果。
+- workflow：位于 `ai-service/app/workflows/` 的 LangGraph 编排层，负责编排文档加载、字段抽取、Skill 规则审核、风险汇总和人工复核路由。
+- RuleResult：Skill/LLM 规则审核输出的结构化规则结果。
 - ReviewResult：平台级审核结果契约。
 
 ---
@@ -44,7 +44,7 @@ workflow
     ↓
 capabilities
     ↓
-rules + tools adapter
+Agent Skills + tools adapter
     ↓
 ReviewResult
 ```
@@ -82,13 +82,13 @@ ReviewResult
 - 描述能力边界；
 - 描述支持的输入；
 - 描述输出结构摘要；
-- 描述规则摘要；
+- 维护业务规则口径；
 - 描述人工复核边界；
 - 说明与 runtime 的关系。
 
 不做：
 
-- 不写规则执行逻辑；
+- 不直接执行规则；
 - 不直接调用 workflow 节点；
 - 不直接调用 OCR / LLM / OA / ERP / IM；
 - 不充当平台运行时入口。
@@ -124,8 +124,7 @@ ai-service/app/capabilities/
 
 - 组织字段抽取逻辑；
 - 组织提示词与结构化 schema；
-- 挂载 capability 自身的规则目录；
-- 构造 capability 结果 payload；
+- 组织 capability 专属字段 schema 和结果 payload；
 - 为 workflow 提供可复用执行能力。
 
 当前首个样板是：
@@ -139,7 +138,6 @@ ai-service/app/capabilities/food_license/
 - `prompt.py`
 - `schemas.py`
 - `executor.py`
-- `rules/`
 
 ---
 
@@ -151,9 +149,9 @@ ai-service/app/capabilities/food_license/
 | Review Service | 创建任务 ID、构造 `ReviewInputContext`、调用 `use_case_registry` |
 | use_case_registry | 显式注册和选择 use_case |
 | use_cases | 承接业务入口，调用 workflow，组装 `ReviewResult` |
-| workflows | 编排 LangGraph / OCR / LLM / 规则执行 / 人工复核路由 |
-| capabilities | 承接字段 schema、提示边界、规则归属和能力结果构造 |
-| rules | 通用规则基础设施 + capability 专属规则 |
+| workflows | 编排 LangGraph / OCR / LLM / Skill 规则审核 / 人工复核路由 |
+| capabilities | 承接字段 schema、提示边界和能力结果构造 |
+| Agent Skills | 维护业务规则口径，供 runtime 读取并约束 LLM 结构化审核 |
 | tools adapter | OCR、LLM、PDF、图片、ERP、OA、IM 等外部能力 Stub |
 | repositories | 保存审核结果及后续人工复核、审计数据 |
 
@@ -237,7 +235,6 @@ document-ai-review/
 │   │   ├── core/
 │   │   ├── models/
 │   │   ├── repositories/
-│   │   ├── rules/
 │   │   ├── services/
 │   │   ├── tools/
 │   │   ├── use_cases/
@@ -250,8 +247,9 @@ document-ai-review/
 
 规则边界：
 
-- `ai-service/app/rules/`：通用规则基础设施；
-- `ai-service/app/capabilities/<capability>/rules/`：具体业务规则。
+- `.agents/skills/<skill>/SKILL.md`：业务规则口径；
+- `ai-service/app/tools/skill_rule_review.py`：读取 Skill、调用 LLM、解析结构化审核结果；
+- workflow：只编排 Skill 规则审核，不内嵌业务规则。
 
 ---
 

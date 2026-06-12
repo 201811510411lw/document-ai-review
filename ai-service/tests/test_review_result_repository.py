@@ -26,7 +26,7 @@ def build_review_result(task_id: str = "review-task-sqlite") -> ReviewResult:
         risk_level=RiskLevel.NONE,
         needs_manual_review=False,
         rule_results=[],
-        summary="未发现确定性规则风险。",
+        summary="Skill 规则审核通过。",
         manual_review=ManualReview(status=ManualReviewStatus.NOT_REQUIRED),
         audit_events=[],
         created_at=now,

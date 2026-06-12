@@ -1,7 +1,6 @@
 from typing import Any, TypedDict
 
 from app.models import ManualReview, ReviewInputContext, RiskLevel, RuleResult
-from app.rules import RuleExecutionSummary
 from app.capabilities.food_license.schemas import (
     FoodLicenseDocumentClassification,
     FoodLicenseDocumentInputResult,
@@ -20,8 +19,9 @@ class FoodLicenseWorkflowState(TypedDict, total=False):
     extraction_metadata: dict
     normalized_fields: FoodLicenseNormalizedFields
     rule_results: list[RuleResult]
-    rule_execution: RuleExecutionSummary
     risk_level: RiskLevel
     summary: str
     needs_manual_review: bool
+    manual_review_reasons: list[str]
+    skill_rule_review_metadata: dict[str, Any]
     manual_review: ManualReview
