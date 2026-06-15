@@ -7,6 +7,30 @@ from app.integrations.mysql_client import MySqlSettings, mysql_settings_from_env
 from app.models import ReviewResult
 
 
+BUSINESS_LICENSE_REVIEW_ROW_COLUMNS = """
+    task_id,
+    source_record_id,
+    source_attachment_ref_id,
+    source_url,
+    tenant,
+    document_type,
+    business_name,
+    credit_code,
+    business_address,
+    legal_person,
+    valid_from,
+    valid_to,
+    issue_authority,
+    issue_date,
+    review_status,
+    risk_level,
+    needs_manual_review,
+    summary,
+    created_at,
+    updated_at
+"""
+
+
 class MySQLReviewResultRepository:
     def __init__(self, settings: MySqlSettings) -> None:
         self.settings = settings
@@ -70,6 +94,78 @@ class MySQLReviewResultRepository:
         snapshot["extraction_metadata"] = loads(snapshot["extraction_metadata_json"])
         snapshot["source_evidence"] = loads(snapshot["source_evidence_json"])
         return snapshot
+
+    def list_business_license_reviews(
+        self,
+        *,
+        business_name: str | None = None,
+        credit_code: str | None = None,
+        risk_level: str | None = None,
+        review_status: str | None = None,
+        needs_manual_review: bool | None = None,
+        created_from: str | None = None,
+        created_to: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict[str, Any]:
+        self._ensure_schema_once()
+        where_sql, params = _business_license_review_filters(
+            business_name=business_name,
+            credit_code=credit_code,
+            risk_level=risk_level,
+            review_status=review_status,
+            needs_manual_review=needs_manual_review,
+            created_from=created_from,
+            created_to=created_to,
+        )
+        safe_page_size = min(max(1, page_size), 100)
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT COUNT(*) AS total
+                    FROM business_license_reviews
+                    {where_sql}
+                    """,
+                    tuple(params),
+                )
+                total = int((cursor.fetchone() or {}).get("total") or 0)
+                total_pages = max(1, (total + safe_page_size - 1) // safe_page_size)
+                safe_page = min(max(1, page), total_pages)
+                offset = (safe_page - 1) * safe_page_size
+                cursor.execute(
+                    f"""
+                    SELECT
+                        COUNT(*) AS total,
+                        SUM(CASE WHEN DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) AS today_reviewed,
+                        SUM(CASE WHEN needs_manual_review = 1 THEN 1 ELSE 0 END) AS pending_manual_review,
+                        SUM(CASE WHEN risk_level = 'HIGH' THEN 1 ELSE 0 END) AS high_risk,
+                        SUM(CASE WHEN review_status = 'REVIEWED' THEN 1 ELSE 0 END) AS reviewed
+                    FROM business_license_reviews
+                    {where_sql}
+                    """,
+                    tuple(params),
+                )
+                metrics_row = cursor.fetchone() or {}
+                cursor.execute(
+                    f"""
+                    SELECT {BUSINESS_LICENSE_REVIEW_ROW_COLUMNS}
+                    FROM business_license_reviews
+                    {where_sql}
+                    ORDER BY created_at DESC, task_id DESC
+                    LIMIT %s OFFSET %s
+                    """,
+                    tuple(params + [safe_page_size, offset]),
+                )
+                rows = cursor.fetchall()
+        return {
+            "items": [_business_license_review_row(row) for row in rows],
+            "metrics": _business_license_review_metrics(metrics_row),
+            "page": safe_page,
+            "page_size": safe_page_size,
+            "total": total,
+            "total_pages": total_pages,
+        }
 
     def get_product_report_snapshot(self, task_id: str) -> dict | None:
         self._ensure_schema_once()
@@ -386,6 +482,83 @@ class MySQLReviewResultRepository:
 
 def build_review_result_repository_from_env() -> MySQLReviewResultRepository:
     return MySQLReviewResultRepository(mysql_settings_from_env("REVIEW_RESULT_MYSQL"))
+
+
+def _business_license_review_filters(
+    *,
+    business_name: str | None,
+    credit_code: str | None,
+    risk_level: str | None,
+    review_status: str | None,
+    needs_manual_review: bool | None,
+    created_from: str | None,
+    created_to: str | None,
+) -> tuple[str, list[Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
+    if business_name:
+        clauses.append("business_name LIKE %s")
+        params.append(f"%{business_name}%")
+    if credit_code:
+        clauses.append("credit_code LIKE %s")
+        params.append(f"%{credit_code.upper()}%")
+    if risk_level:
+        clauses.append("risk_level = %s")
+        params.append(risk_level)
+    if review_status:
+        clauses.append("review_status = %s")
+        params.append(review_status)
+    if needs_manual_review is not None:
+        clauses.append("needs_manual_review = %s")
+        params.append(1 if needs_manual_review else 0)
+    if created_from:
+        clauses.append("created_at >= %s")
+        params.append(created_from)
+    if created_to:
+        clauses.append("created_at <= %s")
+        params.append(created_to)
+    if not clauses:
+        return "", params
+    return "WHERE " + " AND ".join(clauses), params
+
+
+def _business_license_review_row(row: dict[str, Any]) -> dict[str, Any]:
+    item = dict(row)
+    item["needs_manual_review"] = bool(item["needs_manual_review"])
+    item["review_status_label"] = _review_status_label(item["review_status"])
+    item["risk_level_label"] = _risk_level_label(item["risk_level"])
+    return item
+
+
+def _business_license_review_metrics(row: dict[str, Any]) -> dict[str, int]:
+    total = int(row.get("total") or 0)
+    reviewed = int(row.get("reviewed") or 0)
+    return {
+        "today_reviewed": int(row.get("today_reviewed") or 0),
+        "pending_manual_review": int(row.get("pending_manual_review") or 0),
+        "high_risk": int(row.get("high_risk") or 0),
+        "pass_rate": 0 if total == 0 else round((reviewed / total) * 100),
+    }
+
+
+def _review_status_label(status: str) -> str:
+    return {
+        "CREATED": "已创建",
+        "RUNNING": "审核中",
+        "REVIEWED": "已审核",
+        "PENDING_MANUAL_REVIEW": "待人工复核",
+        "MANUAL_REVIEWED": "人工已复核",
+        "FAILED": "审核失败",
+    }.get(status, status)
+
+
+def _risk_level_label(risk_level: str) -> str:
+    return {
+        "NONE": "无风险",
+        "LOW": "低风险",
+        "MEDIUM": "中风险",
+        "HIGH": "高风险",
+    }.get(risk_level, risk_level)
 
 
 def _skill_result_dict(review_result: ReviewResult) -> dict[str, Any]:
