@@ -27,20 +27,21 @@ function applyFilters(items: ReviewDetail[], filters: ReviewFilters): ReviewDeta
 function inDateRange(
   value: string,
   dateRange: ReviewFilters["dateRange"],
-  now = new Date("2026-06-15T12:00:00+08:00")
+  today = "2026-06-15"
 ) {
   if (dateRange === "all") {
     return true;
   }
 
-  const reviewedAt = new Date(value);
-  const current = new Date(now);
+  const businessDate = value.slice(0, 10);
 
   if (dateRange === "today") {
-    return reviewedAt.toISOString().slice(0, 10) === current.toISOString().slice(0, 10);
+    return businessDate === today;
   }
 
-  const start = new Date(current);
+  const current = parseBusinessDate(today);
+  const reviewedAt = parseBusinessDate(businessDate);
+  const start = parseBusinessDate(today);
   if (dateRange === "week") {
     start.setDate(current.getDate() - 6);
   }
@@ -48,8 +49,12 @@ function inDateRange(
     start.setDate(current.getDate() - 29);
   }
 
-  start.setHours(0, 0, 0, 0);
   return reviewedAt >= start && reviewedAt <= current;
+}
+
+function parseBusinessDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
 }
 
 function metricsFrom(items: ReviewDetail[]) {
