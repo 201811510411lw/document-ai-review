@@ -41,10 +41,11 @@ export function Layout({ children }: { children: ReactNode }) {
           <ListFilter size={18} aria-hidden="true" />
           <span>筛选</span>
         </a>
-        <a href="/reviews">
+        <span className="mobile-bottom-nav-disabled" aria-disabled="true" title="占位功能，暂未开放">
           <UserRound size={18} aria-hidden="true" />
           <span>我的</span>
-        </a>
+          <small>暂未开放</small>
+        </span>
       </nav>
     </div>
   );

@@ -942,14 +942,24 @@ td small {
     font-size: 13px;
   }
 
-  .mobile-bottom-nav a {
+  .mobile-bottom-nav a,
+  .mobile-bottom-nav-disabled {
     display: grid;
     justify-items: center;
-    gap: 4px;
+    gap: 2px;
   }
 
   .mobile-bottom-nav-active {
     color: #1263eb;
+  }
+
+  .mobile-bottom-nav-disabled {
+    color: #9aa4b2;
+    cursor: not-allowed;
+  }
+
+  .mobile-bottom-nav-disabled small {
+    font-size: 10px;
   }
 }
 
