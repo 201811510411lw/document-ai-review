@@ -1,10 +1,11 @@
+from datetime import datetime
 from json import dumps, loads
 from typing import Any
 
 import pymysql
 
 from app.integrations.mysql_client import MySqlSettings, mysql_settings_from_env
-from app.models import ReviewResult
+from app.models import AuditEvent, ManualReview, ManualReviewStatus, ReviewResult, ReviewStatus
 
 
 BUSINESS_LICENSE_REVIEW_ROW_COLUMNS = """
@@ -94,6 +95,151 @@ class MySQLReviewResultRepository:
         snapshot["extraction_metadata"] = loads(snapshot["extraction_metadata_json"])
         snapshot["source_evidence"] = loads(snapshot["source_evidence_json"])
         return snapshot
+
+    def manual_review_business_license(
+        self,
+        *,
+        task_id: str,
+        decision: str,
+        comment: str,
+        reviewer_id: str,
+        reviewer_username: str,
+        reviewed_at: datetime,
+    ) -> dict[str, Any] | None:
+        self._ensure_schema_once()
+        reviewed_at_text = reviewed_at.isoformat()
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT *
+                    FROM business_license_reviews
+                    WHERE task_id = %s
+                    """,
+                    (task_id,),
+                )
+                existing = cursor.fetchone()
+                if existing is None:
+                    return None
+                cursor.execute(
+                    "SELECT payload_json FROM review_results WHERE task_id = %s",
+                    (task_id,),
+                )
+                payload_row = cursor.fetchone()
+                updated_payload = (
+                    _manual_review_payload(
+                        payload_json=payload_row["payload_json"],
+                        decision=decision,
+                        comment=comment,
+                        reviewer_id=reviewer_id,
+                        reviewer_username=reviewer_username,
+                        reviewed_at=reviewed_at,
+                    )
+                    if payload_row is not None
+                    else None
+                )
+                cursor.execute(
+                    """
+                    UPDATE business_license_reviews
+                    SET
+                        review_status = %s,
+                        needs_manual_review = %s,
+                        manual_review_status = %s,
+                        manual_review_decision = %s,
+                        manual_review_comment = %s,
+                        manual_review_reviewer_id = %s,
+                        manual_review_reviewer_username = %s,
+                        manual_review_reviewed_at = %s,
+                        updated_at = %s
+                    WHERE task_id = %s
+                    """,
+                    (
+                        "MANUAL_REVIEWED",
+                        0,
+                        "COMPLETED",
+                        decision,
+                        comment,
+                        reviewer_id,
+                        reviewer_username,
+                        reviewed_at_text,
+                        reviewed_at_text,
+                        task_id,
+                    ),
+                )
+                if updated_payload is not None:
+                    cursor.execute(
+                        """
+                        UPDATE review_results
+                        SET payload_json = %s
+                        WHERE task_id = %s
+                        """,
+                        (updated_payload.model_dump_json(), task_id),
+                    )
+                cursor.execute(
+                    """
+                    INSERT INTO business_license_review_audit_events (
+                        task_id,
+                        event_type,
+                        message,
+                        occurred_at,
+                        actor_id,
+                        actor_username,
+                        details_json
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        task_id,
+                        "BUSINESS_LICENSE_MANUAL_REVIEW",
+                        _manual_review_audit_message(decision),
+                        reviewed_at_text,
+                        reviewer_id,
+                        reviewer_username,
+                        dumps(
+                            {
+                                "decision": decision,
+                                "comment": comment,
+                                "reviewer_id": reviewer_id,
+                                "reviewer_username": reviewer_username,
+                            },
+                            ensure_ascii=False,
+                        ),
+                    ),
+                )
+            connection.commit()
+        return self.get_business_license_snapshot(task_id)
+
+    def list_business_license_audit_events(self, task_id: str) -> list[dict[str, Any]]:
+        self._ensure_schema_once()
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        event_type,
+                        message,
+                        occurred_at,
+                        actor_id,
+                        actor_username,
+                        details_json
+                    FROM business_license_review_audit_events
+                    WHERE task_id = %s
+                    ORDER BY occurred_at ASC, id ASC
+                    """,
+                    (task_id,),
+                )
+                rows = cursor.fetchall()
+        return [
+            {
+                "event_type": row["event_type"],
+                "message": row["message"],
+                "occurred_at": row["occurred_at"],
+                "actor_id": row.get("actor_id"),
+                "actor_username": row.get("actor_username"),
+                "details": loads(row["details_json"] or "{}"),
+            }
+            for row in rows
+        ]
 
     def list_business_license_reviews(
         self,
@@ -248,12 +394,43 @@ class MySQLReviewResultRepository:
                         normalized_fields_json JSON NOT NULL,
                         extraction_metadata_json JSON NOT NULL,
                         source_evidence_json JSON NOT NULL,
+                        manual_review_status VARCHAR(64),
+                        manual_review_decision VARCHAR(32),
+                        manual_review_comment TEXT,
+                        manual_review_reviewer_id VARCHAR(128),
+                        manual_review_reviewer_username VARCHAR(128),
+                        manual_review_reviewed_at VARCHAR(64),
                         created_at VARCHAR(64),
                         updated_at VARCHAR(64),
                         INDEX idx_business_license_source_record_id (source_record_id),
                         INDEX idx_business_license_credit_code (credit_code),
                         INDEX idx_business_license_status_risk (review_status, risk_level),
                         INDEX idx_business_license_created_at (created_at)
+                    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+                    """
+                )
+                for ddl in (
+                    "ALTER TABLE business_license_reviews ADD COLUMN manual_review_status VARCHAR(64)",
+                    "ALTER TABLE business_license_reviews ADD COLUMN manual_review_decision VARCHAR(32)",
+                    "ALTER TABLE business_license_reviews ADD COLUMN manual_review_comment TEXT",
+                    "ALTER TABLE business_license_reviews ADD COLUMN manual_review_reviewer_id VARCHAR(128)",
+                    "ALTER TABLE business_license_reviews ADD COLUMN manual_review_reviewer_username VARCHAR(128)",
+                    "ALTER TABLE business_license_reviews ADD COLUMN manual_review_reviewed_at VARCHAR(64)",
+                ):
+                    _try_add_column(cursor, ddl)
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS business_license_review_audit_events (
+                        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        task_id VARCHAR(128) NOT NULL,
+                        event_type VARCHAR(128) NOT NULL,
+                        message TEXT NOT NULL,
+                        occurred_at VARCHAR(64) NOT NULL,
+                        actor_id VARCHAR(128),
+                        actor_username VARCHAR(128),
+                        details_json JSON NOT NULL,
+                        INDEX idx_business_license_review_audit_task_id (task_id),
+                        INDEX idx_business_license_review_audit_occurred_at (occurred_at)
                     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
                     """
                 )
@@ -547,6 +724,61 @@ def _business_license_review_row(row: dict[str, Any]) -> dict[str, Any]:
     item["review_status_label"] = _review_status_label(item["review_status"])
     item["risk_level_label"] = _risk_level_label(item["risk_level"])
     return item
+
+
+def _try_add_column(cursor, ddl: str) -> None:
+    try:
+        cursor.execute(ddl)
+    except pymysql.err.OperationalError as error:
+        if error.args and error.args[0] == 1060:
+            return
+        raise
+
+
+def _manual_review_audit_message(decision: str) -> str:
+    return {
+        "approved": "人工复核确认通过",
+        "rejected": "人工复核驳回",
+    }.get(decision, "人工复核完成")
+
+
+def _manual_review_payload(
+    *,
+    payload_json: str,
+    decision: str,
+    comment: str,
+    reviewer_id: str,
+    reviewer_username: str,
+    reviewed_at: datetime,
+) -> ReviewResult:
+    result = ReviewResult.model_validate_json(payload_json)
+    audit_event = AuditEvent(
+        event_type="BUSINESS_LICENSE_MANUAL_REVIEW",
+        message=_manual_review_audit_message(decision),
+        occurred_at=reviewed_at,
+        details={
+            "decision": decision,
+            "comment": comment,
+            "reviewer_id": reviewer_id,
+            "reviewer_username": reviewer_username,
+        },
+    )
+    return result.model_copy(
+        update={
+            "status": ReviewStatus.MANUAL_REVIEWED,
+            "needs_manual_review": False,
+            "manual_review": ManualReview(
+                status=ManualReviewStatus.COMPLETED,
+                reasons=result.manual_review.reasons,
+                reviewer=reviewer_id,
+                action=decision,
+                comment=comment,
+                reviewed_at=reviewed_at,
+            ),
+            "audit_events": [*result.audit_events, audit_event],
+            "updated_at": reviewed_at,
+        }
+    )
 
 
 def _business_license_review_metrics(row: dict[str, Any]) -> dict[str, int]:

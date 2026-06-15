@@ -4,7 +4,8 @@ import type {
   ReviewDetail,
   ReviewFilters,
   ReviewRow,
-  RuleResult
+  RuleResult,
+  ManualReviewRequest
 } from "./reviews";
 import { authHeaders, clearSession } from "./auth";
 import { navigateTo } from "../navigation";
@@ -36,6 +37,32 @@ export const httpReviewClient: ReviewClient = {
     }
     if (!response.ok) {
       throw new Error(`Failed to get business license review: ${response.status}`);
+    }
+    return mapDetailResponse(await response.json());
+  },
+
+  async submitManualReview(
+    taskId: string,
+    request: ManualReviewRequest
+  ): Promise<ReviewDetail> {
+    const response = await fetch(
+      `${API_BASE_URL}/api/v1/business-license/reviews/${encodeURIComponent(taskId)}/manual-review`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders()
+        },
+        body: JSON.stringify({
+          decision: request.decision,
+          comment: request.comment,
+          reviewer_id: request.reviewerId
+        })
+      }
+    );
+    handleUnauthorized(response);
+    if (!response.ok) {
+      throw new Error(`Failed to submit business license manual review: ${response.status}`);
     }
     return mapDetailResponse(await response.json());
   }
@@ -124,6 +151,8 @@ function mapDetailResponse(payload: ApiReviewDetail): ReviewDetail {
     normalizedFields: mapFields(payload.normalized_fields, payload),
     ruleResults: (payload.rule_results ?? []).map(mapRule),
     manualReviewReasons: payload.manual_review_reasons ?? [],
+    manualReview: mapManualReview(payload.manual_review, payload.manual_review_reasons),
+    auditEvents: (payload.audit_events ?? []).map(mapAuditEvent),
     payload: payload.payload ?? { ...payload }
   };
 }
@@ -172,6 +201,32 @@ function numericConfidence(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function mapManualReview(
+  payload: ApiManualReview | undefined,
+  fallbackReasons: string[] | undefined
+) {
+  return {
+    status: payload?.status ?? "PENDING",
+    decision: payload?.decision,
+    comment: payload?.comment,
+    reviewerId: payload?.reviewer_id,
+    reviewerUsername: payload?.reviewer_username,
+    reviewedAt: payload?.reviewed_at,
+    reasons: payload?.reasons ?? fallbackReasons ?? []
+  };
+}
+
+function mapAuditEvent(payload: ApiAuditEvent) {
+  return {
+    eventType: payload.event_type,
+    message: payload.message,
+    occurredAt: payload.occurred_at,
+    actorId: payload.actor_id,
+    actorUsername: payload.actor_username,
+    details: payload.details ?? {}
+  };
+}
+
 interface ApiListResponse {
   items: ApiReviewRow[];
   metrics: {
@@ -212,7 +267,28 @@ interface ApiReviewDetail extends ApiReviewRow {
   extracted_fields?: ApiFieldSet;
   normalized_fields?: ApiFieldSet;
   manual_review_reasons?: string[];
+  manual_review?: ApiManualReview;
+  audit_events?: ApiAuditEvent[];
   payload?: Record<string, unknown>;
+}
+
+interface ApiManualReview {
+  status: "NOT_REQUIRED" | "PENDING" | "COMPLETED";
+  decision?: "approved" | "rejected";
+  comment?: string;
+  reviewer_id?: string;
+  reviewer_username?: string;
+  reviewed_at?: string;
+  reasons?: string[];
+}
+
+interface ApiAuditEvent {
+  event_type: string;
+  message: string;
+  occurred_at: string;
+  actor_id?: string;
+  actor_username?: string;
+  details?: Record<string, unknown>;
 }
 
 interface ApiFieldSet {

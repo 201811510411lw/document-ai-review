@@ -9,6 +9,8 @@ class StubMySQLCursor:
         self.storage["executed_sql"].append(sql)
         if compact.startswith("create table"):
             return
+        if compact.startswith("alter table"):
+            return
         if compact.startswith("insert into review_results"):
             self.storage["review_results"][params[0]] = {
                 "task_id": params[0],
@@ -18,6 +20,11 @@ class StubMySQLCursor:
             return
         if compact.startswith("select payload_json from review_results"):
             self.result = self.storage["review_results"].get(params[0])
+            return
+        if compact.startswith("update review_results set payload_json"):
+            row = self.storage["review_results"].get(params[1])
+            if row is not None:
+                row["payload_json"] = params[0]
             return
         if compact.startswith("insert into business_license_reviews"):
             keys = [
@@ -51,6 +58,45 @@ class StubMySQLCursor:
             return
         if compact.startswith("select * from business_license_reviews"):
             self.result = self.storage["business_license_reviews"].get(params[0])
+            return
+        if compact.startswith("update business_license_reviews set review_status"):
+            row = self.storage["business_license_reviews"].get(params[-1])
+            if row is not None:
+                row.update(
+                    {
+                        "review_status": params[0],
+                        "needs_manual_review": params[1],
+                        "manual_review_status": params[2],
+                        "manual_review_decision": params[3],
+                        "manual_review_comment": params[4],
+                        "manual_review_reviewer_id": params[5],
+                        "manual_review_reviewer_username": params[6],
+                        "manual_review_reviewed_at": params[7],
+                        "updated_at": params[8],
+                    }
+                )
+            return
+        if compact.startswith("insert into business_license_review_audit_events"):
+            self.storage["business_license_review_audit_events"].append(
+                {
+                    "id": len(self.storage["business_license_review_audit_events"]) + 1,
+                    "task_id": params[0],
+                    "event_type": params[1],
+                    "message": params[2],
+                    "occurred_at": params[3],
+                    "actor_id": params[4],
+                    "actor_username": params[5],
+                    "details_json": params[6],
+                }
+            )
+            return
+        if compact.startswith("select event_type, message, occurred_at"):
+            rows = [
+                row
+                for row in self.storage["business_license_review_audit_events"]
+                if row["task_id"] == params[0]
+            ]
+            self.result = sorted(rows, key=lambda row: (row["occurred_at"], row["id"]))
             return
         if compact.startswith("select count(*) as total from business_license_reviews"):
             rows = _filter_business_license_rows(self.storage, params)
@@ -179,6 +225,7 @@ def install_mysql_repository_stub(monkeypatch):
         "executed_sql": [],
         "review_results": {},
         "business_license_reviews": {},
+        "business_license_review_audit_events": [],
         "product_report_reviews": {},
         "product_report_inspection_items": {},
         "connections": [],

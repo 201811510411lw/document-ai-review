@@ -212,6 +212,187 @@ def test_business_license_review_detail_returns_projection_and_full_payload(
     assert payload["payload"]["task_id"] == result.task_id
 
 
+def test_business_license_manual_review_writes_decision_and_audit_event(
+    tmp_path,
+    monkeypatch,
+):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    result = _save_review(
+        tmp_path,
+        monkeypatch,
+        repository,
+        task_name="business-manual.pdf",
+        supplier_name="上海云岚供应链管理有限公司",
+        supplier_credit_code="91310115MA1K00002Q",
+        extracted_credit_code="91310115MA1K00002R",
+        source_record_id="SRM-CERT-002",
+        attachment_ref_id="ATT-002",
+        source_url="https://files.example.test/business-manual.pdf",
+    )
+
+    app.dependency_overrides[get_review_read_repository] = lambda: repository
+    client = TestClient(app)
+
+    response = client.post(
+        f"/api/v1/business-license/reviews/{result.task_id}/manual-review",
+        json={
+            "decision": "approved",
+            "comment": "已核对原始营业执照，主体和信用代码可接受。",
+            "reviewer_id": "wecom-reviewer-001",
+        },
+        headers=_auth_headers(client),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["review_status"] == "MANUAL_REVIEWED"
+    assert payload["review_status_label"] == "人工已复核"
+    assert payload["needs_manual_review"] is False
+    assert payload["manual_review"]["status"] == "COMPLETED"
+    assert payload["manual_review"]["decision"] == "approved"
+    assert payload["manual_review"]["comment"] == "已核对原始营业执照，主体和信用代码可接受。"
+    assert payload["manual_review"]["reviewer_id"] == "wecom-reviewer-001"
+    assert payload["manual_review"]["reviewer_username"] == "reviewer"
+    assert len(payload["audit_events"]) == 1
+    assert payload["audit_events"][0]["event_type"] == "BUSINESS_LICENSE_MANUAL_REVIEW"
+    assert payload["audit_events"][0]["details"]["decision"] == "approved"
+
+    detail_response = client.get(
+        f"/api/v1/business-license/reviews/{result.task_id}",
+        headers=_auth_headers(client),
+    )
+
+    assert detail_response.status_code == 200
+    detail_payload = detail_response.json()
+    assert detail_payload["review_status"] == "MANUAL_REVIEWED"
+    assert detail_payload["needs_manual_review"] is False
+    assert detail_payload["manual_review"]["decision"] == "approved"
+    assert detail_payload["audit_events"][0]["details"]["reviewer_id"] == "wecom-reviewer-001"
+    assert detail_payload["payload"]["status"] == "MANUAL_REVIEWED"
+    assert detail_payload["payload"]["needs_manual_review"] is False
+    assert detail_payload["payload"]["manual_review"]["status"] == "COMPLETED"
+    assert detail_payload["payload"]["manual_review"]["action"] == "approved"
+    assert detail_payload["payload"]["manual_review"]["comment"] == "已核对原始营业执照，主体和信用代码可接受。"
+    assert detail_payload["payload"]["manual_review"]["reviewer"] == "wecom-reviewer-001"
+    assert detail_payload["payload"]["audit_events"][-1]["event_type"] == "BUSINESS_LICENSE_MANUAL_REVIEW"
+
+
+def test_business_license_manual_review_requires_login(monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    app.dependency_overrides[get_review_read_repository] = lambda: repository
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/business-license/reviews/review-task-1/manual-review",
+        json={
+            "decision": "approved",
+            "comment": "已核对。",
+            "reviewer_id": "wecom-reviewer-001",
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == {
+        "code": "UNAUTHORIZED",
+        "message": "请先登录工作台",
+    }
+
+
+def test_business_license_manual_review_returns_404_for_missing_task(monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    app.dependency_overrides[get_review_read_repository] = lambda: repository
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/business-license/reviews/missing-task/manual-review",
+        json={
+            "decision": "rejected",
+            "comment": "无法确认原始证照真实性。",
+            "reviewer_id": "wecom-reviewer-001",
+        },
+        headers=_auth_headers(client),
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == {
+        "code": "BUSINESS_LICENSE_REVIEW_NOT_FOUND",
+        "message": "未找到营业执照审核结果",
+    }
+
+
+def test_business_license_manual_review_rejects_unknown_decision(
+    tmp_path,
+    monkeypatch,
+):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    result = _save_review(
+        tmp_path,
+        monkeypatch,
+        repository,
+        task_name="business-invalid-decision.pdf",
+        supplier_name="上海云岚供应链管理有限公司",
+        supplier_credit_code="91310115MA1K00002Q",
+        extracted_credit_code="91310115MA1K00002R",
+        source_record_id="SRM-CERT-002",
+        attachment_ref_id="ATT-002",
+        source_url="https://files.example.test/business-invalid-decision.pdf",
+    )
+
+    app.dependency_overrides[get_review_read_repository] = lambda: repository
+    client = TestClient(app)
+
+    response = client.post(
+        f"/api/v1/business-license/reviews/{result.task_id}/manual-review",
+        json={
+            "decision": "pending",
+            "comment": "非法结论。",
+            "reviewer_id": "wecom-reviewer-001",
+        },
+        headers=_auth_headers(client),
+    )
+
+    assert response.status_code == 422
+
+
+def test_business_license_manual_review_rejects_blank_comment(
+    tmp_path,
+    monkeypatch,
+):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    result = _save_review(
+        tmp_path,
+        monkeypatch,
+        repository,
+        task_name="business-blank-comment.pdf",
+        supplier_name="上海云岚供应链管理有限公司",
+        supplier_credit_code="91310115MA1K00002Q",
+        extracted_credit_code="91310115MA1K00002R",
+        source_record_id="SRM-CERT-002",
+        attachment_ref_id="ATT-002",
+        source_url="https://files.example.test/business-blank-comment.pdf",
+    )
+
+    app.dependency_overrides[get_review_read_repository] = lambda: repository
+    client = TestClient(app)
+
+    response = client.post(
+        f"/api/v1/business-license/reviews/{result.task_id}/manual-review",
+        json={
+            "decision": "approved",
+            "comment": "   ",
+            "reviewer_id": "wecom-reviewer-001",
+        },
+        headers=_auth_headers(client),
+    )
+
+    assert response.status_code == 422
+
+
 def test_business_license_review_detail_returns_404(monkeypatch):
     install_mysql_repository_stub(monkeypatch)
     repository = _repository()

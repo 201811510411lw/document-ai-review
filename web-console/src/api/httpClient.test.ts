@@ -110,6 +110,76 @@ describe("httpReviewClient", () => {
     });
   });
 
+  it("submits a manual review decision with bearer token and maps the response", async () => {
+    window.localStorage.setItem(
+      "document-ai-review.web-console.session",
+      JSON.stringify({
+        accessToken: "review-token",
+        expiresAt: Math.floor(Date.now() / 1000) + 3600,
+        user: {username: "reviewer", displayName: "审核员"}
+      })
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          task_id: "review-task-2",
+          business_name: "上海云岚供应链管理有限公司",
+          credit_code: "91310115MA1K00002R",
+          review_status: "MANUAL_REVIEWED",
+          review_status_label: "人工已复核",
+          risk_level: "HIGH",
+          risk_level_label: "高风险",
+          needs_manual_review: false,
+          manual_review: {
+            status: "COMPLETED",
+            decision: "approved",
+            comment: "已核对原始营业执照。",
+            reviewer_id: "wecom-reviewer-001",
+            reviewer_username: "reviewer",
+            reviewed_at: "2026-06-15T12:00:00+08:00",
+            reasons: ["统一社会信用代码不一致"]
+          },
+          audit_events: [
+            {
+              event_type: "BUSINESS_LICENSE_MANUAL_REVIEW",
+              message: "人工复核确认通过",
+              occurred_at: "2026-06-15T12:00:00+08:00",
+              actor_id: "wecom-reviewer-001",
+              actor_username: "reviewer",
+              details: {decision: "approved"}
+            }
+          ]
+        }),
+        { status: 200 }
+      )
+    );
+
+    const detail = await httpReviewClient.submitManualReview("review-task-2", {
+      decision: "approved",
+      comment: "已核对原始营业执照。",
+      reviewerId: "wecom-reviewer-001"
+    });
+
+    expect(fetchMock.mock.calls[0][0]).toContain(
+      "/api/v1/business-license/reviews/review-task-2/manual-review"
+    );
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer review-token"
+      },
+      body: JSON.stringify({
+        decision: "approved",
+        comment: "已核对原始营业执照。",
+        reviewer_id: "wecom-reviewer-001"
+      })
+    });
+    expect(detail.reviewStatus).toBe("MANUAL_REVIEWED");
+    expect(detail.manualReview.decision).toBe("approved");
+    expect(detail.auditEvents[0].message).toBe("人工复核确认通过");
+  });
+
   it("maps detail response and treats 404 as empty detail", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
