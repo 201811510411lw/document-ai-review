@@ -1,10 +1,13 @@
 from app.models import ReviewInput
-from app.repositories import SQLiteReviewResultRepository
+from app.integrations.mysql_client import MySqlSettings
+from app.repositories import MySQLReviewResultRepository
 from app.services.review_service import ReviewService
+from tests.mysql_repository_stub import install_mysql_repository_stub
 
 
-def test_sqlite_repository_saves_product_report_projection_and_items(tmp_path):
-    repository = SQLiteReviewResultRepository(tmp_path / "reviews.sqlite3")
+def test_mysql_repository_saves_product_report_projection_and_items(monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
     service = ReviewService(repository=repository)
 
     result = service.review(
@@ -60,8 +63,9 @@ def test_sqlite_repository_saves_product_report_projection_and_items(tmp_path):
     assert snapshot["source_evidence"]["source"]["record_id"] == "cert-001"
 
 
-def test_sqlite_repository_replaces_product_report_item_rows_on_update(tmp_path):
-    repository = SQLiteReviewResultRepository(tmp_path / "reviews.sqlite3")
+def test_mysql_repository_replaces_product_report_item_rows_on_update(monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
     service = ReviewService(repository=repository)
 
     result = service.review(
@@ -106,3 +110,15 @@ def test_sqlite_repository_replaces_product_report_item_rows_on_update(tmp_path)
         {"name": "大肠菌群", "result": "未检出"},
         {"name": "沙门氏菌", "result": "未检出"},
     ]
+
+
+def _repository() -> MySQLReviewResultRepository:
+    return MySQLReviewResultRepository(
+        MySqlSettings(
+            host="127.0.0.1",
+            port=3306,
+            user="review",
+            password="secret",
+            database="document_ai_review",
+        )
+    )

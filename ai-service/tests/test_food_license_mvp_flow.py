@@ -1,7 +1,9 @@
 from app.models import ReviewDocumentInput, ReviewInput
-from app.repositories import SQLiteReviewResultRepository
+from app.integrations.mysql_client import MySqlSettings
+from app.repositories import MySQLReviewResultRepository
 from app.services.review_service import ReviewService
 from app.workflows.food_license import nodes as food_license_nodes
+from tests.mysql_repository_stub import install_mysql_repository_stub
 from tests.pdf_helpers import write_minimal_pdf
 
 
@@ -29,10 +31,11 @@ def test_food_license_mvp_review_flow_can_save_pdf_file_recognition_result(
     tmp_path,
     monkeypatch,
 ):
+    install_mysql_repository_stub(monkeypatch)
     monkeypatch.setattr(food_license_nodes, "food_license_file_adapter", StubFileAdapter())
     pdf_path = tmp_path / "food-license.pdf"
     write_minimal_pdf(pdf_path, "embedded text should not be used")
-    repository = SQLiteReviewResultRepository(tmp_path / "reviews.sqlite3")
+    repository = _repository()
     service = ReviewService(repository=repository)
 
     result = service.review_food_license(
@@ -69,3 +72,15 @@ def test_food_license_mvp_review_flow_can_save_pdf_file_recognition_result(
     loaded = repository.get_by_task_id(result.task_id)
     assert loaded is not None
     assert loaded.model_dump(mode="json") == result.model_dump(mode="json")
+
+
+def _repository() -> MySQLReviewResultRepository:
+    return MySQLReviewResultRepository(
+        MySqlSettings(
+            host="127.0.0.1",
+            port=3306,
+            user="review",
+            password="secret",
+            database="document_ai_review",
+        )
+    )

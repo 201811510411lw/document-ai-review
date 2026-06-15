@@ -7,6 +7,7 @@ from app.api.food_license_reviews import get_review_service
 from app.main import app
 from app.models import ReviewResult
 from app.workflows.food_license import nodes as food_license_nodes
+from tests.mysql_repository_stub import install_mysql_repository_stub
 from tests.pdf_helpers import write_minimal_pdf
 
 
@@ -23,6 +24,7 @@ FOOD_LICENSE_JSON = """
 
 
 def test_food_license_review_accepts_local_pdf_with_fake_llm_file_extractor(tmp_path, monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
     pdf_path = tmp_path / "food-license.pdf"
     write_minimal_pdf(pdf_path, "this embedded text must not be used")
 

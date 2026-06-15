@@ -7,6 +7,7 @@ from app.integrations.mysql_client import MySqlFetchClient, mysql_settings_from_
 from app.integrations.srm.business_license_entrypoint import (
     review_one_srm_business_license,
 )
+from app.repositories import build_review_result_repository_from_env
 from app.services.review_service import ReviewService
 
 
@@ -14,7 +15,7 @@ def main() -> None:
     load_local_env()
     result = review_one_srm_business_license(
         sql_client=MySqlFetchClient(mysql_settings_from_env()),
-        review_service=ReviewService(),
+        review_service=ReviewService(repository=build_review_result_repository_from_env()),
     )
     if result is None:
         print(json.dumps({"status": "NO_SOURCE_TASK"}, ensure_ascii=False))

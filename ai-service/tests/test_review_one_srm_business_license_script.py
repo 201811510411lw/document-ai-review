@@ -1,4 +1,6 @@
+from scripts import review_one_srm_business_license as script
 from scripts.review_one_srm_business_license import _debug_enabled, _summary_payload
+from tests.mysql_repository_stub import install_mysql_repository_stub
 
 
 def test_debug_enabled_follows_document_ai_review_debug_env(monkeypatch):
@@ -75,3 +77,36 @@ def test_summary_payload_keeps_compliance_signal_without_full_skill_result():
             "source_url": "https://files.example.test/license.jpg",
         },
     }
+
+
+def test_main_uses_mysql_review_result_repository(monkeypatch, capsys):
+    install_mysql_repository_stub(monkeypatch)
+    monkeypatch.setattr(script, "load_local_env", lambda: None)
+
+    class StubSqlClient:
+        def __init__(self, settings):
+            self.settings = settings
+
+    monkeypatch.setattr(script, "MySqlFetchClient", StubSqlClient)
+    monkeypatch.setattr(
+        script,
+        "mysql_settings_from_env",
+        lambda: object(),
+    )
+
+    seen = {}
+
+    def review_one_srm_business_license(*, sql_client, review_service):
+        seen["repository"] = review_service.repository
+        return None
+
+    monkeypatch.setattr(
+        script,
+        "review_one_srm_business_license",
+        review_one_srm_business_license,
+    )
+
+    script.main()
+
+    assert seen["repository"].__class__.__name__ == "MySQLReviewResultRepository"
+    assert '"NO_SOURCE_TASK"' in capsys.readouterr().out
