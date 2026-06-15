@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { reviewClient } from "../api/client";
-import type { ReviewDetail } from "../api/reviews";
+import type { ManualReviewDecision, ReviewDetail } from "../api/reviews";
 import { RiskBadge, StatusBadge } from "../components/Badge";
 import { EmptyState, ErrorState, LoadingState } from "../components/EmptyState";
 
 export function ManualReviewPlaceholderPage({ taskId }: { taskId: string }) {
   const [detail, setDetail] = useState<ReviewDetail | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "empty" | "error">("loading");
+  const [decision, setDecision] = useState<ManualReviewDecision>("approved");
+  const [comment, setComment] = useState("");
+  const [reviewerId, setReviewerId] = useState("wecom-reviewer-local");
+  const [submitStatus, setSubmitStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
 
   useEffect(() => {
     let mounted = true;
@@ -45,6 +49,32 @@ export function ManualReviewPlaceholderPage({ taskId }: { taskId: string }) {
     return <EmptyState title="未找到审核记录" message="该任务 ID 不存在或已被清理。" />;
   }
 
+  const isCompleted = detail.manualReview.status === "COMPLETED";
+  const canSubmit =
+    !isCompleted &&
+    submitStatus !== "success" &&
+    submitStatus !== "submitting" &&
+    comment.trim().length > 0 &&
+    reviewerId.trim().length > 0;
+
+  async function submitManualReview() {
+    if (!detail || !canSubmit) {
+      return;
+    }
+    setSubmitStatus("submitting");
+    try {
+      const updated = await reviewClient.submitManualReview(detail.taskId, {
+        decision,
+        comment: comment.trim(),
+        reviewerId: reviewerId.trim()
+      });
+      setDetail(updated);
+      setSubmitStatus("success");
+    } catch {
+      setSubmitStatus("error");
+    }
+  }
+
   return (
     <div className="page-stack manual-page">
       <a className="back-link" href={`/reviews/${detail.taskId}`}>
@@ -58,8 +88,8 @@ export function ManualReviewPlaceholderPage({ taskId }: { taskId: string }) {
 
       <section className="page-heading">
         <div>
-          <h1>人工复核动作预留</h1>
-          <p>V1 只预留交互位置，不实现完整审批流和状态写回</p>
+          <h1>人工复核</h1>
+          <p>提交人工复核结论，写回审核状态并记录审计事件</p>
         </div>
       </section>
 
@@ -82,43 +112,63 @@ export function ManualReviewPlaceholderPage({ taskId }: { taskId: string }) {
 
         <div className="manual-workspace">
           <form className="manual-form">
-            <h3>复核操作区 V1 占位</h3>
+            <h3>复核操作区</h3>
             <label>
               <span>复核结论</span>
-              <input disabled placeholder="暂不提交，仅展示未来入口" />
+              <select
+                value={decision}
+                onChange={(event) => setDecision(event.target.value as ManualReviewDecision)}
+              >
+                <option value="approved">确认通过</option>
+                <option value="rejected">驳回</option>
+              </select>
             </label>
             <label>
               <span>复核备注</span>
-              <input disabled placeholder="请输入人工判断依据，V1 可禁用或隐藏提交" />
+              <textarea
+                value={comment}
+                onChange={(event) => setComment(event.target.value)}
+                placeholder="请输入人工判断依据"
+                rows={4}
+              />
             </label>
             <label>
-              <span>附件 / 证据</span>
-              <input disabled placeholder="未来可追加截图、说明或二次校验证据" />
+              <span>复核人 ID</span>
+              <input
+                value={reviewerId}
+                onChange={(event) => setReviewerId(event.target.value)}
+                placeholder="企业微信用户 ID"
+              />
             </label>
             <div className="review-actions">
-              <button disabled type="button">
-                确认通过
+              <button disabled={!canSubmit} type="button" onClick={submitManualReview}>
+                {submitStatus === "submitting" ? "提交中" : "提交复核结论"}
               </button>
-              <button disabled type="button">
-                驳回
-              </button>
-              <button disabled type="button">
-                保存复核备注
-              </button>
-              <span>按钮在 V1 可置灰，避免误以为已支持完整工作流</span>
+              <span>
+                {isCompleted && "已写回人工复核结论"}
+                {submitStatus === "error" && "提交失败，请检查 API 服务状态"}
+                {submitStatus === "idle" && !isCompleted && "提交后状态将变为人工已复核"}
+              </span>
             </div>
           </form>
 
           <aside className="contract-card">
-            <h3>后续 API 契约预留</h3>
+            <h3>复核写回状态</h3>
             <code>
-              POST /api/business-license/reviews/{"{task_id}"}/manual-review
-              {"\n"}{"{"}
-              {"\n"}  "decision": "approved | rejected",
-              {"\n"}  "comment": "人工复核备注",
-              {"\n"}  "reviewer_id": "企业微信用户 ID"
-              {"\n"}{"}"}
+              status: {detail.manualReview.status}
+              {"\n"}decision: {detail.manualReview.decision ?? "-"}
+              {"\n"}reviewer: {detail.manualReview.reviewerId ?? "-"}
+              {"\n"}reviewed_at: {detail.manualReview.reviewedAt ?? "-"}
             </code>
+            {detail.auditEvents.length > 0 ? (
+              <div className="audit-list">
+                {detail.auditEvents.map((event) => (
+                  <p key={`${event.eventType}-${event.occurredAt}`}>
+                    {event.occurredAt} · {event.message}
+                  </p>
+                ))}
+              </div>
+            ) : null}
           </aside>
         </div>
       </section>

@@ -49,7 +49,36 @@ export interface ReviewDetail extends ReviewRow {
   normalizedFields: ExtractedFieldSet;
   ruleResults: RuleResult[];
   manualReviewReasons: string[];
+  manualReview: ManualReviewState;
+  auditEvents: AuditEvent[];
   payload: Record<string, unknown>;
+}
+
+export type ManualReviewDecision = "approved" | "rejected";
+
+export interface ManualReviewRequest {
+  decision: ManualReviewDecision;
+  comment: string;
+  reviewerId: string;
+}
+
+export interface ManualReviewState {
+  status: "NOT_REQUIRED" | "PENDING" | "COMPLETED";
+  decision?: ManualReviewDecision;
+  comment?: string;
+  reviewerId?: string;
+  reviewerUsername?: string;
+  reviewedAt?: string;
+  reasons: string[];
+}
+
+export interface AuditEvent {
+  eventType: string;
+  message: string;
+  occurredAt: string;
+  actorId?: string;
+  actorUsername?: string;
+  details: Record<string, unknown>;
 }
 
 export interface ReviewFilters {
@@ -81,4 +110,5 @@ export interface ListReviewsResponse {
 export interface ReviewClient {
   listReviews(filters: ReviewFilters): Promise<ListReviewsResponse>;
   getReview(taskId: string): Promise<ReviewDetail | null>;
+  submitManualReview(taskId: string, request: ManualReviewRequest): Promise<ReviewDetail>;
 }

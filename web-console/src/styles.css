@@ -232,7 +232,9 @@ h3 {
 
 .filter-panel input,
 .filter-panel select,
-.manual-form input {
+.manual-form input,
+.manual-form select,
+.manual-form textarea {
   width: 100%;
   min-height: 42px;
   border: 1px solid #d8dee9;
@@ -242,8 +244,15 @@ h3 {
   padding: 0 12px;
 }
 
+.manual-form textarea {
+  min-height: 96px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
 .filter-panel input::placeholder,
-.manual-form input::placeholder {
+.manual-form input::placeholder,
+.manual-form textarea::placeholder {
   color: #9aa4b2;
 }
 
@@ -585,7 +594,9 @@ td small {
 }
 
 .review-actions button:disabled,
-.manual-form input:disabled {
+.manual-form input:disabled,
+.manual-form select:disabled,
+.manual-form textarea:disabled {
   background: #f8fafc;
   color: #9aa4b2;
   cursor: not-allowed;
@@ -662,6 +673,19 @@ td small {
   color: #687386;
   padding: 0;
   white-space: pre-wrap;
+}
+
+.audit-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.audit-list p {
+  margin: 0;
+  color: #4b5563;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .login-shell {

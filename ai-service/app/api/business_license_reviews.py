@@ -1,6 +1,8 @@
-from typing import Any, Protocol
+from datetime import datetime
+from typing import Any, Literal, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field, field_validator
 
 from app.api.auth import require_web_console_user
 from app.models import ReviewInput, ReviewResult
@@ -34,6 +36,35 @@ class BusinessLicenseReviewReadRepository(Protocol):
 
     def get_by_task_id(self, task_id: str) -> ReviewResult | None:
         ...
+
+    def manual_review_business_license(
+        self,
+        *,
+        task_id: str,
+        decision: str,
+        comment: str,
+        reviewer_id: str,
+        reviewer_username: str,
+        reviewed_at: datetime,
+    ) -> dict[str, Any] | None:
+        ...
+
+    def list_business_license_audit_events(self, task_id: str) -> list[dict[str, Any]]:
+        ...
+
+
+class ManualReviewRequest(BaseModel):
+    decision: Literal["approved", "rejected"]
+    comment: str = Field(min_length=1, max_length=2000)
+    reviewer_id: str = Field(min_length=1, max_length=128)
+
+    @field_validator("comment", "reviewer_id")
+    @classmethod
+    def reject_blank_text(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be blank")
+        return stripped
 
 
 def get_review_service() -> ReviewService:
@@ -159,7 +190,43 @@ def get_business_license_review_detail(
         "extraction_metadata": snapshot["extraction_metadata"],
         "source_evidence": snapshot["source_evidence"],
         "manual_review_reasons": (payload or {}).get("manual_review", {}).get("reasons", []),
+        "manual_review": _manual_review(snapshot, payload),
+        "audit_events": repository.list_business_license_audit_events(task_id),
         "payload": payload,
+    }
+
+
+@router.post("/reviews/{task_id}/manual-review")
+def manual_review_business_license(
+    task_id: str,
+    request: ManualReviewRequest,
+    current_user: dict[str, Any] = Depends(require_web_console_user),
+    repository: BusinessLicenseReviewReadRepository = Depends(get_review_read_repository),
+) -> dict[str, Any]:
+    reviewed_at = datetime.now().astimezone()
+    snapshot = repository.manual_review_business_license(
+        task_id=task_id,
+        decision=request.decision,
+        comment=request.comment.strip(),
+        reviewer_id=request.reviewer_id.strip(),
+        reviewer_username=str(current_user.get("username") or ""),
+        reviewed_at=reviewed_at,
+    )
+    if snapshot is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "BUSINESS_LICENSE_REVIEW_NOT_FOUND",
+                "message": "未找到营业执照审核结果",
+            },
+        )
+    payload = repository.get_by_task_id(task_id)
+    payload_dict = payload.model_dump(mode="json") if payload is not None else None
+    row = _detail_row(snapshot)
+    return {
+        **row,
+        "manual_review": _manual_review(snapshot, payload_dict),
+        "audit_events": repository.list_business_license_audit_events(task_id),
     }
 
 
@@ -179,6 +246,25 @@ def _detail_row(snapshot: dict[str, Any]) -> dict[str, Any]:
         "needs_manual_review": bool(snapshot.get("needs_manual_review")),
         "created_at": snapshot.get("created_at"),
         "updated_at": snapshot.get("updated_at"),
+    }
+
+
+def _manual_review(snapshot: dict[str, Any], payload: dict[str, Any] | None) -> dict[str, Any]:
+    payload_manual_review = dict((payload or {}).get("manual_review") or {})
+    return {
+        "status": snapshot.get("manual_review_status")
+        or payload_manual_review.get("status")
+        or "PENDING",
+        "decision": snapshot.get("manual_review_decision")
+        or payload_manual_review.get("action"),
+        "comment": snapshot.get("manual_review_comment")
+        or payload_manual_review.get("comment"),
+        "reviewer_id": snapshot.get("manual_review_reviewer_id")
+        or payload_manual_review.get("reviewer"),
+        "reviewer_username": snapshot.get("manual_review_reviewer_username"),
+        "reviewed_at": snapshot.get("manual_review_reviewed_at")
+        or payload_manual_review.get("reviewed_at"),
+        "reasons": payload_manual_review.get("reasons", []),
     }
 
 

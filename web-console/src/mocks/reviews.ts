@@ -59,6 +59,11 @@ export const mockReviews: ReviewDetail[] = [
       }
     ],
     manualReviewReasons: [],
+    manualReview: {
+      status: "NOT_REQUIRED",
+      reasons: []
+    },
+    auditEvents: [],
     payload: {
       status: "REVIEWED",
       risk_level: "NONE",
@@ -130,6 +135,11 @@ export const mockReviews: ReviewDetail[] = [
       }
     ],
     manualReviewReasons: ["统一社会信用代码不一致"],
+    manualReview: {
+      status: "PENDING",
+      reasons: ["统一社会信用代码不一致"]
+    },
+    auditEvents: [],
     payload: {
       status: "PENDING_MANUAL_REVIEW",
       risk_level: "HIGH",
@@ -184,6 +194,11 @@ export const mockReviews: ReviewDetail[] = [
       }
     ],
     manualReviewReasons: ["有效期无法判断"],
+    manualReview: {
+      status: "PENDING",
+      reasons: ["有效期无法判断"]
+    },
+    auditEvents: [],
     payload: {
       status: "PENDING_MANUAL_REVIEW",
       risk_level: "MEDIUM",
@@ -238,6 +253,11 @@ export const mockReviews: ReviewDetail[] = [
       }
     ],
     manualReviewReasons: [],
+    manualReview: {
+      status: "NOT_REQUIRED",
+      reasons: []
+    },
+    auditEvents: [],
     payload: {
       status: "REVIEWED",
       risk_level: "LOW",

@@ -141,18 +141,25 @@ describe("business license review workbench", () => {
     expect(screen.getByText("查看复核预留页")).toBeInTheDocument();
   });
 
-  it("renders the manual review placeholder without enabling submit actions", async () => {
+  it("submits a manual review decision and renders the audit event", async () => {
+    const user = userEvent.setup();
     setSession();
     setPath("/reviews/blr-20260615-0002/manual-review");
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByText("人工复核动作预留")).toBeInTheDocument();
+      expect(screen.getByText("人工复核")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("后续 API 契约预留")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "确认通过" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "驳回" })).toBeDisabled();
+    await user.type(screen.getByLabelText("复核备注"), "已核对原始营业执照，允许通过。");
+    await user.click(screen.getByRole("button", { name: "提交复核结论" }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText("人工已复核").length).toBeGreaterThan(0);
+    });
+    expect(screen.getByText("已写回人工复核结论")).toBeInTheDocument();
+    expect(screen.getByText(/人工复核确认通过/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "提交复核结论" })).toBeDisabled();
   });
 
   it("renders real mobile bottom navigation entries", async () => {
