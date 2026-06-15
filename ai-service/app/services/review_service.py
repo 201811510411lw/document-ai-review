@@ -1,5 +1,5 @@
-from itertools import count
 from typing import Protocol
+from uuid import uuid4
 
 from app.models import ReviewInput, ReviewInputContext, ReviewResult
 from app.use_cases.registry import use_case_registry
@@ -12,7 +12,6 @@ class ReviewResultRepository(Protocol):
 
 class ReviewService:
     def __init__(self, repository: ReviewResultRepository | None = None) -> None:
-        self._task_sequence = count(1)
         self.repository = repository
 
     def review_food_license(self, review_input: ReviewInput) -> ReviewResult:
@@ -23,7 +22,7 @@ class ReviewService:
         review_input: ReviewInput,
         use_case_name: str | None = None,
     ) -> ReviewResult:
-        task_id = f"review-task-{next(self._task_sequence):06d}"
+        task_id = f"review-task-{uuid4()}"
         if use_case_name is None:
             provisional_context = ReviewInputContext(
                 task_id=task_id,
