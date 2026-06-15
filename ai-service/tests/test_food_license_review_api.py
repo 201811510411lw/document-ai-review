@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from fastapi.testclient import TestClient
+from uuid import UUID
 
 from app.api.food_license_reviews import get_review_service
 from app.main import app
@@ -87,7 +88,7 @@ def test_food_license_review_accepts_local_pdf_with_fake_llm_file_extractor(tmp_
         "updated_at",
         "skill_result",
     ]
-    assert payload["task_id"].startswith("review-task-")
+    assert _is_review_task_uuid(payload["task_id"])
     assert payload["use_case_name"] == "food_license"
     assert payload["use_case_version"] == "v1"
     assert payload["skill_name"] == "food_license"
@@ -233,3 +234,14 @@ def test_food_license_review_route_calls_review_service_boundary():
     assert response.json()["task_id"] == "review-task-stub"
     assert len(calls) == 1
     assert calls[0].supplier_name == "成都示例食品有限公司"
+
+
+def _is_review_task_uuid(task_id: str) -> bool:
+    prefix = "review-task-"
+    if not task_id.startswith(prefix):
+        return False
+    try:
+        UUID(task_id.removeprefix(prefix))
+    except ValueError:
+        return False
+    return True
