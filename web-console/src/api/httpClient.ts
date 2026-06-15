@@ -8,10 +8,13 @@ import type {
 } from "./reviews";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+const nowProvider = () => new Date();
 
 export const httpReviewClient: ReviewClient = {
   async listReviews(filters: ReviewFilters): Promise<ListReviewsResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/v1/business-license/reviews?${queryString(filters)}`);
+    const response = await fetch(
+      `${API_BASE_URL}/api/v1/business-license/reviews?${queryString(filters)}`
+    );
     if (!response.ok) {
       throw new Error(`Failed to list business license reviews: ${response.status}`);
     }
@@ -62,8 +65,7 @@ function dateRange(dateRangeValue: ReviewFilters["dateRange"]) {
   if (dateRangeValue === "all") {
     return {};
   }
-  const now = new Date();
-  const end = new Date(now);
+  const now = nowProvider();
   const start = new Date(now);
   if (dateRangeValue === "week") {
     start.setDate(now.getDate() - 6);
@@ -71,12 +73,17 @@ function dateRange(dateRangeValue: ReviewFilters["dateRange"]) {
   if (dateRangeValue === "month") {
     start.setDate(now.getDate() - 29);
   }
-  start.setHours(0, 0, 0, 0);
-  end.setHours(23, 59, 59, 999);
   return {
-    createdFrom: start.toISOString(),
-    createdTo: end.toISOString()
+    createdFrom: formatLocalDate(start),
+    createdTo: formatLocalDate(now)
   };
+}
+
+function formatLocalDate(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function mapListResponse(payload: ApiListResponse): ListReviewsResponse {

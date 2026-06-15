@@ -84,6 +84,91 @@ def test_business_license_review_list_supports_filters_pagination_and_metrics(
     assert row["source_record_id"] == "SRM-CERT-002"
 
 
+def test_business_license_review_list_date_filter_covers_local_business_day(
+    tmp_path,
+    monkeypatch,
+):
+    storage = install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    before_today = _save_review(
+        tmp_path,
+        monkeypatch,
+        repository,
+        task_name="business-before.pdf",
+        supplier_name="成都昨日商贸有限公司",
+        supplier_credit_code="91510100MA0000000Y",
+        source_record_id="SRM-CERT-BEFORE",
+        attachment_ref_id="ATT-BEFORE",
+        source_url="https://files.example.test/business-before.pdf",
+    )
+    start_today = _save_review(
+        tmp_path,
+        monkeypatch,
+        repository,
+        task_name="business-start.pdf",
+        supplier_name="成都今日早间商贸有限公司",
+        supplier_credit_code="91510100MA0000000S",
+        source_record_id="SRM-CERT-START",
+        attachment_ref_id="ATT-START",
+        source_url="https://files.example.test/business-start.pdf",
+    )
+    end_today = _save_review(
+        tmp_path,
+        monkeypatch,
+        repository,
+        task_name="business-end.pdf",
+        supplier_name="成都今日晚间商贸有限公司",
+        supplier_credit_code="91510100MA0000000E",
+        source_record_id="SRM-CERT-END",
+        attachment_ref_id="ATT-END",
+        source_url="https://files.example.test/business-end.pdf",
+    )
+    after_today = _save_review(
+        tmp_path,
+        monkeypatch,
+        repository,
+        task_name="business-after.pdf",
+        supplier_name="成都明日商贸有限公司",
+        supplier_credit_code="91510100MA0000000A",
+        source_record_id="SRM-CERT-AFTER",
+        attachment_ref_id="ATT-AFTER",
+        source_url="https://files.example.test/business-after.pdf",
+    )
+    storage["business_license_reviews"][before_today.task_id]["created_at"] = (
+        "2026-06-14T23:59:59+08:00"
+    )
+    storage["business_license_reviews"][start_today.task_id]["created_at"] = (
+        "2026-06-15T00:00:00+08:00"
+    )
+    storage["business_license_reviews"][end_today.task_id]["created_at"] = (
+        "2026-06-15T23:59:59+08:00"
+    )
+    storage["business_license_reviews"][after_today.task_id]["created_at"] = (
+        "2026-06-16T00:00:00+08:00"
+    )
+
+    app.dependency_overrides[get_review_read_repository] = lambda: repository
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/v1/business-license/reviews",
+        params={
+            "created_from": "2026-06-15",
+            "created_to": "2026-06-15",
+            "page": 1,
+            "page_size": 10,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 2
+    assert {item["source_record_id"] for item in payload["items"]} == {
+        "SRM-CERT-START",
+        "SRM-CERT-END",
+    }
+
+
 def test_business_license_review_detail_returns_projection_and_full_payload(
     tmp_path,
     monkeypatch,

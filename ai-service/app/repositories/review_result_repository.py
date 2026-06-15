@@ -513,13 +513,32 @@ def _business_license_review_filters(
         params.append(1 if needs_manual_review else 0)
     if created_from:
         clauses.append("created_at >= %s")
-        params.append(created_from)
+        params.append(_created_from_boundary(created_from))
     if created_to:
         clauses.append("created_at <= %s")
-        params.append(created_to)
+        params.append(_created_to_boundary(created_to))
     if not clauses:
         return "", params
     return "WHERE " + " AND ".join(clauses), params
+
+
+def _created_from_boundary(value: str) -> str:
+    if _is_date_only(value):
+        return f"{value}T00:00:00"
+    return value
+
+
+def _created_to_boundary(value: str) -> str:
+    if _is_date_only(value):
+        return f"{value}T23:59:59.999999"
+    return value
+
+
+def _is_date_only(value: str) -> bool:
+    if len(value) != 10:
+        return False
+    year, month, day = value.split("-")
+    return year.isdigit() and month.isdigit() and day.isdigit()
 
 
 def _business_license_review_row(row: dict[str, Any]) -> dict[str, Any]:

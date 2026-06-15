@@ -3,6 +3,7 @@ import { httpReviewClient } from "./httpClient";
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe("httpReviewClient", () => {
@@ -126,5 +127,44 @@ describe("httpReviewClient", () => {
     expect(detail?.ruleResults[0].state).toBe("failed");
     expect(detail?.manualReviewReasons).toEqual(["统一社会信用代码不一致"]);
     expect(missing).toBeNull();
+  });
+
+  it("sends local business dates for the today filter without UTC conversion", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 5, 15, 0, 30, 0));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [],
+          metrics: {
+            today_reviewed: 0,
+            pending_manual_review: 0,
+            high_risk: 0,
+            pass_rate: 0
+          },
+          page: 1,
+          page_size: 20,
+          total: 0,
+          total_pages: 1
+        }),
+        { status: 200 }
+      )
+    );
+
+    await httpReviewClient.listReviews({
+      businessName: "",
+      creditCode: "",
+      riskLevel: "ALL",
+      reviewStatus: "ALL",
+      dateRange: "today",
+      page: 1,
+      pageSize: 20
+    });
+
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("created_from=2026-06-15");
+    expect(url).toContain("created_to=2026-06-15");
+    expect(url).not.toContain("2026-06-14");
+    expect(url).not.toContain("T16%3A");
   });
 });
