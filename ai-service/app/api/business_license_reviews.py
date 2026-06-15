@@ -2,6 +2,7 @@ from typing import Any, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.api.auth import require_web_console_user
 from app.models import ReviewInput, ReviewResult
 from app.repositories import build_review_result_repository_from_env
 from app.services.review_service import ReviewService, review_service
@@ -107,6 +108,7 @@ def list_business_license_reviews(
     created_to: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    _current_user: dict[str, Any] = Depends(require_web_console_user),
     repository: BusinessLicenseReviewReadRepository = Depends(get_review_read_repository),
 ) -> dict[str, Any]:
     return repository.list_business_license_reviews(
@@ -125,6 +127,7 @@ def list_business_license_reviews(
 @router.get("/reviews/{task_id}")
 def get_business_license_review_detail(
     task_id: str,
+    _current_user: dict[str, Any] = Depends(require_web_console_user),
     repository: BusinessLicenseReviewReadRepository = Depends(get_review_read_repository),
 ) -> dict[str, Any]:
     snapshot = repository.get_business_license_snapshot(task_id)

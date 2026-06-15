@@ -1,7 +1,20 @@
 import { ClipboardCheck, FileSearch, ListFilter, Menu, ShieldCheck, UserRound } from "lucide-react";
 import type { ReactNode } from "react";
+import { clearSession, type AuthSession } from "../api/auth";
+import { navigateTo } from "../navigation";
 
-export function Layout({ children }: { children: ReactNode }) {
+export function Layout({
+  children,
+  session
+}: {
+  children: ReactNode;
+  session: AuthSession;
+}) {
+  function signOut() {
+    clearSession();
+    navigateTo("/login");
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="工作台导航">
@@ -27,8 +40,11 @@ export function Layout({ children }: { children: ReactNode }) {
           </button>
           <div>
             <strong>营业执照审核结果工作台</strong>
-            <span>浏览器预览版</span>
+            <span>{session.user.displayName}</span>
           </div>
+          <button className="secondary-button sign-out-button" type="button" onClick={signOut}>
+            退出
+          </button>
         </header>
         <main className="content">{children}</main>
       </div>

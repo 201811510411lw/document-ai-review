@@ -7,14 +7,31 @@ function setPath(path: string) {
   window.history.pushState({}, "", path);
 }
 
+function setSession() {
+  window.localStorage.setItem(
+    "document-ai-review.web-console.session",
+    JSON.stringify({
+      accessToken: "test-token",
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      user: {username: "reviewer", displayName: "审核员"}
+    })
+  );
+}
+
+function clearSession() {
+  window.localStorage.removeItem("document-ai-review.web-console.session");
+}
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  clearSession();
   setPath("/reviews");
 });
 
 describe("business license review workbench", () => {
   it("renders the review list with metrics and rows", async () => {
+    setSession();
     setPath("/reviews");
     render(<App />);
 
@@ -31,6 +48,7 @@ describe("business license review workbench", () => {
 
   it("filters reviews by date range and supports pagination", async () => {
     const user = userEvent.setup();
+    setSession();
     setPath("/reviews");
     render(<App />);
 
@@ -62,6 +80,7 @@ describe("business license review workbench", () => {
 
   it("resets immediate filters back to defaults and the first page", async () => {
     const user = userEvent.setup();
+    setSession();
     setPath("/reviews");
     render(<App />);
 
@@ -91,6 +110,7 @@ describe("business license review workbench", () => {
 
   it("refreshes the review list through the review client boundary", async () => {
     const user = userEvent.setup();
+    setSession();
     setPath("/reviews");
     render(<App />);
 
@@ -106,6 +126,7 @@ describe("business license review workbench", () => {
   });
 
   it("renders the detail page with extracted fields and failed rules", async () => {
+    setSession();
     setPath("/reviews/blr-20260615-0002");
     render(<App />);
 
@@ -121,6 +142,7 @@ describe("business license review workbench", () => {
   });
 
   it("renders the manual review placeholder without enabling submit actions", async () => {
+    setSession();
     setPath("/reviews/blr-20260615-0002/manual-review");
     render(<App />);
 
@@ -134,6 +156,7 @@ describe("business license review workbench", () => {
   });
 
   it("renders real mobile bottom navigation entries", async () => {
+    setSession();
     setPath("/reviews");
     render(<App />);
 
@@ -146,5 +169,55 @@ describe("business license review workbench", () => {
       "aria-disabled",
       "true"
     );
+  });
+
+  it("redirects anonymous users to the login page", async () => {
+    setPath("/reviews");
+    render(<App />);
+
+    expect(screen.getByText("营业执照审核工作台")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/login");
+    expect(window.location.search).toBe("?next=%2Freviews");
+  });
+
+  it("logs in and returns to the requested route", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          access_token: "login-token",
+          token_type: "bearer",
+          expires_at: Math.floor(Date.now() / 1000) + 3600,
+          user: {username: "reviewer", display_name: "审核员"}
+        }),
+        {status: 200}
+      )
+    );
+    setPath("/login?next=/reviews");
+    render(<App />);
+
+    await user.click(screen.getByRole("button", {name: "登录"}));
+
+    await waitFor(() => {
+      expect(window.localStorage.getItem("document-ai-review.web-console.session")).toContain(
+        "login-token"
+      );
+    });
+    expect(window.location.pathname).toBe("/reviews");
+  });
+
+  it("shows a login error for invalid credentials", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", {status: 401}));
+    setPath("/login");
+    render(<App />);
+
+    await user.clear(screen.getByLabelText("密码"));
+    await user.type(screen.getByLabelText("密码"), "wrong");
+    await user.click(screen.getByRole("button", {name: "登录"}));
+
+    await waitFor(() => {
+      expect(screen.getByText("账号或密码不正确。")).toBeInTheDocument();
+    });
   });
 });

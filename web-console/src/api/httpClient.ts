@@ -6,6 +6,8 @@ import type {
   ReviewRow,
   RuleResult
 } from "./reviews";
+import { authHeaders, clearSession } from "./auth";
+import { navigateTo } from "../navigation";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 const nowProvider = () => new Date();
@@ -13,8 +15,10 @@ const nowProvider = () => new Date();
 export const httpReviewClient: ReviewClient = {
   async listReviews(filters: ReviewFilters): Promise<ListReviewsResponse> {
     const response = await fetch(
-      `${API_BASE_URL}/api/v1/business-license/reviews?${queryString(filters)}`
+      `${API_BASE_URL}/api/v1/business-license/reviews?${queryString(filters)}`,
+      {headers: authHeaders()}
     );
+    handleUnauthorized(response);
     if (!response.ok) {
       throw new Error(`Failed to list business license reviews: ${response.status}`);
     }
@@ -23,8 +27,10 @@ export const httpReviewClient: ReviewClient = {
 
   async getReview(taskId: string): Promise<ReviewDetail | null> {
     const response = await fetch(
-      `${API_BASE_URL}/api/v1/business-license/reviews/${encodeURIComponent(taskId)}`
+      `${API_BASE_URL}/api/v1/business-license/reviews/${encodeURIComponent(taskId)}`,
+      {headers: authHeaders()}
     );
+    handleUnauthorized(response);
     if (response.status === 404) {
       return null;
     }
@@ -34,6 +40,13 @@ export const httpReviewClient: ReviewClient = {
     return mapDetailResponse(await response.json());
   }
 };
+
+function handleUnauthorized(response: Response) {
+  if (response.status === 401) {
+    clearSession();
+    navigateTo("/login", { replace: true });
+  }
+}
 
 function queryString(filters: ReviewFilters) {
   const params = new URLSearchParams();

@@ -38,6 +38,10 @@ PROJECT_ENV_KEYS = {
     "REVIEW_RESULT_MYSQL_USER",
     "REVIEW_RESULT_MYSQL_PASSWORD",
     "REVIEW_RESULT_MYSQL_DATABASE",
+    "WEB_CONSOLE_AUTH_USERNAME",
+    "WEB_CONSOLE_AUTH_PASSWORD",
+    "WEB_CONSOLE_AUTH_SECRET",
+    "WEB_CONSOLE_AUTH_TOKEN_TTL_SECONDS",
 }
 
 
@@ -64,6 +68,18 @@ class Settings(BaseModel):
     service_name: str = "ai-service"
     api_version: str = "v1"
     timezone: str = "Asia/Shanghai"
+    web_console_auth_username: str = os.environ.get(
+        "WEB_CONSOLE_AUTH_USERNAME", "reviewer"
+    )
+    web_console_auth_password: str = os.environ.get(
+        "WEB_CONSOLE_AUTH_PASSWORD", "reviewer123"
+    )
+    web_console_auth_secret: str = os.environ.get(
+        "WEB_CONSOLE_AUTH_SECRET", "document-ai-review-dev-secret"
+    )
+    web_console_auth_token_ttl_seconds: int = int(
+        os.environ.get("WEB_CONSOLE_AUTH_TOKEN_TTL_SECONDS", "28800")
+    )
 
 
 settings = Settings()

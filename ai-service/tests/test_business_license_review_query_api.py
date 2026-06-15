@@ -59,6 +59,7 @@ def test_business_license_review_list_supports_filters_pagination_and_metrics(
             "page": 1,
             "page_size": 10,
         },
+        headers=_auth_headers(client),
     )
 
     assert response.status_code == 200
@@ -158,6 +159,7 @@ def test_business_license_review_list_date_filter_covers_local_business_day(
             "page": 1,
             "page_size": 10,
         },
+        headers=_auth_headers(client),
     )
 
     assert response.status_code == 200
@@ -191,7 +193,10 @@ def test_business_license_review_detail_returns_projection_and_full_payload(
     app.dependency_overrides[get_review_read_repository] = lambda: repository
     client = TestClient(app)
 
-    response = client.get(f"/api/v1/business-license/reviews/{result.task_id}")
+    response = client.get(
+        f"/api/v1/business-license/reviews/{result.task_id}",
+        headers=_auth_headers(client),
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -214,12 +219,30 @@ def test_business_license_review_detail_returns_404(monkeypatch):
     app.dependency_overrides[get_review_read_repository] = lambda: repository
     client = TestClient(app)
 
-    response = client.get("/api/v1/business-license/reviews/missing-task")
+    response = client.get(
+        "/api/v1/business-license/reviews/missing-task",
+        headers=_auth_headers(client),
+    )
 
     assert response.status_code == 404
     assert response.json()["detail"] == {
         "code": "BUSINESS_LICENSE_REVIEW_NOT_FOUND",
         "message": "未找到营业执照审核结果",
+    }
+
+
+def test_business_license_review_list_requires_login(monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    app.dependency_overrides[get_review_read_repository] = lambda: repository
+    client = TestClient(app)
+
+    response = client.get("/api/v1/business-license/reviews")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == {
+        "code": "UNAUTHORIZED",
+        "message": "请先登录工作台",
     }
 
 
@@ -286,3 +309,12 @@ def _repository() -> MySQLReviewResultRepository:
             database="document_ai_review",
         )
     )
+
+
+def _auth_headers(client: TestClient) -> dict[str, str]:
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"username": "reviewer", "password": "reviewer123"},
+    )
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
