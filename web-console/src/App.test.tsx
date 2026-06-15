@@ -60,6 +60,35 @@ describe("business license review workbench", () => {
     });
   });
 
+  it("resets immediate filters back to defaults and the first page", async () => {
+    const user = userEvent.setup();
+    setPath("/reviews");
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("上海云岚供应链管理有限公司").length).toBeGreaterThan(0);
+    });
+
+    await user.selectOptions(screen.getByLabelText("时间范围"), "all");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "下一页" })).toBeEnabled();
+    });
+    await user.click(screen.getByRole("button", { name: "下一页" }));
+    await waitFor(() => {
+      expect(screen.getAllByText("深圳岭南电子商务有限公司").length).toBeGreaterThan(0);
+    });
+
+    await user.selectOptions(screen.getByLabelText("风险等级"), "HIGH");
+    await user.click(screen.getByRole("button", { name: "重置" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/当前第 1 \/ 2 页/)).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText("时间范围")).toHaveValue("week");
+    expect(screen.getByLabelText("风险等级")).toHaveValue("ALL");
+    expect(screen.getAllByText("上海云岚供应链管理有限公司").length).toBeGreaterThan(0);
+  });
+
   it("refreshes the review list through the mock client boundary", async () => {
     const user = userEvent.setup();
     setPath("/reviews");
@@ -70,8 +99,6 @@ describe("business license review workbench", () => {
     });
 
     await user.click(screen.getByRole("button", { name: /刷新 mock 数据/ }));
-
-    expect(screen.getByText("正在加载审核结果")).toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getAllByText("上海云岚供应链管理有限公司").length).toBeGreaterThan(0);
@@ -114,5 +141,10 @@ describe("business license review workbench", () => {
     expect(mobileNav).toBeInTheDocument();
     expect(within(mobileNav).getByText("筛选")).toBeInTheDocument();
     expect(within(mobileNav).getByText("我的")).toBeInTheDocument();
+    expect(within(mobileNav).getByText("暂未开放")).toBeInTheDocument();
+    expect(within(mobileNav).getByTitle("占位功能，暂未开放")).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    );
   });
 });

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, RotateCcw, Search } from "lucide-react";
+import { ArrowRight, RotateCcw } from "lucide-react";
 import { mockReviewClient } from "../api/mockClient";
 import type { ListReviewsResponse, ReviewFilters, ReviewRow } from "../api/reviews";
 import { EmptyState, ErrorState, LoadingState } from "../components/EmptyState";
@@ -170,9 +170,13 @@ export function ReviewsPage() {
             <option value="all">全部</option>
           </select>
         </label>
-        <button className="primary-button" type="button">
-          <Search size={16} aria-hidden="true" />
-          筛选
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={() => setFilters(defaultFilters)}
+        >
+          <RotateCcw size={16} aria-hidden="true" />
+          重置
         </button>
       </section>
 
