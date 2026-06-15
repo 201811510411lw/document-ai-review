@@ -51,6 +51,10 @@ export function ManualReviewPlaceholderPage({ taskId }: { taskId: string }) {
         <ArrowLeft size={16} aria-hidden="true" />
         返回详情
       </a>
+      <a className="mobile-back-link" href={`/reviews/${detail.taskId}`}>
+        <ArrowLeft size={16} aria-hidden="true" />
+        复核预留
+      </a>
 
       <section className="page-heading">
         <div>

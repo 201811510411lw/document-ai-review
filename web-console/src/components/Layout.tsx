@@ -1,4 +1,4 @@
-import { ClipboardCheck, FileSearch, Menu, ShieldCheck } from "lucide-react";
+import { ClipboardCheck, FileSearch, ListFilter, Menu, ShieldCheck, UserRound } from "lucide-react";
 import type { ReactNode } from "react";
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -32,6 +32,20 @@ export function Layout({ children }: { children: ReactNode }) {
         </header>
         <main className="content">{children}</main>
       </div>
+      <nav className="mobile-bottom-nav" aria-label="移动端底部导航">
+        <a className="mobile-bottom-nav-active" href="/reviews">
+          <ClipboardCheck size={18} aria-hidden="true" />
+          <span>列表</span>
+        </a>
+        <a href="/reviews#filters">
+          <ListFilter size={18} aria-hidden="true" />
+          <span>筛选</span>
+        </a>
+        <a href="/reviews">
+          <UserRound size={18} aria-hidden="true" />
+          <span>我的</span>
+        </a>
+      </nav>
     </div>
   );
 }

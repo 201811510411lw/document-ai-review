@@ -51,6 +51,10 @@ export function ReviewDetailPage({ taskId }: { taskId: string }) {
         <ArrowLeft size={16} aria-hidden="true" />
         返回列表
       </a>
+      <a className="mobile-back-link" href="/reviews">
+        <ArrowLeft size={16} aria-hidden="true" />
+        审核详情
+      </a>
 
       <section className="detail-hero">
         <div>
