@@ -46,6 +46,7 @@ describe("httpReviewClient", () => {
     const response = await httpReviewClient.listReviews({
       businessName: "成都",
       creditCode: "",
+      documentType: "ALL",
       riskLevel: "NONE",
       reviewStatus: "ALL",
       dateRange: "all",
@@ -98,6 +99,7 @@ describe("httpReviewClient", () => {
     await httpReviewClient.listReviews({
       businessName: "",
       creditCode: "",
+      documentType: "ALL",
       riskLevel: "ALL",
       reviewStatus: "ALL",
       dateRange: "all",
@@ -107,6 +109,64 @@ describe("httpReviewClient", () => {
 
     expect(fetchMock.mock.calls[0][1]).toEqual({
       headers: {Authorization: "Bearer review-token"}
+    });
+  });
+
+  it("maps list response from the unified QC review query API", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              task_id: "review-task-qc-1",
+              source_record_id: "SRM-CERT-001",
+              source_attachment_ref_id: "ATT-001",
+              document_type: "business_license",
+              document_type_label: "营业执照",
+              supplier_name: "成都示例商贸有限公司",
+              credit_code: "91510100MA0000000X",
+              review_status: "REVIEWED",
+              review_status_label: "已审核",
+              risk_level: "NONE",
+              risk_level_label: "无风险",
+              needs_manual_review: false,
+              created_at: "2026-06-15T09:18:00+08:00",
+              updated_at: "2026-06-15T09:18:00+08:00"
+            }
+          ],
+          metrics: {
+            today_reviewed: 1,
+            pending_manual_review: 0,
+            high_risk: 0,
+            pass_rate: 100,
+            document_type_counts: {business_license: 1}
+          },
+          page: 1,
+          page_size: 20,
+          total: 1,
+          total_pages: 1
+        }),
+        { status: 200 }
+      )
+    );
+
+    const response = await httpReviewClient.listQcReviews({
+      businessName: "成都",
+      creditCode: "",
+      documentType: "business_license",
+      riskLevel: "ALL",
+      reviewStatus: "ALL",
+      dateRange: "all",
+      page: 1,
+      pageSize: 20
+    });
+
+    expect(fetchMock.mock.calls[0][0]).toContain("/api/v1/qc/reviews?");
+    expect(fetchMock.mock.calls[0][0]).toContain("document_type=business_license");
+    expect(response.items[0]).toMatchObject({
+      taskId: "review-task-qc-1",
+      businessName: "成都示例商贸有限公司",
+      sourceRecordId: "SRM-CERT-001"
     });
   });
 
@@ -268,6 +328,7 @@ describe("httpReviewClient", () => {
     await httpReviewClient.listReviews({
       businessName: "",
       creditCode: "",
+      documentType: "ALL",
       riskLevel: "ALL",
       reviewStatus: "ALL",
       dateRange: "today",

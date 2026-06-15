@@ -69,3 +69,28 @@ def test_qc_document_review_fails_negative_product_report_conclusion():
     assert result.status == ReviewStatus.FAILED
     assert result.risk_level == RiskLevel.HIGH
     assert result.needs_manual_review is False
+
+
+def test_qc_document_review_routes_unclear_product_report_to_manual_review():
+    result = ReviewService().review(
+        ReviewInput(
+            ocr_text="""
+            产品检验报告
+            样品名称：麻辣牛肉
+            受检单位：成都示例食品有限公司
+            批号：20260601-A
+            签发日期：2026年06月10日
+            检验结论：详见报告正文
+            """,
+            supplier_name="成都示例食品有限公司",
+            supplier_credit_code="91510100MA00000000",
+            declared_document_type="product_report",
+        ),
+        use_case_name="qc_document_review",
+    )
+
+    assert result.status == ReviewStatus.PENDING_MANUAL_REVIEW
+    assert result.risk_level == RiskLevel.MEDIUM
+    assert result.needs_manual_review is True
+    assert result.manual_review.status == ManualReviewStatus.PENDING
+    assert "检验结论不明确" in result.manual_review.reasons

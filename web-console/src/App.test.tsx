@@ -125,6 +125,45 @@ describe("business license review workbench", () => {
     });
   });
 
+  it("creates a business license review from an SRM source record", async () => {
+    const user = userEvent.setup();
+    setSession();
+    setPath("/reviews");
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("上海云岚供应链管理有限公司").length).toBeGreaterThan(0);
+    });
+
+    await user.click(screen.getByRole("button", { name: "从 SRM 拉取审核" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("已从 SRM 来源记录创建审核任务。")).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText("SRM-CERT-NEW").length).toBeGreaterThan(0);
+    });
+  });
+
+  it("renders the QC review list with document type filtering", async () => {
+    const user = userEvent.setup();
+    setSession();
+    setPath("/qc/reviews");
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("QC 审核结果列表")).toBeInTheDocument();
+      expect(screen.getAllByText("上海云岚供应链管理有限公司").length).toBeGreaterThan(0);
+    });
+
+    await user.selectOptions(screen.getByLabelText("证照类型"), "business_license");
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("证照类型")).toHaveValue("business_license");
+      expect(screen.getAllByText("上海云岚供应链管理有限公司").length).toBeGreaterThan(0);
+    });
+  });
+
   it("renders the detail page with extracted fields and failed rules", async () => {
     setSession();
     setPath("/reviews/blr-20260615-0002");

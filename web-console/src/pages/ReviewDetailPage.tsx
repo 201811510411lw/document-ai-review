@@ -5,7 +5,7 @@ import type { ExtractedFieldSet, ReviewDetail } from "../api/reviews";
 import { EmptyState, ErrorState, LoadingState } from "../components/EmptyState";
 import { RiskBadge, RuleStateBadge, StatusBadge } from "../components/Badge";
 
-export function ReviewDetailPage({ taskId }: { taskId: string }) {
+export function ReviewDetailPage({ taskId, qcView = false }: { taskId: string; qcView?: boolean }) {
   const [detail, setDetail] = useState<ReviewDetail | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "empty" | "error">("loading");
 
@@ -13,8 +13,8 @@ export function ReviewDetailPage({ taskId }: { taskId: string }) {
     let mounted = true;
     setStatus("loading");
 
-    reviewClient
-      .getReview(taskId)
+    const getReview = qcView ? reviewClient.getQcReview : reviewClient.getReview;
+    getReview(taskId)
       .then((response) => {
         if (!mounted) {
           return;
@@ -31,7 +31,7 @@ export function ReviewDetailPage({ taskId }: { taskId: string }) {
     return () => {
       mounted = false;
     };
-  }, [taskId]);
+  }, [taskId, qcView]);
 
   if (status === "loading") {
     return <LoadingState />;
@@ -47,11 +47,11 @@ export function ReviewDetailPage({ taskId }: { taskId: string }) {
 
   return (
     <div className="page-stack detail-page">
-      <a className="back-link" href="/reviews">
+      <a className="back-link" href={qcView ? "/qc/reviews" : "/reviews"}>
         <ArrowLeft size={16} aria-hidden="true" />
         返回列表
       </a>
-      <a className="mobile-back-link" href="/reviews">
+      <a className="mobile-back-link" href={qcView ? "/qc/reviews" : "/reviews"}>
         <ArrowLeft size={16} aria-hidden="true" />
         审核详情
       </a>

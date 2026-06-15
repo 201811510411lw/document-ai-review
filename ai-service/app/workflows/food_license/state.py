@@ -17,6 +17,7 @@ class FoodLicenseWorkflowState(TypedDict, total=False):
     document_classification: FoodLicenseDocumentClassification
     extracted_fields: FoodLicenseExtractedFields
     extraction_metadata: dict
+    source_evidence: dict
     normalized_fields: FoodLicenseNormalizedFields
     rule_results: list[RuleResult]
     risk_level: RiskLevel

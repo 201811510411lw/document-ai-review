@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from app.api.business_license_reviews import get_srm_sql_client
 from app.main import app
 from tests.pdf_helpers import write_blank_pdf, write_blank_pdf_with_pages, write_minimal_pdf
 from app.tools.remote_document import RemoteDocument
@@ -610,6 +611,76 @@ def test_business_license_review_accepts_remote_image_file(
     }
 
 
+def test_business_license_review_from_srm_creates_task_and_persists_trace_snapshot(
+    monkeypatch,
+):
+    storage = install_mysql_repository_stub(monkeypatch)
+    monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_JSON", _business_license_json())
+    monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
+
+    class StubSrmSqlClient:
+        def fetch_all(self, sql):
+            storage["srm_sql"] = sql
+            return [
+                {
+                    "uuid": "cert-business-001",
+                    "refId": "attach-business-001",
+                    "tenant": "8560",
+                    "category": "vendor",
+                    "typeName": "营业执照",
+                    "vendorName": "成都示例商贸有限公司",
+                    "number": "91510100MA0000000X",
+                    "url": "https://files.example.test/business-license.png",
+                    "attachmentName": "business-license.png",
+                    "storeId": "oss-key-business-license",
+                }
+            ]
+
+    class StubDownloader:
+        def download(self, file_url):
+            return RemoteDocument(
+                source_url=file_url,
+                content=b"fake-remote-image",
+                file_type="png",
+                mime_type="image/png",
+                status_code=200,
+                headers={"content-type": "image/png"},
+            )
+
+    app.dependency_overrides[get_srm_sql_client] = lambda: StubSrmSqlClient()
+    monkeypatch.setattr(
+        business_license_nodes,
+        "business_license_remote_downloader",
+        StubDownloader(),
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/business-license/reviews/from-srm",
+        headers=_auth_headers(client),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "REVIEWED"
+    assert payload["risk_level"] == "NONE"
+    assert payload["needs_manual_review"] is False
+    source = payload["skill_result"]["source_evidence"]["source"]
+    assert source["record_id"] == "cert-business-001"
+    assert source["attachment_ref_id"] == "attach-business-001"
+    assert source["file_store_key"] == "oss-key-business-license"
+    assert source["source_payload"]["uuid"] == "cert-business-001"
+    assert payload["skill_result"]["document_input"]["source_url"] == (
+        "https://files.example.test/business-license.png"
+    )
+
+    persisted = storage["business_license_reviews"][payload["task_id"]]
+    assert persisted["source_record_id"] == "cert-business-001"
+    assert persisted["source_attachment_ref_id"] == "attach-business-001"
+    assert persisted["source_url"] == "https://files.example.test/business-license.png"
+    assert persisted["business_name"] == "成都示例商贸有限公司"
+
+
 def test_business_license_review_accepts_remote_jpeg_file(monkeypatch):
     install_mysql_repository_stub(monkeypatch)
     monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_JSON", _business_license_json())
@@ -838,3 +909,12 @@ def _business_license_fields() -> dict:
         "valid_from": "2020-01-02",
         "valid_to": "2030-01-01",
     }
+
+
+def _auth_headers(client: TestClient) -> dict[str, str]:
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"username": "reviewer", "password": "reviewer123"},
+    )
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}

@@ -15,4 +15,5 @@ def build_food_license_capability_result(
             **workflow_state.get("extraction_metadata", {}),
             "system_prompt": FOOD_LICENSE_SYSTEM_PROMPT,
         },
+        source_evidence=workflow_state.get("source_evidence", {}),
     )

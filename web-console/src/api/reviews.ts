@@ -84,6 +84,13 @@ export interface AuditEvent {
 export interface ReviewFilters {
   businessName: string;
   creditCode: string;
+  documentType:
+    | "ALL"
+    | "business_license"
+    | "food_license"
+    | "product_report"
+    | "tobacco_license"
+    | "business_tobacco_consistency";
   riskLevel: "ALL" | RiskLevel;
   reviewStatus: "ALL" | ReviewStatus;
   dateRange: "today" | "week" | "month" | "all";
@@ -109,6 +116,9 @@ export interface ListReviewsResponse {
 
 export interface ReviewClient {
   listReviews(filters: ReviewFilters): Promise<ListReviewsResponse>;
+  listQcReviews(filters: ReviewFilters): Promise<ListReviewsResponse>;
   getReview(taskId: string): Promise<ReviewDetail | null>;
+  getQcReview(taskId: string): Promise<ReviewDetail | null>;
+  createReviewFromSrm(): Promise<ReviewDetail>;
   submitManualReview(taskId: string, request: ManualReviewRequest): Promise<ReviewDetail>;
 }

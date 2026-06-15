@@ -39,15 +39,18 @@ def load_document(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
         "document_text": recognition_result.document_text,
         "llm_structured_fields": recognition_result.structured_fields,
         "document_input": FoodLicenseDocumentInputResult(
-            **{
-                key: value
-                for key, value in recognition_result.document_input.__dict__.items()
-                if key != "source_url"
-            }
+            **recognition_result.document_input.__dict__
         ),
         "extraction_metadata": {
             **state.get("extraction_metadata", {}),
             **recognition_result.extraction_metadata,
+        },
+        "source_evidence": {
+            "supplier_name": review_input.supplier_name,
+            "supplier_credit_code": review_input.supplier_credit_code,
+            "declared_document_type": review_input.declared_document_type,
+            "source": review_input.source,
+            "options": review_input.options,
         },
     }
 
