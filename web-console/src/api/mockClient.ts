@@ -18,8 +18,38 @@ function applyFilters(items: ReviewDetail[], filters: ReviewFilters): ReviewDeta
     const statusMatches =
       filters.reviewStatus === "ALL" || item.reviewStatus === filters.reviewStatus;
 
-    return nameMatches && codeMatches && riskMatches && statusMatches;
+    const dateMatches = inDateRange(item.reviewedAt, filters.dateRange);
+
+    return nameMatches && codeMatches && riskMatches && statusMatches && dateMatches;
   });
+}
+
+function inDateRange(
+  value: string,
+  dateRange: ReviewFilters["dateRange"],
+  now = new Date("2026-06-15T12:00:00+08:00")
+) {
+  if (dateRange === "all") {
+    return true;
+  }
+
+  const reviewedAt = new Date(value);
+  const current = new Date(now);
+
+  if (dateRange === "today") {
+    return reviewedAt.toISOString().slice(0, 10) === current.toISOString().slice(0, 10);
+  }
+
+  const start = new Date(current);
+  if (dateRange === "week") {
+    start.setDate(current.getDate() - 6);
+  }
+  if (dateRange === "month") {
+    start.setDate(current.getDate() - 29);
+  }
+
+  start.setHours(0, 0, 0, 0);
+  return reviewedAt >= start && reviewedAt <= current;
 }
 
 function metricsFrom(items: ReviewDetail[]) {
@@ -40,17 +70,26 @@ function metricsFrom(items: ReviewDetail[]) {
 
 export const mockReviewClient: ReviewClient = {
   async listReviews(filters: ReviewFilters): Promise<ListReviewsResponse> {
-    await delay(160);
+    await delay(20);
     const filtered = applyFilters(mockReviews, filters);
+    const pageSize = Math.max(1, filters.pageSize);
+    const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    const page = Math.min(Math.max(1, filters.page), totalPages);
+    const offset = (page - 1) * pageSize;
+    const pageItems = filtered.slice(offset, offset + pageSize);
 
     return {
-      items: filtered.map(({ payload, extractedFields, normalizedFields, ruleResults, manualReviewReasons, sourceUrl, summary, ...row }) => row as ReviewRow),
-      metrics: metricsFrom(filtered)
+      items: pageItems.map(({ payload, extractedFields, normalizedFields, ruleResults, manualReviewReasons, sourceUrl, summary, ...row }) => row as ReviewRow),
+      metrics: metricsFrom(filtered),
+      page,
+      pageSize,
+      total: filtered.length,
+      totalPages
     };
   },
 
   async getReview(taskId: string): Promise<ReviewDetail | null> {
-    await delay(120);
+    await delay(20);
     return mockReviews.find((item) => item.taskId === taskId) ?? null;
   }
 };

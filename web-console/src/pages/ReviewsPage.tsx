@@ -11,13 +11,16 @@ const defaultFilters: ReviewFilters = {
   creditCode: "",
   riskLevel: "ALL",
   reviewStatus: "ALL",
-  dateRange: "week"
+  dateRange: "week",
+  page: 1,
+  pageSize: 3
 };
 
 export function ReviewsPage() {
   const [filters, setFilters] = useState<ReviewFilters>(defaultFilters);
   const [data, setData] = useState<ListReviewsResponse | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "empty" | "error">("loading");
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let mounted = true;
@@ -41,7 +44,7 @@ export function ReviewsPage() {
     return () => {
       mounted = false;
     };
-  }, [filters]);
+  }, [filters, refreshKey]);
 
   const metrics = useMemo(
     () =>
@@ -61,7 +64,11 @@ export function ReviewsPage() {
           <p>营业执照</p>
           <h1>审核结果列表</h1>
         </div>
-        <button className="secondary-button" type="button">
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={() => setRefreshKey((current) => current + 1)}
+        >
           <RotateCcw size={16} aria-hidden="true" />
           刷新 mock 数据
         </button>
@@ -78,13 +85,17 @@ export function ReviewsPage() {
         <MetricCard label="通过率" value={`${metrics.passRate}%`} hint="已审核 / 当前结果" />
       </section>
 
-      <section className="filter-panel" aria-label="筛选审核结果">
+      <section className="filter-panel" aria-label="筛选审核结果" id="filters">
         <label>
           <span>主体名称</span>
           <input
             value={filters.businessName}
             onChange={(event) =>
-              setFilters((current) => ({ ...current, businessName: event.target.value }))
+              setFilters((current) => ({
+                ...current,
+                businessName: event.target.value,
+                page: 1
+              }))
             }
             placeholder="输入企业名称"
           />
@@ -94,7 +105,11 @@ export function ReviewsPage() {
           <input
             value={filters.creditCode}
             onChange={(event) =>
-              setFilters((current) => ({ ...current, creditCode: event.target.value }))
+              setFilters((current) => ({
+                ...current,
+                creditCode: event.target.value,
+                page: 1
+              }))
             }
             placeholder="输入信用代码"
           />
@@ -106,7 +121,8 @@ export function ReviewsPage() {
             onChange={(event) =>
               setFilters((current) => ({
                 ...current,
-                riskLevel: event.target.value as ReviewFilters["riskLevel"]
+                riskLevel: event.target.value as ReviewFilters["riskLevel"],
+                page: 1
               }))
             }
           >
@@ -124,7 +140,8 @@ export function ReviewsPage() {
             onChange={(event) =>
               setFilters((current) => ({
                 ...current,
-                reviewStatus: event.target.value as ReviewFilters["reviewStatus"]
+                reviewStatus: event.target.value as ReviewFilters["reviewStatus"],
+                page: 1
               }))
             }
           >
@@ -142,7 +159,8 @@ export function ReviewsPage() {
             onChange={(event) =>
               setFilters((current) => ({
                 ...current,
-                dateRange: event.target.value as ReviewFilters["dateRange"]
+                dateRange: event.target.value as ReviewFilters["dateRange"],
+                page: 1
               }))
             }
           >
@@ -163,14 +181,43 @@ export function ReviewsPage() {
       {status === "empty" && (
         <EmptyState title="没有匹配的审核结果" message="调整筛选条件后再查看。" />
       )}
-      {status === "ready" && data && <ReviewTable rows={data.items} />}
+      {status === "ready" && data && (
+        <ReviewTable
+          rows={data.items}
+          page={data.page}
+          pageSize={data.pageSize}
+          total={data.total}
+          totalPages={data.totalPages}
+          onPageChange={(page) => setFilters((current) => ({ ...current, page }))}
+        />
+      )}
     </div>
   );
 }
 
-function ReviewTable({ rows }: { rows: ReviewRow[] }) {
+function ReviewTable({
+  rows,
+  page,
+  pageSize,
+  total,
+  totalPages,
+  onPageChange
+}: {
+  rows: ReviewRow[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}) {
   return (
     <section className="table-panel">
+      <div className="table-panel-header">
+        <h2>审核结果列表</h2>
+        <span>
+          共 {total} 条，当前第 {page} / {totalPages} 页
+        </span>
+      </div>
       <table>
         <thead>
           <tr>
@@ -243,6 +290,28 @@ function ReviewTable({ rows }: { rows: ReviewRow[] }) {
             </a>
           </article>
         ))}
+      </div>
+
+      <div className="pagination-bar" aria-label="审核结果分页">
+        <span>
+          每页 {pageSize} 条，当前展示 {rows.length} 条
+        </span>
+        <div>
+          <button
+            type="button"
+            disabled={page <= 1}
+            onClick={() => onPageChange(page - 1)}
+          >
+            上一页
+          </button>
+          <button
+            type="button"
+            disabled={page >= totalPages}
+            onClick={() => onPageChange(page + 1)}
+          >
+            下一页
+          </button>
+        </div>
       </div>
     </section>
   );

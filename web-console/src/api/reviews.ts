@@ -58,6 +58,8 @@ export interface ReviewFilters {
   riskLevel: "ALL" | RiskLevel;
   reviewStatus: "ALL" | ReviewStatus;
   dateRange: "today" | "week" | "month" | "all";
+  page: number;
+  pageSize: number;
 }
 
 export interface ReviewMetrics {
@@ -70,6 +72,10 @@ export interface ReviewMetrics {
 export interface ListReviewsResponse {
   items: ReviewRow[];
   metrics: ReviewMetrics;
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
 }
 
 export interface ReviewClient {
