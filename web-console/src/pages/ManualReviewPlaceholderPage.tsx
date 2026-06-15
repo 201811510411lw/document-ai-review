@@ -8,10 +8,7 @@ import { EmptyState, ErrorState, LoadingState } from "../components/EmptyState";
 export function ManualReviewPlaceholderPage({ taskId }: { taskId: string }) {
   const [detail, setDetail] = useState<ReviewDetail | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "empty" | "error">("loading");
-  const [decision, setDecision] = useState<ManualReviewDecision>("approved");
-  const [comment, setComment] = useState("");
-  const [reviewerId, setReviewerId] = useState("wecom-reviewer-local");
-  const [submitStatus, setSubmitStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
+  const decision: ManualReviewDecision = "approved";
 
   useEffect(() => {
     let mounted = true;
@@ -50,30 +47,6 @@ export function ManualReviewPlaceholderPage({ taskId }: { taskId: string }) {
   }
 
   const isCompleted = detail.manualReview.status === "COMPLETED";
-  const canSubmit =
-    !isCompleted &&
-    submitStatus !== "success" &&
-    submitStatus !== "submitting" &&
-    comment.trim().length > 0 &&
-    reviewerId.trim().length > 0;
-
-  async function submitManualReview() {
-    if (!detail || !canSubmit) {
-      return;
-    }
-    setSubmitStatus("submitting");
-    try {
-      const updated = await reviewClient.submitManualReview(detail.taskId, {
-        decision,
-        comment: comment.trim(),
-        reviewerId: reviewerId.trim()
-      });
-      setDetail(updated);
-      setSubmitStatus("success");
-    } catch {
-      setSubmitStatus("error");
-    }
-  }
 
   return (
     <div className="page-stack manual-page">
@@ -89,7 +62,7 @@ export function ManualReviewPlaceholderPage({ taskId }: { taskId: string }) {
       <section className="page-heading">
         <div>
           <h1>人工复核</h1>
-          <p>提交人工复核结论，写回审核状态并记录审计事件</p>
+          <p>后端写回接口已预留，前端提交表单后续接入</p>
         </div>
       </section>
 
@@ -113,11 +86,14 @@ export function ManualReviewPlaceholderPage({ taskId }: { taskId: string }) {
         <div className="manual-workspace">
           <form className="manual-form">
             <h3>复核操作区</h3>
+            <p className="muted-text">
+              当前页面仅展示复核占位内容，不会提交写回；完整提交表单将在后续版本接入。
+            </p>
             <label>
               <span>复核结论</span>
               <select
                 value={decision}
-                onChange={(event) => setDecision(event.target.value as ManualReviewDecision)}
+                disabled
               >
                 <option value="approved">确认通过</option>
                 <option value="rejected">驳回</option>
@@ -126,28 +102,28 @@ export function ManualReviewPlaceholderPage({ taskId }: { taskId: string }) {
             <label>
               <span>复核备注</span>
               <textarea
-                value={comment}
-                onChange={(event) => setComment(event.target.value)}
                 placeholder="请输入人工判断依据"
                 rows={4}
+                disabled
               />
             </label>
             <label>
               <span>复核人 ID</span>
               <input
-                value={reviewerId}
-                onChange={(event) => setReviewerId(event.target.value)}
+                value="wecom-reviewer-local"
                 placeholder="企业微信用户 ID"
+                disabled
+                readOnly
               />
             </label>
             <div className="review-actions">
-              <button disabled={!canSubmit} type="button" onClick={submitManualReview}>
-                {submitStatus === "submitting" ? "提交中" : "提交复核结论"}
+              <button disabled type="button">
+                提交复核结论
               </button>
               <span>
-                {isCompleted && "已写回人工复核结论"}
-                {submitStatus === "error" && "提交失败，请检查 API 服务状态"}
-                {submitStatus === "idle" && !isCompleted && "提交后状态将变为人工已复核"}
+                {isCompleted
+                  ? "该记录已有人工复核结果"
+                  : "后端写回接口已预留，前端提交表单后续接入"}
               </span>
             </div>
           </form>

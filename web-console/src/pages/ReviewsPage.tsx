@@ -100,15 +100,17 @@ export function ReviewsPage({ qcView = false }: { qcView?: boolean }) {
           <h1>{qcView ? "QC 审核结果列表" : "审核结果列表"}</h1>
         </div>
         <div className="heading-actions">
-          <button
-            className="primary-button"
-            type="button"
-            onClick={createFromSrm}
-            disabled={srmStatus === "submitting"}
-          >
-            <DatabaseZap size={16} aria-hidden="true" />
-            {srmStatus === "submitting" ? "拉取中" : "从 SRM 拉取审核"}
-          </button>
+          {!qcView && (
+            <button
+              className="primary-button"
+              type="button"
+              onClick={createFromSrm}
+              disabled={srmStatus === "submitting"}
+            >
+              <DatabaseZap size={16} aria-hidden="true" />
+              {srmStatus === "submitting" ? "拉取中" : "从 SRM 拉取审核"}
+            </button>
+          )}
           <button
             className="secondary-button"
             type="button"
@@ -267,6 +269,7 @@ export function ReviewsPage({ qcView = false }: { qcView?: boolean }) {
           pageSize={data.pageSize}
           total={data.total}
           totalPages={data.totalPages}
+          qcView={qcView}
           onPageChange={(page) => setFilters((current) => ({ ...current, page }))}
         />
       )}
@@ -280,6 +283,7 @@ function ReviewTable({
   pageSize,
   total,
   totalPages,
+  qcView,
   onPageChange
 }: {
   rows: ReviewRow[];
@@ -287,8 +291,12 @@ function ReviewTable({
   pageSize: number;
   total: number;
   totalPages: number;
+  qcView: boolean;
   onPageChange: (page: number) => void;
 }) {
+  const detailPath = (taskId: string) =>
+    qcView ? `/qc/reviews/${taskId}` : `/reviews/${taskId}`;
+
   return (
     <section className="table-panel">
       <div className="table-panel-header">
@@ -327,7 +335,7 @@ function ReviewTable({
               <td>{row.needsManualReview ? "需要" : "不需要"}</td>
               <td>{formatTime(row.reviewedAt)}</td>
               <td>
-                <a className="table-action" href={`/reviews/${row.taskId}`}>
+                <a className="table-action" href={detailPath(row.taskId)}>
                   详情
                   <ArrowRight size={15} aria-hidden="true" />
                 </a>
@@ -368,7 +376,7 @@ function ReviewTable({
                 <dd>{formatTime(row.reviewedAt)}</dd>
               </div>
             </dl>
-            <a className="primary-link" href={`/reviews/${row.taskId}`}>
+            <a className="primary-link" href={detailPath(row.taskId)}>
               查看详情
               <ArrowRight size={15} aria-hidden="true" />
             </a>
