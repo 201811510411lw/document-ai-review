@@ -4,6 +4,7 @@ from app.use_cases.business_license import business_license_use_case
 from app.use_cases.contract_review import contract_review_use_case
 from app.use_cases.food_license import food_license_use_case
 from app.use_cases.qc_document_review import qc_document_review_use_case
+from app.use_cases.tobacco_license import tobacco_license_use_case
 from app.use_cases.tobacco_license_consistency_review import (
     tobacco_license_consistency_review_use_case,
 )
@@ -53,5 +54,6 @@ use_case_registry = UseCaseRegistry()
 use_case_registry.register(business_license_use_case)
 use_case_registry.register(food_license_use_case)
 use_case_registry.register(qc_document_review_use_case)
+use_case_registry.register(tobacco_license_use_case)
 use_case_registry.register(tobacco_license_consistency_review_use_case)
 use_case_registry.register(contract_review_use_case)

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, RotateCcw } from "lucide-react";
+import { ArrowRight, DatabaseZap, RotateCcw } from "lucide-react";
 import { reviewClient } from "../api/client";
 import type { ListReviewsResponse, ReviewFilters, ReviewRow } from "../api/reviews";
 import { EmptyState, ErrorState, LoadingState } from "../components/EmptyState";
@@ -9,6 +9,7 @@ import { RiskBadge, StatusBadge } from "../components/Badge";
 const defaultFilters: ReviewFilters = {
   businessName: "",
   creditCode: "",
+  documentType: "ALL",
   riskLevel: "ALL",
   reviewStatus: "ALL",
   dateRange: "week",
@@ -16,18 +17,19 @@ const defaultFilters: ReviewFilters = {
   pageSize: 3
 };
 
-export function ReviewsPage() {
+export function ReviewsPage({ qcView = false }: { qcView?: boolean }) {
   const [filters, setFilters] = useState<ReviewFilters>(defaultFilters);
   const [data, setData] = useState<ListReviewsResponse | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "empty" | "error">("loading");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [srmStatus, setSrmStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
 
   useEffect(() => {
     let mounted = true;
     setStatus("loading");
 
-    reviewClient
-      .listReviews(filters)
+    const listReviews = qcView ? reviewClient.listQcReviews : reviewClient.listReviews;
+    listReviews(filters)
       .then((response) => {
         if (!mounted) {
           return;
@@ -44,7 +46,7 @@ export function ReviewsPage() {
     return () => {
       mounted = false;
     };
-  }, [filters, refreshKey]);
+  }, [filters, refreshKey, qcView]);
 
   const metrics = useMemo(
     () =>
@@ -57,22 +59,73 @@ export function ReviewsPage() {
     [data]
   );
 
+  async function createFromSrm() {
+    if (srmStatus === "submitting") {
+      return;
+    }
+    setSrmStatus("submitting");
+    try {
+      const created = await reviewClient.createReviewFromSrm();
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              items: [created, ...current.items].slice(0, current.pageSize),
+              total: current.total + 1,
+              totalPages: Math.max(1, Math.ceil((current.total + 1) / current.pageSize)),
+              metrics: {
+                ...current.metrics,
+                todayReviewed: current.metrics.todayReviewed + 1,
+                passRate: Math.round(
+                  ((current.items.filter((item) => item.reviewStatus === "REVIEWED").length +
+                    (created.reviewStatus === "REVIEWED" ? 1 : 0)) /
+                    (current.total + 1)) *
+                    100
+                )
+              }
+            }
+          : current
+      );
+      setSrmStatus("success");
+    } catch {
+      setSrmStatus("error");
+    }
+  }
+
   return (
     <div className="page-stack">
       <section className="page-heading">
         <div>
           <p>营业执照</p>
-          <h1>审核结果列表</h1>
+          <h1>{qcView ? "QC 审核结果列表" : "审核结果列表"}</h1>
         </div>
-        <button
-          className="secondary-button"
-          type="button"
-          onClick={() => setRefreshKey((current) => current + 1)}
-        >
-          <RotateCcw size={16} aria-hidden="true" />
-          刷新数据
-        </button>
+        <div className="heading-actions">
+          <button
+            className="primary-button"
+            type="button"
+            onClick={createFromSrm}
+            disabled={srmStatus === "submitting"}
+          >
+            <DatabaseZap size={16} aria-hidden="true" />
+            {srmStatus === "submitting" ? "拉取中" : "从 SRM 拉取审核"}
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => setRefreshKey((current) => current + 1)}
+          >
+            <RotateCcw size={16} aria-hidden="true" />
+            刷新数据
+          </button>
+        </div>
       </section>
+
+      {srmStatus === "success" && (
+        <div className="inline-notice inline-notice-success">已从 SRM 来源记录创建审核任务。</div>
+      )}
+      {srmStatus === "error" && (
+        <div className="inline-notice inline-notice-error">SRM 来源记录审核创建失败，请检查 API 服务状态。</div>
+      )}
 
       <section className="metrics-grid" aria-label="审核统计">
         <MetricCard label="今日审核" value={metrics.todayReviewed} hint="mock 数据口径" />
@@ -114,6 +167,28 @@ export function ReviewsPage() {
             placeholder="输入信用代码"
           />
         </label>
+        {qcView && (
+          <label>
+            <span>证照类型</span>
+            <select
+              value={filters.documentType}
+              onChange={(event) =>
+                setFilters((current) => ({
+                  ...current,
+                  documentType: event.target.value as ReviewFilters["documentType"],
+                  page: 1
+                }))
+              }
+            >
+              <option value="ALL">全部</option>
+              <option value="business_license">营业执照</option>
+              <option value="food_license">食品经营许可证</option>
+              <option value="product_report">产品报告</option>
+              <option value="tobacco_license">烟草证</option>
+              <option value="business_tobacco_consistency">营业执照与烟草证一致性</option>
+            </select>
+          </label>
+        )}
         <label>
           <span>风险等级</span>
           <select
@@ -240,6 +315,7 @@ function ReviewTable({
               <td>
                 <strong>{row.businessName}</strong>
                 <small>{row.taskId}</small>
+                <small>{row.sourceRecordId}</small>
               </td>
               <td>{row.creditCode}</td>
               <td>
@@ -272,6 +348,10 @@ function ReviewTable({
               <div>
                 <dt>统一社会信用代码</dt>
                 <dd>{row.creditCode}</dd>
+              </div>
+              <div>
+                <dt>SRM 记录 ID</dt>
+                <dd>{row.sourceRecordId}</dd>
               </div>
               <div>
                 <dt>审核状态</dt>

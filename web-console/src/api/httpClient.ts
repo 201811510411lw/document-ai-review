@@ -26,6 +26,18 @@ export const httpReviewClient: ReviewClient = {
     return mapListResponse(await response.json());
   },
 
+  async listQcReviews(filters: ReviewFilters): Promise<ListReviewsResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/api/v1/qc/reviews?${queryString(filters)}`,
+      {headers: authHeaders()}
+    );
+    handleUnauthorized(response);
+    if (!response.ok) {
+      throw new Error(`Failed to list QC reviews: ${response.status}`);
+    }
+    return mapListResponse(await response.json());
+  },
+
   async getReview(taskId: string): Promise<ReviewDetail | null> {
     const response = await fetch(
       `${API_BASE_URL}/api/v1/business-license/reviews/${encodeURIComponent(taskId)}`,
@@ -37,6 +49,33 @@ export const httpReviewClient: ReviewClient = {
     }
     if (!response.ok) {
       throw new Error(`Failed to get business license review: ${response.status}`);
+    }
+    return mapDetailResponse(await response.json());
+  },
+
+  async getQcReview(taskId: string): Promise<ReviewDetail | null> {
+    const response = await fetch(
+      `${API_BASE_URL}/api/v1/qc/reviews/${encodeURIComponent(taskId)}`,
+      {headers: authHeaders()}
+    );
+    handleUnauthorized(response);
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      throw new Error(`Failed to get QC review: ${response.status}`);
+    }
+    return mapDetailResponse(await response.json());
+  },
+
+  async createReviewFromSrm(): Promise<ReviewDetail> {
+    const response = await fetch(`${API_BASE_URL}/api/v1/business-license/reviews/from-srm`, {
+      method: "POST",
+      headers: authHeaders()
+    });
+    handleUnauthorized(response);
+    if (!response.ok) {
+      throw new Error(`Failed to create business license review from SRM: ${response.status}`);
     }
     return mapDetailResponse(await response.json());
   },
@@ -82,6 +121,9 @@ function queryString(filters: ReviewFilters) {
   }
   if (filters.creditCode.trim()) {
     params.set("credit_code", filters.creditCode.trim().toUpperCase());
+  }
+  if (filters.documentType !== "ALL") {
+    params.set("document_type", filters.documentType);
   }
   if (filters.riskLevel !== "ALL") {
     params.set("risk_level", filters.riskLevel);
@@ -160,7 +202,7 @@ function mapDetailResponse(payload: ApiReviewDetail): ReviewDetail {
 function mapRow(payload: ApiReviewRow): ReviewRow {
   return {
     taskId: payload.task_id,
-    businessName: payload.business_name ?? "未识别主体名称",
+    businessName: payload.supplier_name ?? payload.business_name ?? "未识别主体名称",
     creditCode: payload.credit_code ?? "未识别",
     reviewStatus: payload.review_status,
     reviewStatusLabel: payload.review_status_label,
@@ -245,6 +287,7 @@ interface ApiReviewRow {
   task_id: string;
   source_record_id?: string | null;
   source_attachment_ref_id?: string | null;
+  supplier_name?: string | null;
   business_name?: string | null;
   credit_code?: string | null;
   review_status: ReviewRow["reviewStatus"];

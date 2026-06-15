@@ -38,6 +38,7 @@ class FoodLicenseDocumentInputResult(BaseModel):
     file_name: str | None = None
     mime_type: str | None = None
     document_format: str | None = None
+    source_url: str | None = None
 
 
 class FoodLicenseCapabilityResult(BaseModel):
@@ -46,3 +47,4 @@ class FoodLicenseCapabilityResult(BaseModel):
     extracted_fields: FoodLicenseExtractedFields | None = None
     normalized_fields: FoodLicenseNormalizedFields | None = None
     extraction_metadata: dict = Field(default_factory=dict)
+    source_evidence: dict = Field(default_factory=dict)

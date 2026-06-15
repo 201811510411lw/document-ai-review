@@ -23,6 +23,10 @@ export function Layout({
           <span>Document AI</span>
         </div>
         <nav>
+          <a className="nav-item nav-item-active" href="/qc/reviews">
+            <FileSearch size={18} aria-hidden="true" />
+            <span>QC 审核结果</span>
+          </a>
           <a className="nav-item nav-item-active" href="/reviews">
             <ClipboardCheck size={18} aria-hidden="true" />
             <span>营业执照审核</span>

@@ -18,10 +18,18 @@ function applyFilters(items: ReviewDetail[], filters: ReviewFilters): ReviewDeta
       filters.riskLevel === "ALL" || item.riskLevel === filters.riskLevel;
     const statusMatches =
       filters.reviewStatus === "ALL" || item.reviewStatus === filters.reviewStatus;
+    const itemDocumentType =
+      typeof item.payload.document_type === "string"
+        ? item.payload.document_type
+        : typeof item.payload.documentType === "string"
+          ? item.payload.documentType
+          : "business_license";
+    const documentTypeMatches =
+      filters.documentType === "ALL" || itemDocumentType === filters.documentType;
 
     const dateMatches = inDateRange(item.reviewedAt, filters.dateRange);
 
-    return nameMatches && codeMatches && riskMatches && statusMatches && dateMatches;
+    return nameMatches && codeMatches && documentTypeMatches && riskMatches && statusMatches && dateMatches;
   });
 }
 
@@ -94,9 +102,100 @@ export const mockReviewClient: ReviewClient = {
     };
   },
 
+  async listQcReviews(filters: ReviewFilters): Promise<ListReviewsResponse> {
+    await delay(20);
+    const filtered = applyFilters(mockReviews, filters);
+    const pageSize = Math.max(1, filters.pageSize);
+    const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    const page = Math.min(Math.max(1, filters.page), totalPages);
+    const offset = (page - 1) * pageSize;
+    const pageItems = filtered.slice(offset, offset + pageSize);
+
+    return {
+      items: pageItems.map(({ payload, extractedFields, normalizedFields, ruleResults, manualReviewReasons, sourceUrl, summary, ...row }) => row as ReviewRow),
+      metrics: metricsFrom(filtered),
+      page,
+      pageSize,
+      total: filtered.length,
+      totalPages
+    };
+  },
+
   async getReview(taskId: string): Promise<ReviewDetail | null> {
     await delay(20);
     return mockReviews.find((item) => item.taskId === taskId) ?? null;
+  },
+
+  async getQcReview(taskId: string): Promise<ReviewDetail | null> {
+    await delay(20);
+    return mockReviews.find((item) => item.taskId === taskId) ?? null;
+  },
+
+  async createReviewFromSrm(): Promise<ReviewDetail> {
+    await delay(20);
+    const createdAt = "2026-06-15T12:00:00+08:00";
+    const taskId = `blr-srm-${mockReviews.length + 1}`;
+    const created: ReviewDetail = {
+      taskId,
+      businessName: "成都示例商贸有限公司",
+      creditCode: "91510100MA0000000X",
+      reviewStatus: "REVIEWED",
+      reviewStatusLabel: "已审核",
+      riskLevel: "NONE",
+      riskLevelLabel: "无风险",
+      needsManualReview: false,
+      reviewedAt: createdAt,
+      sourceRecordId: "SRM-CERT-NEW",
+      attachmentId: "ATT-BL-NEW",
+      sourceUrl: "https://files.example.test/business-license-new.png",
+      summary: "从 SRM 来源记录创建审核任务，营业执照规则校验通过。",
+      extractedFields: {
+        subjectName: "成都示例商贸有限公司",
+        creditCode: "91510100MA0000000X",
+        legalPerson: "张三",
+        establishedDate: "2020-01-02",
+        validFrom: "2020-01-02",
+        validTo: "2030-01-01",
+        businessAddress: "成都市高新区天府大道 1 号",
+        confidence: 0.96
+      },
+      normalizedFields: {
+        subjectName: "成都示例商贸有限公司",
+        creditCode: "91510100MA0000000X",
+        legalPerson: "张三",
+        establishedDate: "2020-01-02",
+        validFrom: "2020-01-02",
+        validTo: "2030-01-01",
+        businessAddress: "成都市高新区天府大道1号",
+        confidence: 0.96
+      },
+      ruleResults: [
+        {
+          ruleCode: "BUSINESS_LICENSE_TYPE_MATCH",
+          ruleName: "营业执照类型匹配",
+          state: "passed",
+          riskLevelOnFailure: "HIGH",
+          message: "已确认文件为营业执照"
+        }
+      ],
+      manualReviewReasons: [],
+      manualReview: {
+        status: "NOT_REQUIRED",
+        reasons: []
+      },
+      auditEvents: [],
+      payload: {
+        task_id: taskId,
+        status: "REVIEWED",
+        risk_level: "NONE",
+        source: {
+          record_id: "SRM-CERT-NEW",
+          attachment_ref_id: "ATT-BL-NEW"
+        }
+      }
+    };
+    mockReviews.unshift(created);
+    return created;
   },
 
   async submitManualReview(

@@ -56,11 +56,191 @@ class StubMySQLCursor:
             ]
             self.storage["business_license_reviews"][params[0]] = dict(zip(keys, params))
             return
+        if compact.startswith("insert into food_license_reviews"):
+            keys = [
+                "task_id",
+                "source_record_id",
+                "source_attachment_ref_id",
+                "source_url",
+                "tenant",
+                "document_type",
+                "subject_name",
+                "credit_code",
+                "license_no",
+                "business_address",
+                "legal_person",
+                "business_items_json",
+                "valid_from",
+                "valid_to",
+                "issue_authority",
+                "issue_date",
+                "review_status",
+                "risk_level",
+                "needs_manual_review",
+                "summary",
+                "rule_results_json",
+                "extracted_fields_json",
+                "normalized_fields_json",
+                "extraction_metadata_json",
+                "source_evidence_json",
+                "created_at",
+                "updated_at",
+            ]
+            self.storage["food_license_reviews"][params[0]] = dict(zip(keys, params))
+            return
+        if compact.startswith("insert into tobacco_license_reviews"):
+            keys = [
+                "task_id",
+                "source_record_id",
+                "source_attachment_ref_id",
+                "source_url",
+                "tenant",
+                "document_type",
+                "subject_name",
+                "business_address",
+                "legal_person",
+                "license_no",
+                "valid_from",
+                "valid_to",
+                "review_status",
+                "risk_level",
+                "needs_manual_review",
+                "summary",
+                "rule_results_json",
+                "extracted_fields_json",
+                "normalized_fields_json",
+                "extraction_metadata_json",
+                "source_evidence_json",
+                "created_at",
+                "updated_at",
+            ]
+            self.storage["tobacco_license_reviews"][params[0]] = dict(zip(keys, params))
+            return
+        if compact.startswith("insert into tobacco_consistency_reviews"):
+            keys = [
+                "task_id",
+                "source_record_id",
+                "source_attachment_ref_id",
+                "source_url",
+                "tenant",
+                "document_type",
+                "subject_name",
+                "review_status",
+                "risk_level",
+                "needs_manual_review",
+                "summary",
+                "rule_results_json",
+                "comparison_json",
+                "business_license_fields_json",
+                "tobacco_license_fields_json",
+                "source_evidence_json",
+                "created_at",
+                "updated_at",
+            ]
+            self.storage["tobacco_consistency_reviews"][params[0]] = dict(zip(keys, params))
+            return
         if compact.startswith("select * from business_license_reviews"):
             self.result = self.storage["business_license_reviews"].get(params[0])
             return
+        if compact.startswith("select * from food_license_reviews"):
+            self.result = self.storage["food_license_reviews"].get(params[0])
+            return
+        if compact.startswith("select * from tobacco_license_reviews"):
+            self.result = self.storage["tobacco_license_reviews"].get(params[0])
+            return
+        if compact.startswith("select * from tobacco_consistency_reviews"):
+            self.result = self.storage["tobacco_consistency_reviews"].get(params[0])
+            return
+        if compact.startswith("select task_id from business_license_reviews"):
+            row = self.storage["business_license_reviews"].get(params[0])
+            self.result = {"task_id": params[0]} if row is not None else None
+            return
+        if compact.startswith("select task_id from food_license_reviews"):
+            row = self.storage["food_license_reviews"].get(params[0])
+            self.result = {"task_id": params[0]} if row is not None else None
+            return
+        if compact.startswith("select task_id from tobacco_license_reviews"):
+            row = self.storage["tobacco_license_reviews"].get(params[0])
+            self.result = {"task_id": params[0]} if row is not None else None
+            return
+        if compact.startswith("select task_id from tobacco_consistency_reviews"):
+            row = self.storage["tobacco_consistency_reviews"].get(params[0])
+            self.result = {"task_id": params[0]} if row is not None else None
+            return
+        if compact.startswith("select task_id from product_report_reviews"):
+            row = self.storage["product_report_reviews"].get(params[0])
+            self.result = {"task_id": params[0]} if row is not None else None
+            return
         if compact.startswith("update business_license_reviews set review_status"):
             row = self.storage["business_license_reviews"].get(params[-1])
+            if row is not None:
+                row.update(
+                    {
+                        "review_status": params[0],
+                        "needs_manual_review": params[1],
+                        "manual_review_status": params[2],
+                        "manual_review_decision": params[3],
+                        "manual_review_comment": params[4],
+                        "manual_review_reviewer_id": params[5],
+                        "manual_review_reviewer_username": params[6],
+                        "manual_review_reviewed_at": params[7],
+                        "updated_at": params[8],
+                    }
+                )
+            return
+        if compact.startswith("update food_license_reviews set review_status"):
+            row = self.storage["food_license_reviews"].get(params[-1])
+            if row is not None:
+                row.update(
+                    {
+                        "review_status": params[0],
+                        "needs_manual_review": params[1],
+                        "manual_review_status": params[2],
+                        "manual_review_decision": params[3],
+                        "manual_review_comment": params[4],
+                        "manual_review_reviewer_id": params[5],
+                        "manual_review_reviewer_username": params[6],
+                        "manual_review_reviewed_at": params[7],
+                        "updated_at": params[8],
+                    }
+                )
+            return
+        if compact.startswith("update tobacco_license_reviews set review_status"):
+            row = self.storage["tobacco_license_reviews"].get(params[-1])
+            if row is not None:
+                row.update(
+                    {
+                        "review_status": params[0],
+                        "needs_manual_review": params[1],
+                        "manual_review_status": params[2],
+                        "manual_review_decision": params[3],
+                        "manual_review_comment": params[4],
+                        "manual_review_reviewer_id": params[5],
+                        "manual_review_reviewer_username": params[6],
+                        "manual_review_reviewed_at": params[7],
+                        "updated_at": params[8],
+                    }
+                )
+            return
+        if compact.startswith("update tobacco_consistency_reviews set review_status"):
+            row = self.storage["tobacco_consistency_reviews"].get(params[-1])
+            if row is not None:
+                row.update(
+                    {
+                        "review_status": params[0],
+                        "needs_manual_review": params[1],
+                        "manual_review_status": params[2],
+                        "manual_review_decision": params[3],
+                        "manual_review_comment": params[4],
+                        "manual_review_reviewer_id": params[5],
+                        "manual_review_reviewer_username": params[6],
+                        "manual_review_reviewed_at": params[7],
+                        "updated_at": params[8],
+                    }
+                )
+            return
+        if compact.startswith("update product_report_reviews set review_status"):
+            row = self.storage["product_report_reviews"].get(params[-1])
             if row is not None:
                 row.update(
                     {
@@ -116,7 +296,42 @@ class StubMySQLCursor:
                 "reviewed": sum(1 for row in rows if row.get("review_status") == "REVIEWED"),
             }
             return
-        if compact.startswith("select task_id, source_record_id"):
+        if (
+            compact.startswith("select task_id, source_record_id")
+            and "from product_report_reviews" in compact
+            and "limit %s offset %s" not in compact
+        ):
+            self.result = list(self.storage["product_report_reviews"].values())
+            return
+        if (
+            compact.startswith("select task_id, source_record_id")
+            and "from food_license_reviews" in compact
+            and "limit %s offset %s" not in compact
+        ):
+            self.result = list(self.storage["food_license_reviews"].values())
+            return
+        if (
+            compact.startswith("select task_id, source_record_id")
+            and "from tobacco_license_reviews" in compact
+            and "limit %s offset %s" not in compact
+        ):
+            self.result = list(self.storage["tobacco_license_reviews"].values())
+            return
+        if (
+            compact.startswith("select task_id, source_record_id")
+            and "from tobacco_consistency_reviews" in compact
+            and "limit %s offset %s" not in compact
+        ):
+            self.result = list(self.storage["tobacco_consistency_reviews"].values())
+            return
+        if (
+            compact.startswith("select task_id, source_record_id")
+            and "from business_license_reviews" in compact
+            and "limit %s offset %s" not in compact
+        ):
+            self.result = list(self.storage["business_license_reviews"].values())
+            return
+        if compact.startswith("select task_id, source_record_id") and "limit %s offset %s" in compact:
             rows = _filter_business_license_rows(self.storage, params[:-2])
             rows = sorted(
                 rows,
@@ -226,6 +441,9 @@ def install_mysql_repository_stub(monkeypatch):
         "review_results": {},
         "business_license_reviews": {},
         "business_license_review_audit_events": [],
+        "food_license_reviews": {},
+        "tobacco_license_reviews": {},
+        "tobacco_consistency_reviews": {},
         "product_report_reviews": {},
         "product_report_inspection_items": {},
         "connections": [],

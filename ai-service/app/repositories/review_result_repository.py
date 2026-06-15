@@ -56,6 +56,9 @@ class MySQLReviewResultRepository:
                     ),
                 )
                 self._save_business_license_projection(cursor, review_result)
+                self._save_food_license_projection(cursor, review_result)
+                self._save_tobacco_license_projection(cursor, review_result)
+                self._save_tobacco_consistency_projection(cursor, review_result)
                 self._save_product_report_projection(cursor, review_result)
             connection.commit()
 
@@ -356,6 +359,337 @@ class MySQLReviewResultRepository:
         ]
         return snapshot
 
+    def get_food_license_snapshot(self, task_id: str) -> dict | None:
+        self._ensure_schema_once()
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT *
+                    FROM food_license_reviews
+                    WHERE task_id = %s
+                    """,
+                    (task_id,),
+                )
+                row = cursor.fetchone()
+        if row is None:
+            return None
+        snapshot = dict(row)
+        snapshot["needs_manual_review"] = bool(snapshot["needs_manual_review"])
+        snapshot["business_items"] = loads(snapshot["business_items_json"])
+        snapshot["rule_results"] = loads(snapshot["rule_results_json"])
+        snapshot["extracted_fields"] = loads(snapshot["extracted_fields_json"])
+        snapshot["normalized_fields"] = loads(snapshot["normalized_fields_json"])
+        snapshot["extraction_metadata"] = loads(snapshot["extraction_metadata_json"])
+        snapshot["source_evidence"] = loads(snapshot["source_evidence_json"])
+        return snapshot
+
+    def get_tobacco_license_snapshot(self, task_id: str) -> dict | None:
+        self._ensure_schema_once()
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT *
+                    FROM tobacco_license_reviews
+                    WHERE task_id = %s
+                    """,
+                    (task_id,),
+                )
+                row = cursor.fetchone()
+        if row is None:
+            return None
+        snapshot = dict(row)
+        snapshot["needs_manual_review"] = bool(snapshot["needs_manual_review"])
+        snapshot["rule_results"] = loads(snapshot["rule_results_json"])
+        snapshot["extracted_fields"] = loads(snapshot["extracted_fields_json"])
+        snapshot["normalized_fields"] = loads(snapshot["normalized_fields_json"])
+        snapshot["extraction_metadata"] = loads(snapshot["extraction_metadata_json"])
+        snapshot["source_evidence"] = loads(snapshot["source_evidence_json"])
+        return snapshot
+
+    def get_tobacco_consistency_snapshot(self, task_id: str) -> dict | None:
+        self._ensure_schema_once()
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT *
+                    FROM tobacco_consistency_reviews
+                    WHERE task_id = %s
+                    """,
+                    (task_id,),
+                )
+                row = cursor.fetchone()
+        if row is None:
+            return None
+        snapshot = dict(row)
+        snapshot["needs_manual_review"] = bool(snapshot["needs_manual_review"])
+        snapshot["rule_results"] = loads(snapshot["rule_results_json"])
+        snapshot["comparison"] = loads(snapshot["comparison_json"])
+        snapshot["business_license_fields"] = loads(snapshot["business_license_fields_json"])
+        snapshot["tobacco_license_fields"] = loads(snapshot["tobacco_license_fields_json"])
+        snapshot["source_evidence"] = loads(snapshot["source_evidence_json"])
+        return snapshot
+
+    def list_qc_reviews(
+        self,
+        *,
+        supplier_name: str | None = None,
+        credit_code: str | None = None,
+        document_type: str | None = None,
+        risk_level: str | None = None,
+        review_status: str | None = None,
+        needs_manual_review: bool | None = None,
+        created_from: str | None = None,
+        created_to: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict[str, Any]:
+        self._ensure_schema_once()
+        rows = self._all_qc_review_rows()
+        filtered = [
+            row
+            for row in rows
+            if _qc_row_matches(
+                row,
+                supplier_name=supplier_name,
+                credit_code=credit_code,
+                document_type=document_type,
+                risk_level=risk_level,
+                review_status=review_status,
+                needs_manual_review=needs_manual_review,
+                created_from=created_from,
+                created_to=created_to,
+            )
+        ]
+        filtered.sort(
+            key=lambda row: (row.get("created_at") or "", row.get("task_id") or ""),
+            reverse=True,
+        )
+        safe_page_size = min(max(1, page_size), 100)
+        total = len(filtered)
+        total_pages = max(1, (total + safe_page_size - 1) // safe_page_size)
+        safe_page = min(max(1, page), total_pages)
+        offset = (safe_page - 1) * safe_page_size
+        return {
+            "items": filtered[offset : offset + safe_page_size],
+            "metrics": _qc_review_metrics(filtered),
+            "page": safe_page,
+            "page_size": safe_page_size,
+            "total": total,
+            "total_pages": total_pages,
+        }
+
+    def get_qc_review_detail(self, task_id: str) -> dict[str, Any] | None:
+        business_license = self.get_business_license_snapshot(task_id)
+        if business_license is not None:
+            return _qc_business_license_detail(business_license)
+        food_license = self.get_food_license_snapshot(task_id)
+        if food_license is not None:
+            return _qc_food_license_detail(food_license)
+        tobacco_license = self.get_tobacco_license_snapshot(task_id)
+        if tobacco_license is not None:
+            return _qc_tobacco_license_detail(tobacco_license)
+        consistency = self.get_tobacco_consistency_snapshot(task_id)
+        if consistency is not None:
+            return _qc_tobacco_consistency_detail(consistency)
+        product_report = self.get_product_report_snapshot(task_id)
+        if product_report is not None:
+            return _qc_product_report_detail(product_report)
+        return None
+
+    def manual_review_qc_review(
+        self,
+        *,
+        task_id: str,
+        decision: str,
+        comment: str,
+        reviewer_id: str,
+        reviewer_username: str,
+        reviewed_at: datetime,
+    ) -> dict[str, Any] | None:
+        self._ensure_schema_once()
+        table = self._qc_projection_table_for_task(task_id)
+        if table is None:
+            return None
+        reviewed_at_text = reviewed_at.isoformat()
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT payload_json FROM review_results WHERE task_id = %s",
+                    (task_id,),
+                )
+                payload_row = cursor.fetchone()
+                updated_payload = (
+                    _manual_review_payload(
+                        payload_json=payload_row["payload_json"],
+                        decision=decision,
+                        comment=comment,
+                        reviewer_id=reviewer_id,
+                        reviewer_username=reviewer_username,
+                        reviewed_at=reviewed_at,
+                    )
+                    if payload_row is not None
+                    else None
+                )
+                cursor.execute(
+                    f"""
+                    UPDATE {table}
+                    SET
+                        review_status = %s,
+                        needs_manual_review = %s,
+                        manual_review_status = %s,
+                        manual_review_decision = %s,
+                        manual_review_comment = %s,
+                        manual_review_reviewer_id = %s,
+                        manual_review_reviewer_username = %s,
+                        manual_review_reviewed_at = %s,
+                        updated_at = %s
+                    WHERE task_id = %s
+                    """,
+                    (
+                        "MANUAL_REVIEWED",
+                        0,
+                        "COMPLETED",
+                        decision,
+                        comment,
+                        reviewer_id,
+                        reviewer_username,
+                        reviewed_at_text,
+                        reviewed_at_text,
+                        task_id,
+                    ),
+                )
+                if updated_payload is not None:
+                    cursor.execute(
+                        """
+                        UPDATE review_results
+                        SET payload_json = %s
+                        WHERE task_id = %s
+                        """,
+                        (updated_payload.model_dump_json(), task_id),
+                    )
+            connection.commit()
+        return self.get_qc_review_detail(task_id)
+
+    def _qc_projection_table_for_task(self, task_id: str) -> str | None:
+        for table in (
+            "business_license_reviews",
+            "food_license_reviews",
+            "tobacco_license_reviews",
+            "tobacco_consistency_reviews",
+            "product_report_reviews",
+        ):
+            with self._connect() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        f"SELECT task_id FROM {table} WHERE task_id = %s",
+                        (task_id,),
+                    )
+                    if cursor.fetchone() is not None:
+                        return table
+        return None
+
+    def _all_qc_review_rows(self) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT {BUSINESS_LICENSE_REVIEW_ROW_COLUMNS}
+                    FROM business_license_reviews
+                    """
+                )
+                rows.extend(_qc_business_license_row(row) for row in cursor.fetchall())
+                cursor.execute(
+                    """
+                    SELECT
+                        task_id,
+                        source_record_id,
+                        source_attachment_ref_id,
+                        source_url,
+                        tenant,
+                        document_type,
+                        subject_name,
+                        credit_code,
+                        license_no,
+                        review_status,
+                        risk_level,
+                        needs_manual_review,
+                        summary,
+                        created_at,
+                        updated_at
+                    FROM food_license_reviews
+                    """
+                )
+                rows.extend(_qc_food_license_row(row) for row in cursor.fetchall())
+                cursor.execute(
+                    """
+                    SELECT
+                        task_id,
+                        source_record_id,
+                        source_attachment_ref_id,
+                        source_url,
+                        tenant,
+                        document_type,
+                        subject_name,
+                        license_no,
+                        review_status,
+                        risk_level,
+                        needs_manual_review,
+                        summary,
+                        created_at,
+                        updated_at
+                    FROM tobacco_license_reviews
+                    """
+                )
+                rows.extend(_qc_tobacco_license_row(row) for row in cursor.fetchall())
+                cursor.execute(
+                    """
+                    SELECT
+                        task_id,
+                        source_record_id,
+                        source_attachment_ref_id,
+                        source_url,
+                        tenant,
+                        document_type,
+                        subject_name,
+                        review_status,
+                        risk_level,
+                        needs_manual_review,
+                        summary,
+                        created_at,
+                        updated_at
+                    FROM tobacco_consistency_reviews
+                    """
+                )
+                rows.extend(_qc_tobacco_consistency_row(row) for row in cursor.fetchall())
+                cursor.execute(
+                    """
+                    SELECT
+                        task_id,
+                        source_record_id,
+                        source_attachment_ref_id,
+                        NULL AS source_url,
+                        tenant,
+                        document_type,
+                        product_name,
+                        sample_name,
+                        vendor_name,
+                        vendor_name_extracted,
+                        review_status,
+                        risk_level,
+                        needs_manual_review,
+                        summary,
+                        created_at,
+                        updated_at
+                    FROM product_report_reviews
+                    """
+                )
+                rows.extend(_qc_product_report_row(row) for row in cursor.fetchall())
+        return rows
+
     def _ensure_schema(self) -> None:
         with self._connect() as connection:
             with connection.cursor() as cursor:
@@ -461,11 +795,140 @@ class MySQLReviewResultRepository:
                         rule_results_json JSON NOT NULL,
                         extraction_metadata_json JSON NOT NULL,
                         source_evidence_json JSON NOT NULL,
+                        manual_review_status VARCHAR(64),
+                        manual_review_decision VARCHAR(32),
+                        manual_review_comment TEXT,
+                        manual_review_reviewer_id VARCHAR(128),
+                        manual_review_reviewer_username VARCHAR(128),
+                        manual_review_reviewed_at VARCHAR(64),
                         created_at VARCHAR(64),
                         updated_at VARCHAR(64),
                         INDEX idx_product_report_source_record_id (source_record_id),
                         INDEX idx_product_report_status_risk (review_status, risk_level),
                         INDEX idx_product_report_created_at (created_at)
+                    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+                    """
+                )
+                for ddl in (
+                    "ALTER TABLE product_report_reviews ADD COLUMN manual_review_status VARCHAR(64)",
+                    "ALTER TABLE product_report_reviews ADD COLUMN manual_review_decision VARCHAR(32)",
+                    "ALTER TABLE product_report_reviews ADD COLUMN manual_review_comment TEXT",
+                    "ALTER TABLE product_report_reviews ADD COLUMN manual_review_reviewer_id VARCHAR(128)",
+                    "ALTER TABLE product_report_reviews ADD COLUMN manual_review_reviewer_username VARCHAR(128)",
+                    "ALTER TABLE product_report_reviews ADD COLUMN manual_review_reviewed_at VARCHAR(64)",
+                ):
+                    _try_add_column(cursor, ddl)
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS food_license_reviews (
+                        task_id VARCHAR(128) PRIMARY KEY,
+                        source_record_id VARCHAR(255),
+                        source_attachment_ref_id VARCHAR(255),
+                        source_url TEXT,
+                        tenant VARCHAR(128),
+                        document_type VARCHAR(64) NOT NULL,
+                        subject_name VARCHAR(512),
+                        credit_code VARCHAR(64),
+                        license_no VARCHAR(255),
+                        business_address TEXT,
+                        legal_person VARCHAR(255),
+                        business_items_json JSON NOT NULL,
+                        valid_from VARCHAR(64),
+                        valid_to VARCHAR(64),
+                        issue_authority VARCHAR(512),
+                        issue_date VARCHAR(64),
+                        review_status VARCHAR(64) NOT NULL,
+                        risk_level VARCHAR(64) NOT NULL,
+                        needs_manual_review TINYINT NOT NULL,
+                        summary TEXT NOT NULL,
+                        rule_results_json JSON NOT NULL,
+                        extracted_fields_json JSON NOT NULL,
+                        normalized_fields_json JSON NOT NULL,
+                        extraction_metadata_json JSON NOT NULL,
+                        source_evidence_json JSON NOT NULL,
+                        manual_review_status VARCHAR(64),
+                        manual_review_decision VARCHAR(32),
+                        manual_review_comment TEXT,
+                        manual_review_reviewer_id VARCHAR(128),
+                        manual_review_reviewer_username VARCHAR(128),
+                        manual_review_reviewed_at VARCHAR(64),
+                        created_at VARCHAR(64),
+                        updated_at VARCHAR(64),
+                        INDEX idx_food_license_source_record_id (source_record_id),
+                        INDEX idx_food_license_credit_code (credit_code),
+                        INDEX idx_food_license_status_risk (review_status, risk_level),
+                        INDEX idx_food_license_created_at (created_at)
+                    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS tobacco_license_reviews (
+                        task_id VARCHAR(128) PRIMARY KEY,
+                        source_record_id VARCHAR(255),
+                        source_attachment_ref_id VARCHAR(255),
+                        source_url TEXT,
+                        tenant VARCHAR(128),
+                        document_type VARCHAR(64) NOT NULL,
+                        subject_name VARCHAR(512),
+                        business_address TEXT,
+                        legal_person VARCHAR(255),
+                        license_no VARCHAR(255),
+                        valid_from VARCHAR(64),
+                        valid_to VARCHAR(64),
+                        review_status VARCHAR(64) NOT NULL,
+                        risk_level VARCHAR(64) NOT NULL,
+                        needs_manual_review TINYINT NOT NULL,
+                        summary TEXT NOT NULL,
+                        rule_results_json JSON NOT NULL,
+                        extracted_fields_json JSON NOT NULL,
+                        normalized_fields_json JSON NOT NULL,
+                        extraction_metadata_json JSON NOT NULL,
+                        source_evidence_json JSON NOT NULL,
+                        manual_review_status VARCHAR(64),
+                        manual_review_decision VARCHAR(32),
+                        manual_review_comment TEXT,
+                        manual_review_reviewer_id VARCHAR(128),
+                        manual_review_reviewer_username VARCHAR(128),
+                        manual_review_reviewed_at VARCHAR(64),
+                        created_at VARCHAR(64),
+                        updated_at VARCHAR(64),
+                        INDEX idx_tobacco_license_source_record_id (source_record_id),
+                        INDEX idx_tobacco_license_status_risk (review_status, risk_level),
+                        INDEX idx_tobacco_license_created_at (created_at)
+                    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS tobacco_consistency_reviews (
+                        task_id VARCHAR(128) PRIMARY KEY,
+                        source_record_id VARCHAR(255),
+                        source_attachment_ref_id VARCHAR(255),
+                        source_url TEXT,
+                        tenant VARCHAR(128),
+                        document_type VARCHAR(64) NOT NULL,
+                        subject_name VARCHAR(512),
+                        review_status VARCHAR(64) NOT NULL,
+                        risk_level VARCHAR(64) NOT NULL,
+                        needs_manual_review TINYINT NOT NULL,
+                        summary TEXT NOT NULL,
+                        rule_results_json JSON NOT NULL,
+                        comparison_json JSON NOT NULL,
+                        business_license_fields_json JSON NOT NULL,
+                        tobacco_license_fields_json JSON NOT NULL,
+                        source_evidence_json JSON NOT NULL,
+                        manual_review_status VARCHAR(64),
+                        manual_review_decision VARCHAR(32),
+                        manual_review_comment TEXT,
+                        manual_review_reviewer_id VARCHAR(128),
+                        manual_review_reviewer_username VARCHAR(128),
+                        manual_review_reviewed_at VARCHAR(64),
+                        created_at VARCHAR(64),
+                        updated_at VARCHAR(64),
+                        INDEX idx_tobacco_consistency_source_record_id (source_record_id),
+                        INDEX idx_tobacco_consistency_status_risk (review_status, risk_level),
+                        INDEX idx_tobacco_consistency_created_at (created_at)
                     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
                     """
                 )
@@ -563,6 +1026,184 @@ class MySQLReviewResultRepository:
                 updated_at = VALUES(updated_at)
             """,
             _business_license_projection_values(projection),
+        )
+
+    def _save_food_license_projection(self, cursor, review_result: ReviewResult) -> None:
+        if review_result.document_type != "food_license":
+            return
+
+        projection = _food_license_projection(review_result)
+        cursor.execute(
+            """
+            INSERT INTO food_license_reviews (
+                task_id,
+                source_record_id,
+                source_attachment_ref_id,
+                source_url,
+                tenant,
+                document_type,
+                subject_name,
+                credit_code,
+                license_no,
+                business_address,
+                legal_person,
+                business_items_json,
+                valid_from,
+                valid_to,
+                issue_authority,
+                issue_date,
+                review_status,
+                risk_level,
+                needs_manual_review,
+                summary,
+                rule_results_json,
+                extracted_fields_json,
+                normalized_fields_json,
+                extraction_metadata_json,
+                source_evidence_json,
+                created_at,
+                updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                source_record_id = VALUES(source_record_id),
+                source_attachment_ref_id = VALUES(source_attachment_ref_id),
+                source_url = VALUES(source_url),
+                tenant = VALUES(tenant),
+                document_type = VALUES(document_type),
+                subject_name = VALUES(subject_name),
+                credit_code = VALUES(credit_code),
+                license_no = VALUES(license_no),
+                business_address = VALUES(business_address),
+                legal_person = VALUES(legal_person),
+                business_items_json = VALUES(business_items_json),
+                valid_from = VALUES(valid_from),
+                valid_to = VALUES(valid_to),
+                issue_authority = VALUES(issue_authority),
+                issue_date = VALUES(issue_date),
+                review_status = VALUES(review_status),
+                risk_level = VALUES(risk_level),
+                needs_manual_review = VALUES(needs_manual_review),
+                summary = VALUES(summary),
+                rule_results_json = VALUES(rule_results_json),
+                extracted_fields_json = VALUES(extracted_fields_json),
+                normalized_fields_json = VALUES(normalized_fields_json),
+                extraction_metadata_json = VALUES(extraction_metadata_json),
+                source_evidence_json = VALUES(source_evidence_json),
+                created_at = VALUES(created_at),
+                updated_at = VALUES(updated_at)
+            """,
+            _food_license_projection_values(projection),
+        )
+
+    def _save_tobacco_license_projection(self, cursor, review_result: ReviewResult) -> None:
+        if review_result.document_type != "tobacco_license":
+            return
+
+        projection = _tobacco_license_projection(review_result)
+        cursor.execute(
+            """
+            INSERT INTO tobacco_license_reviews (
+                task_id,
+                source_record_id,
+                source_attachment_ref_id,
+                source_url,
+                tenant,
+                document_type,
+                subject_name,
+                business_address,
+                legal_person,
+                license_no,
+                valid_from,
+                valid_to,
+                review_status,
+                risk_level,
+                needs_manual_review,
+                summary,
+                rule_results_json,
+                extracted_fields_json,
+                normalized_fields_json,
+                extraction_metadata_json,
+                source_evidence_json,
+                created_at,
+                updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                source_record_id = VALUES(source_record_id),
+                source_attachment_ref_id = VALUES(source_attachment_ref_id),
+                source_url = VALUES(source_url),
+                tenant = VALUES(tenant),
+                document_type = VALUES(document_type),
+                subject_name = VALUES(subject_name),
+                business_address = VALUES(business_address),
+                legal_person = VALUES(legal_person),
+                license_no = VALUES(license_no),
+                valid_from = VALUES(valid_from),
+                valid_to = VALUES(valid_to),
+                review_status = VALUES(review_status),
+                risk_level = VALUES(risk_level),
+                needs_manual_review = VALUES(needs_manual_review),
+                summary = VALUES(summary),
+                rule_results_json = VALUES(rule_results_json),
+                extracted_fields_json = VALUES(extracted_fields_json),
+                normalized_fields_json = VALUES(normalized_fields_json),
+                extraction_metadata_json = VALUES(extraction_metadata_json),
+                source_evidence_json = VALUES(source_evidence_json),
+                created_at = VALUES(created_at),
+                updated_at = VALUES(updated_at)
+            """,
+            _tobacco_license_projection_values(projection),
+        )
+
+    def _save_tobacco_consistency_projection(self, cursor, review_result: ReviewResult) -> None:
+        if review_result.document_type != "business_tobacco_consistency":
+            return
+
+        projection = _tobacco_consistency_projection(review_result)
+        cursor.execute(
+            """
+            INSERT INTO tobacco_consistency_reviews (
+                task_id,
+                source_record_id,
+                source_attachment_ref_id,
+                source_url,
+                tenant,
+                document_type,
+                subject_name,
+                review_status,
+                risk_level,
+                needs_manual_review,
+                summary,
+                rule_results_json,
+                comparison_json,
+                business_license_fields_json,
+                tobacco_license_fields_json,
+                source_evidence_json,
+                created_at,
+                updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                source_record_id = VALUES(source_record_id),
+                source_attachment_ref_id = VALUES(source_attachment_ref_id),
+                source_url = VALUES(source_url),
+                tenant = VALUES(tenant),
+                document_type = VALUES(document_type),
+                subject_name = VALUES(subject_name),
+                review_status = VALUES(review_status),
+                risk_level = VALUES(risk_level),
+                needs_manual_review = VALUES(needs_manual_review),
+                summary = VALUES(summary),
+                rule_results_json = VALUES(rule_results_json),
+                comparison_json = VALUES(comparison_json),
+                business_license_fields_json = VALUES(business_license_fields_json),
+                tobacco_license_fields_json = VALUES(tobacco_license_fields_json),
+                source_evidence_json = VALUES(source_evidence_json),
+                created_at = VALUES(created_at),
+                updated_at = VALUES(updated_at)
+            """,
+            _tobacco_consistency_projection_values(projection),
         )
 
     def _save_product_report_projection(self, cursor, review_result: ReviewResult) -> None:
@@ -726,6 +1367,344 @@ def _business_license_review_row(row: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+def _qc_business_license_row(row: dict[str, Any]) -> dict[str, Any]:
+    item = _business_license_review_row(row)
+    return {
+        "task_id": item["task_id"],
+        "use_case_name": "business_license",
+        "document_type": "business_license",
+        "document_type_label": _document_type_label("business_license"),
+        "supplier_name": item.get("business_name"),
+        "credit_code": item.get("credit_code"),
+        "review_status": item.get("review_status"),
+        "review_status_label": item.get("review_status_label"),
+        "risk_level": item.get("risk_level"),
+        "risk_level_label": item.get("risk_level_label"),
+        "needs_manual_review": item.get("needs_manual_review"),
+        "summary": item.get("summary"),
+        "source_record_id": item.get("source_record_id"),
+        "source_attachment_ref_id": item.get("source_attachment_ref_id"),
+        "source_url": item.get("source_url"),
+        "created_at": item.get("created_at"),
+        "updated_at": item.get("updated_at"),
+    }
+
+
+def _qc_product_report_row(row: dict[str, Any]) -> dict[str, Any]:
+    item = dict(row)
+    item["needs_manual_review"] = bool(item["needs_manual_review"])
+    supplier_name = (
+        item.get("vendor_name")
+        or item.get("vendor_name_extracted")
+        or item.get("product_name")
+        or item.get("sample_name")
+    )
+    return {
+        "task_id": item["task_id"],
+        "use_case_name": "qc_document_review",
+        "document_type": "product_report",
+        "document_type_label": _document_type_label("product_report"),
+        "supplier_name": supplier_name,
+        "credit_code": None,
+        "review_status": item.get("review_status"),
+        "review_status_label": _review_status_label(item.get("review_status") or ""),
+        "risk_level": item.get("risk_level"),
+        "risk_level_label": _risk_level_label(item.get("risk_level") or ""),
+        "needs_manual_review": item.get("needs_manual_review"),
+        "summary": item.get("summary"),
+        "source_record_id": item.get("source_record_id"),
+        "source_attachment_ref_id": item.get("source_attachment_ref_id"),
+        "source_url": item.get("source_url"),
+        "created_at": item.get("created_at"),
+        "updated_at": item.get("updated_at"),
+    }
+
+
+def _qc_food_license_row(row: dict[str, Any]) -> dict[str, Any]:
+    item = dict(row)
+    item["needs_manual_review"] = bool(item["needs_manual_review"])
+    return {
+        "task_id": item["task_id"],
+        "use_case_name": "food_license",
+        "document_type": "food_license",
+        "document_type_label": _document_type_label("food_license"),
+        "supplier_name": item.get("subject_name"),
+        "credit_code": item.get("credit_code"),
+        "review_status": item.get("review_status"),
+        "review_status_label": _review_status_label(item.get("review_status") or ""),
+        "risk_level": item.get("risk_level"),
+        "risk_level_label": _risk_level_label(item.get("risk_level") or ""),
+        "needs_manual_review": item.get("needs_manual_review"),
+        "summary": item.get("summary"),
+        "source_record_id": item.get("source_record_id"),
+        "source_attachment_ref_id": item.get("source_attachment_ref_id"),
+        "source_url": item.get("source_url"),
+        "created_at": item.get("created_at"),
+        "updated_at": item.get("updated_at"),
+    }
+
+
+def _qc_tobacco_license_row(row: dict[str, Any]) -> dict[str, Any]:
+    item = dict(row)
+    item["needs_manual_review"] = bool(item["needs_manual_review"])
+    return {
+        "task_id": item["task_id"],
+        "use_case_name": "tobacco_license",
+        "document_type": "tobacco_license",
+        "document_type_label": _document_type_label("tobacco_license"),
+        "supplier_name": item.get("subject_name"),
+        "credit_code": None,
+        "review_status": item.get("review_status"),
+        "review_status_label": _review_status_label(item.get("review_status") or ""),
+        "risk_level": item.get("risk_level"),
+        "risk_level_label": _risk_level_label(item.get("risk_level") or ""),
+        "needs_manual_review": item.get("needs_manual_review"),
+        "summary": item.get("summary"),
+        "source_record_id": item.get("source_record_id"),
+        "source_attachment_ref_id": item.get("source_attachment_ref_id"),
+        "source_url": item.get("source_url"),
+        "created_at": item.get("created_at"),
+        "updated_at": item.get("updated_at"),
+    }
+
+
+def _qc_tobacco_consistency_row(row: dict[str, Any]) -> dict[str, Any]:
+    item = dict(row)
+    item["needs_manual_review"] = bool(item["needs_manual_review"])
+    return {
+        "task_id": item["task_id"],
+        "use_case_name": "tobacco_license_consistency_review",
+        "document_type": "business_tobacco_consistency",
+        "document_type_label": _document_type_label("business_tobacco_consistency"),
+        "supplier_name": item.get("subject_name"),
+        "credit_code": None,
+        "review_status": item.get("review_status"),
+        "review_status_label": _review_status_label(item.get("review_status") or ""),
+        "risk_level": item.get("risk_level"),
+        "risk_level_label": _risk_level_label(item.get("risk_level") or ""),
+        "needs_manual_review": item.get("needs_manual_review"),
+        "summary": item.get("summary"),
+        "source_record_id": item.get("source_record_id"),
+        "source_attachment_ref_id": item.get("source_attachment_ref_id"),
+        "source_url": item.get("source_url"),
+        "created_at": item.get("created_at"),
+        "updated_at": item.get("updated_at"),
+    }
+
+
+def _qc_business_license_detail(snapshot: dict[str, Any]) -> dict[str, Any]:
+    row = _qc_business_license_row(snapshot)
+    return {
+        **row,
+        "business_address": snapshot.get("business_address"),
+        "legal_person": snapshot.get("legal_person"),
+        "valid_from": snapshot.get("valid_from"),
+        "valid_to": snapshot.get("valid_to"),
+        "issue_authority": snapshot.get("issue_authority"),
+        "issue_date": snapshot.get("issue_date"),
+        "rule_results": snapshot["rule_results"],
+        "extracted_fields": snapshot["extracted_fields"],
+        "normalized_fields": snapshot["normalized_fields"],
+        "extraction_metadata": snapshot["extraction_metadata"],
+        "source_evidence": snapshot["source_evidence"],
+        "manual_review": {
+            "status": snapshot.get("manual_review_status") or (
+                "PENDING" if snapshot.get("needs_manual_review") else "NOT_REQUIRED"
+            ),
+            "decision": snapshot.get("manual_review_decision"),
+            "comment": snapshot.get("manual_review_comment"),
+            "reviewer_id": snapshot.get("manual_review_reviewer_id"),
+            "reviewer_username": snapshot.get("manual_review_reviewer_username"),
+            "reviewed_at": snapshot.get("manual_review_reviewed_at"),
+            "reasons": [],
+        },
+    }
+
+
+def _qc_food_license_detail(snapshot: dict[str, Any]) -> dict[str, Any]:
+    row = _qc_food_license_row(snapshot)
+    return {
+        **row,
+        "business_address": snapshot.get("business_address"),
+        "legal_person": snapshot.get("legal_person"),
+        "valid_from": snapshot.get("valid_from"),
+        "valid_to": snapshot.get("valid_to"),
+        "issue_authority": snapshot.get("issue_authority"),
+        "issue_date": snapshot.get("issue_date"),
+        "license_no": snapshot.get("license_no"),
+        "business_items": snapshot.get("business_items", []),
+        "rule_results": snapshot["rule_results"],
+        "extracted_fields": snapshot["extracted_fields"],
+        "normalized_fields": snapshot["normalized_fields"],
+        "extraction_metadata": snapshot["extraction_metadata"],
+        "source_evidence": snapshot["source_evidence"],
+        "manual_review": {
+            "status": snapshot.get("manual_review_status") or (
+                "PENDING" if snapshot.get("needs_manual_review") else "NOT_REQUIRED"
+            ),
+            "decision": snapshot.get("manual_review_decision"),
+            "comment": snapshot.get("manual_review_comment"),
+            "reviewer_id": snapshot.get("manual_review_reviewer_id"),
+            "reviewer_username": snapshot.get("manual_review_reviewer_username"),
+            "reviewed_at": snapshot.get("manual_review_reviewed_at"),
+            "reasons": [],
+        },
+    }
+
+
+def _qc_tobacco_license_detail(snapshot: dict[str, Any]) -> dict[str, Any]:
+    row = _qc_tobacco_license_row(snapshot)
+    return {
+        **row,
+        "business_address": snapshot.get("business_address"),
+        "legal_person": snapshot.get("legal_person"),
+        "valid_from": snapshot.get("valid_from"),
+        "valid_to": snapshot.get("valid_to"),
+        "license_no": snapshot.get("license_no"),
+        "rule_results": snapshot["rule_results"],
+        "extracted_fields": snapshot["extracted_fields"],
+        "normalized_fields": snapshot["normalized_fields"],
+        "extraction_metadata": snapshot["extraction_metadata"],
+        "source_evidence": snapshot["source_evidence"],
+        "manual_review": {
+            "status": snapshot.get("manual_review_status") or (
+                "PENDING" if snapshot.get("needs_manual_review") else "NOT_REQUIRED"
+            ),
+            "decision": snapshot.get("manual_review_decision"),
+            "comment": snapshot.get("manual_review_comment"),
+            "reviewer_id": snapshot.get("manual_review_reviewer_id"),
+            "reviewer_username": snapshot.get("manual_review_reviewer_username"),
+            "reviewed_at": snapshot.get("manual_review_reviewed_at"),
+            "reasons": [],
+        },
+    }
+
+
+def _qc_tobacco_consistency_detail(snapshot: dict[str, Any]) -> dict[str, Any]:
+    row = _qc_tobacco_consistency_row(snapshot)
+    return {
+        **row,
+        "rule_results": snapshot["rule_results"],
+        "comparison": snapshot["comparison"],
+        "business_license_fields": snapshot["business_license_fields"],
+        "tobacco_license_fields": snapshot["tobacco_license_fields"],
+        "extracted_fields": {
+            "business_license": snapshot["business_license_fields"],
+            "tobacco_license": snapshot["tobacco_license_fields"],
+        },
+        "normalized_fields": snapshot["comparison"],
+        "source_evidence": snapshot["source_evidence"],
+        "manual_review": {
+            "status": snapshot.get("manual_review_status") or (
+                "PENDING" if snapshot.get("needs_manual_review") else "NOT_REQUIRED"
+            ),
+            "decision": snapshot.get("manual_review_decision"),
+            "comment": snapshot.get("manual_review_comment"),
+            "reviewer_id": snapshot.get("manual_review_reviewer_id"),
+            "reviewer_username": snapshot.get("manual_review_reviewer_username"),
+            "reviewed_at": snapshot.get("manual_review_reviewed_at"),
+            "reasons": [],
+        },
+    }
+
+
+def _qc_product_report_detail(snapshot: dict[str, Any]) -> dict[str, Any]:
+    row = _qc_product_report_row(snapshot)
+    extracted_fields = {
+        "product_name": snapshot.get("product_name"),
+        "sample_name": snapshot.get("sample_name"),
+        "vendor_name_extracted": snapshot.get("vendor_name_extracted"),
+        "entrusting_party": snapshot.get("entrusting_party"),
+        "manufacturer_name": snapshot.get("manufacturer_name"),
+        "batch_no": snapshot.get("batch_no"),
+        "production_date": snapshot.get("production_date"),
+        "issue_date": snapshot.get("issue_date"),
+        "sign_date": snapshot.get("sign_date"),
+        "inspection_conclusion": snapshot.get("inspection_conclusion"),
+        "inspection_result": snapshot.get("inspection_result"),
+        "inspection_items": snapshot.get("inspection_items", []),
+    }
+    return {
+        **row,
+        "rule_results": snapshot["rule_results"],
+        "extracted_fields": extracted_fields,
+        "normalized_fields": extracted_fields,
+        "extraction_metadata": snapshot["extraction_metadata"],
+        "source_evidence": snapshot["source_evidence"],
+        "manual_review": {
+            "status": snapshot.get("manual_review_status") or (
+                "PENDING" if snapshot.get("needs_manual_review") else "NOT_REQUIRED"
+            ),
+            "decision": snapshot.get("manual_review_decision"),
+            "comment": snapshot.get("manual_review_comment"),
+            "reviewer_id": snapshot.get("manual_review_reviewer_id"),
+            "reviewer_username": snapshot.get("manual_review_reviewer_username"),
+            "reviewed_at": snapshot.get("manual_review_reviewed_at"),
+            "reasons": [],
+        },
+    }
+
+
+def _qc_row_matches(
+    row: dict[str, Any],
+    *,
+    supplier_name: str | None,
+    credit_code: str | None,
+    document_type: str | None,
+    risk_level: str | None,
+    review_status: str | None,
+    needs_manual_review: bool | None,
+    created_from: str | None,
+    created_to: str | None,
+) -> bool:
+    if supplier_name and supplier_name not in str(row.get("supplier_name") or ""):
+        return False
+    if credit_code and credit_code.upper() not in str(row.get("credit_code") or "").upper():
+        return False
+    if document_type and row.get("document_type") != document_type:
+        return False
+    if risk_level and row.get("risk_level") != risk_level:
+        return False
+    if review_status and row.get("review_status") != review_status:
+        return False
+    if needs_manual_review is not None and bool(row.get("needs_manual_review")) is not needs_manual_review:
+        return False
+    created_at = str(row.get("created_at") or "")
+    if created_from and created_at < _created_from_boundary(created_from):
+        return False
+    if created_to and created_at > _created_to_boundary(created_to):
+        return False
+    return True
+
+
+def _qc_review_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    total = len(rows)
+    reviewed = sum(1 for row in rows if row.get("review_status") == "REVIEWED")
+    document_type_counts: dict[str, int] = {}
+    for row in rows:
+        document_type = str(row.get("document_type") or "unknown")
+        document_type_counts[document_type] = document_type_counts.get(document_type, 0) + 1
+    return {
+        "today_reviewed": sum(
+            1 for row in rows if str(row.get("created_at") or "").startswith("2026-06-15")
+        ),
+        "pending_manual_review": sum(1 for row in rows if row.get("needs_manual_review")),
+        "high_risk": sum(1 for row in rows if row.get("risk_level") == "HIGH"),
+        "pass_rate": 0 if total == 0 else round((reviewed / total) * 100),
+        "document_type_counts": document_type_counts,
+    }
+
+
+def _document_type_label(document_type: str) -> str:
+    return {
+        "business_license": "营业执照",
+        "food_license": "食品经营许可证",
+        "product_report": "产品报告",
+        "tobacco_license": "烟草专卖零售许可证",
+        "business_tobacco_consistency": "营业执照与烟草证一致性",
+    }.get(document_type, document_type)
+
+
 def _try_add_column(cursor, ddl: str) -> None:
     try:
         cursor.execute(ddl)
@@ -885,6 +1864,195 @@ def _business_license_projection_values(projection: dict[str, Any]) -> tuple[Any
         projection["extracted_fields_json"],
         projection["normalized_fields_json"],
         projection["extraction_metadata_json"],
+        projection["source_evidence_json"],
+        projection["created_at"],
+        projection["updated_at"],
+    )
+
+
+def _food_license_projection(review_result: ReviewResult) -> dict[str, Any]:
+    skill_result = _skill_result_dict(review_result)
+    extracted_fields = dict(skill_result.get("extracted_fields") or {})
+    normalized_fields = dict(skill_result.get("normalized_fields") or {})
+    extraction_metadata = dict(skill_result.get("extraction_metadata") or {})
+    source_evidence = dict(skill_result.get("source_evidence") or {})
+    source = dict(source_evidence.get("source") or {})
+    document_input = dict(skill_result.get("document_input") or {})
+    return {
+        "task_id": review_result.task_id,
+        "source_record_id": source.get("record_id"),
+        "source_attachment_ref_id": source.get("attachment_ref_id"),
+        "source_url": document_input.get("source_url"),
+        "tenant": source.get("tenant"),
+        "document_type": review_result.document_type,
+        "subject_name": extracted_fields.get("subject_name"),
+        "credit_code": extracted_fields.get("credit_code"),
+        "license_no": extracted_fields.get("license_no"),
+        "business_address": extracted_fields.get("business_address"),
+        "legal_person": extracted_fields.get("legal_person"),
+        "business_items_json": dumps(
+            list(extracted_fields.get("business_items") or []),
+            ensure_ascii=False,
+        ),
+        "valid_from": extracted_fields.get("valid_from"),
+        "valid_to": extracted_fields.get("valid_to"),
+        "issue_authority": extracted_fields.get("issue_authority"),
+        "issue_date": extracted_fields.get("issue_date"),
+        "review_status": review_result.status.value,
+        "risk_level": review_result.risk_level.value,
+        "needs_manual_review": int(review_result.needs_manual_review),
+        "summary": review_result.summary,
+        "rule_results_json": _rule_results_json(review_result),
+        "extracted_fields_json": dumps(extracted_fields, ensure_ascii=False),
+        "normalized_fields_json": dumps(normalized_fields, ensure_ascii=False),
+        "extraction_metadata_json": dumps(extraction_metadata, ensure_ascii=False),
+        "source_evidence_json": dumps(source_evidence, ensure_ascii=False),
+        "created_at": review_result.created_at.isoformat(),
+        "updated_at": review_result.updated_at.isoformat(),
+    }
+
+
+def _food_license_projection_values(projection: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        projection["task_id"],
+        projection["source_record_id"],
+        projection["source_attachment_ref_id"],
+        projection["source_url"],
+        projection["tenant"],
+        projection["document_type"],
+        projection["subject_name"],
+        projection["credit_code"],
+        projection["license_no"],
+        projection["business_address"],
+        projection["legal_person"],
+        projection["business_items_json"],
+        projection["valid_from"],
+        projection["valid_to"],
+        projection["issue_authority"],
+        projection["issue_date"],
+        projection["review_status"],
+        projection["risk_level"],
+        projection["needs_manual_review"],
+        projection["summary"],
+        projection["rule_results_json"],
+        projection["extracted_fields_json"],
+        projection["normalized_fields_json"],
+        projection["extraction_metadata_json"],
+        projection["source_evidence_json"],
+        projection["created_at"],
+        projection["updated_at"],
+    )
+
+
+def _tobacco_license_projection(review_result: ReviewResult) -> dict[str, Any]:
+    skill_result = _skill_result_dict(review_result)
+    extracted_fields = dict(skill_result.get("extracted_fields") or {})
+    normalized_fields = dict(skill_result.get("normalized_fields") or {})
+    extraction_metadata = dict(skill_result.get("extraction_metadata") or {})
+    source_evidence = dict(skill_result.get("source_evidence") or {})
+    source = dict(source_evidence.get("source") or {})
+    document_input = dict(skill_result.get("document_input") or {})
+    return {
+        "task_id": review_result.task_id,
+        "source_record_id": source.get("record_id"),
+        "source_attachment_ref_id": source.get("attachment_ref_id"),
+        "source_url": document_input.get("source_url"),
+        "tenant": source.get("tenant"),
+        "document_type": review_result.document_type,
+        "subject_name": extracted_fields.get("subject_name"),
+        "business_address": extracted_fields.get("business_address"),
+        "legal_person": extracted_fields.get("legal_person"),
+        "license_no": extracted_fields.get("license_no"),
+        "valid_from": extracted_fields.get("valid_from"),
+        "valid_to": extracted_fields.get("valid_to"),
+        "review_status": review_result.status.value,
+        "risk_level": review_result.risk_level.value,
+        "needs_manual_review": int(review_result.needs_manual_review),
+        "summary": review_result.summary,
+        "rule_results_json": _rule_results_json(review_result),
+        "extracted_fields_json": dumps(extracted_fields, ensure_ascii=False),
+        "normalized_fields_json": dumps(normalized_fields, ensure_ascii=False),
+        "extraction_metadata_json": dumps(extraction_metadata, ensure_ascii=False),
+        "source_evidence_json": dumps(source_evidence, ensure_ascii=False),
+        "created_at": review_result.created_at.isoformat(),
+        "updated_at": review_result.updated_at.isoformat(),
+    }
+
+
+def _tobacco_license_projection_values(projection: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        projection["task_id"],
+        projection["source_record_id"],
+        projection["source_attachment_ref_id"],
+        projection["source_url"],
+        projection["tenant"],
+        projection["document_type"],
+        projection["subject_name"],
+        projection["business_address"],
+        projection["legal_person"],
+        projection["license_no"],
+        projection["valid_from"],
+        projection["valid_to"],
+        projection["review_status"],
+        projection["risk_level"],
+        projection["needs_manual_review"],
+        projection["summary"],
+        projection["rule_results_json"],
+        projection["extracted_fields_json"],
+        projection["normalized_fields_json"],
+        projection["extraction_metadata_json"],
+        projection["source_evidence_json"],
+        projection["created_at"],
+        projection["updated_at"],
+    )
+
+
+def _tobacco_consistency_projection(review_result: ReviewResult) -> dict[str, Any]:
+    skill_result = _skill_result_dict(review_result)
+    business_fields = dict(skill_result.get("business_license_fields") or {})
+    tobacco_fields = dict(skill_result.get("tobacco_license_fields") or {})
+    source_evidence = dict(skill_result.get("source_evidence") or {})
+    source = dict(source_evidence.get("source") or {})
+    comparison = dict(skill_result.get("comparison") or {})
+    return {
+        "task_id": review_result.task_id,
+        "source_record_id": source.get("record_id"),
+        "source_attachment_ref_id": source.get("attachment_ref_id"),
+        "source_url": source_evidence.get("source_url"),
+        "tenant": source.get("tenant"),
+        "document_type": review_result.document_type,
+        "subject_name": business_fields.get("subject_name") or tobacco_fields.get("subject_name"),
+        "review_status": review_result.status.value,
+        "risk_level": review_result.risk_level.value,
+        "needs_manual_review": int(review_result.needs_manual_review),
+        "summary": review_result.summary,
+        "rule_results_json": _rule_results_json(review_result),
+        "comparison_json": dumps(comparison, ensure_ascii=False),
+        "business_license_fields_json": dumps(business_fields, ensure_ascii=False),
+        "tobacco_license_fields_json": dumps(tobacco_fields, ensure_ascii=False),
+        "source_evidence_json": dumps(source_evidence, ensure_ascii=False),
+        "created_at": review_result.created_at.isoformat(),
+        "updated_at": review_result.updated_at.isoformat(),
+    }
+
+
+def _tobacco_consistency_projection_values(projection: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        projection["task_id"],
+        projection["source_record_id"],
+        projection["source_attachment_ref_id"],
+        projection["source_url"],
+        projection["tenant"],
+        projection["document_type"],
+        projection["subject_name"],
+        projection["review_status"],
+        projection["risk_level"],
+        projection["needs_manual_review"],
+        projection["summary"],
+        projection["rule_results_json"],
+        projection["comparison_json"],
+        projection["business_license_fields_json"],
+        projection["tobacco_license_fields_json"],
         projection["source_evidence_json"],
         projection["created_at"],
         projection["updated_at"],

@@ -5,6 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
 from app.api.auth import require_web_console_user
+from app.integrations.mysql_client import MySqlFetchClient, mysql_settings_from_env
+from app.integrations.srm.business_license_tasks import (
+    BusinessLicenseSourceTaskError,
+    SqlFetchClient,
+    fetch_one_business_license_source_task,
+)
 from app.models import ReviewInput, ReviewResult
 from app.repositories import build_review_result_repository_from_env
 from app.services.review_service import ReviewService, review_service
@@ -75,6 +81,10 @@ def get_review_read_repository() -> BusinessLicenseReviewReadRepository:
     return build_review_result_repository_from_env()
 
 
+def get_srm_sql_client() -> SqlFetchClient:
+    return MySqlFetchClient(mysql_settings_from_env("SRM_MYSQL"))
+
+
 @router.post("/reviews")
 def create_business_license_review(
     review_input: ReviewInput,
@@ -109,6 +119,54 @@ def create_business_license_review(
 
     try:
         result = service.review(review_input, use_case_name="business_license")
+    except DocumentInputLimitError as error:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": error.code,
+                "message": error.message,
+            },
+        ) from error
+    except LocalPdfDocumentLoadError as error:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": error.code,
+                "message": error.message,
+            },
+        ) from error
+    return result.model_dump(mode="json")
+
+
+@router.post("/reviews/from-srm")
+def create_business_license_review_from_srm(
+    _current_user: dict[str, Any] = Depends(require_web_console_user),
+    sql_client: SqlFetchClient = Depends(get_srm_sql_client),
+    service: ReviewService = Depends(get_review_service),
+) -> dict[str, Any]:
+    try:
+        task = fetch_one_business_license_source_task(sql_client)
+    except BusinessLicenseSourceTaskError as error:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": error.code,
+                "message": str(error),
+                "record_id": error.record_id,
+            },
+        ) from error
+
+    if task is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "BUSINESS_LICENSE_SOURCE_RECORD_NOT_FOUND",
+                "message": "未找到可审核的营业执照来源记录",
+            },
+        )
+
+    try:
+        result = service.review(task.review_input, use_case_name="business_license")
     except DocumentInputLimitError as error:
         raise HTTPException(
             status_code=400,
