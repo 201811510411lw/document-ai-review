@@ -111,7 +111,7 @@ export function ReviewDetailPage({ taskId, qcView = false }: { taskId: string; q
       <section className="panel">
         <div className="panel-title">
           <h2>人工复核预留区</h2>
-          <span>V1 不提交写回</span>
+          <span>后续接入前端表单</span>
         </div>
         {detail.manualReviewReasons.length > 0 ? (
           <ul className="reason-list">
@@ -122,6 +122,9 @@ export function ReviewDetailPage({ taskId, qcView = false }: { taskId: string; q
         ) : (
           <p className="muted-text">当前记录没有人工复核原因。</p>
         )}
+        <p className="muted-text">
+          后端写回接口已预留，前端提交表单后续接入；当前入口仅用于查看复核占位页。
+        </p>
         <div className="review-actions">
           <button disabled type="button">
             人工通过

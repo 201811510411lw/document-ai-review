@@ -44,6 +44,15 @@ describe("business license review workbench", () => {
 
     expect(screen.getAllByText("高风险").length).toBeGreaterThan(0);
     expect(screen.getAllByText("详情").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "从 SRM 拉取审核" })).toBeInTheDocument();
+    expect(screen.getAllByText("详情")[0].closest("a")).toHaveAttribute(
+      "href",
+      "/reviews/blr-20260615-0001"
+    );
+    expect(screen.getAllByText("查看详情")[0].closest("a")).toHaveAttribute(
+      "href",
+      "/reviews/blr-20260615-0001"
+    );
   });
 
   it("filters reviews by date range and supports pagination", async () => {
@@ -155,6 +164,13 @@ describe("business license review workbench", () => {
       expect(screen.getByText("QC 审核结果列表")).toBeInTheDocument();
       expect(screen.getAllByText("上海云岚供应链管理有限公司").length).toBeGreaterThan(0);
     });
+    expect(screen.queryByRole("button", { name: "从 SRM 拉取审核" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("详情")[0].closest("a")?.getAttribute("href")).toMatch(
+      /^\/qc\/reviews\//
+    );
+    expect(screen.getAllByText("查看详情")[0].closest("a")?.getAttribute("href")).toMatch(
+      /^\/qc\/reviews\//
+    );
 
     await user.selectOptions(screen.getByLabelText("证照类型"), "business_license");
 
@@ -180,8 +196,7 @@ describe("business license review workbench", () => {
     expect(screen.getByText("查看复核预留页")).toBeInTheDocument();
   });
 
-  it("submits a manual review decision and renders the audit event", async () => {
-    const user = userEvent.setup();
+  it("keeps manual review submission as a disabled placeholder", async () => {
     setSession();
     setPath("/reviews/blr-20260615-0002/manual-review");
     render(<App />);
@@ -190,14 +205,11 @@ describe("business license review workbench", () => {
       expect(screen.getByText("人工复核")).toBeInTheDocument();
     });
 
-    await user.type(screen.getByLabelText("复核备注"), "已核对原始营业执照，允许通过。");
-    await user.click(screen.getByRole("button", { name: "提交复核结论" }));
-
-    await waitFor(() => {
-      expect(screen.getAllByText("人工已复核").length).toBeGreaterThan(0);
-    });
-    expect(screen.getByText("已写回人工复核结论")).toBeInTheDocument();
-    expect(screen.getByText(/人工复核确认通过/)).toBeInTheDocument();
+    expect(
+      screen.getAllByText("后端写回接口已预留，前端提交表单后续接入").length
+    ).toBeGreaterThan(0);
+    expect(screen.getByText(/当前页面仅展示复核占位内容/)).toBeInTheDocument();
+    expect(screen.getByLabelText("复核备注")).toBeDisabled();
     expect(screen.getByRole("button", { name: "提交复核结论" })).toBeDisabled();
   });
 
