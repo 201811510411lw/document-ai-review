@@ -8,11 +8,13 @@ from app.models import (
     ReviewStatus,
     RiskLevel,
 )
-from app.repositories import SQLiteReviewResultRepository
+from app.integrations.mysql_client import MySqlSettings
+from app.repositories import MySQLReviewResultRepository
 from app.services.review_service import ReviewService
+from tests.mysql_repository_stub import install_mysql_repository_stub
 
 
-def build_review_result(task_id: str = "review-task-sqlite") -> ReviewResult:
+def build_review_result(task_id: str = "review-task-mysql") -> ReviewResult:
     now = datetime(2026, 6, 8, 14, 30, tzinfo=timezone.utc)
     return ReviewResult(
         task_id=task_id,
@@ -39,8 +41,9 @@ def build_review_result(task_id: str = "review-task-sqlite") -> ReviewResult:
     )
 
 
-def test_sqlite_repository_saves_and_gets_review_result_by_task_id(tmp_path):
-    repository = SQLiteReviewResultRepository(tmp_path / "reviews.sqlite3")
+def test_mysql_repository_saves_and_gets_review_result_by_task_id(monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
     result = build_review_result()
 
     repository.save(result)
@@ -51,14 +54,16 @@ def test_sqlite_repository_saves_and_gets_review_result_by_task_id(tmp_path):
     assert loaded.skill_result["extracted_fields"]["license_no"] == "JY15101000000000"
 
 
-def test_sqlite_repository_returns_none_for_missing_task(tmp_path):
-    repository = SQLiteReviewResultRepository(tmp_path / "reviews.sqlite3")
+def test_mysql_repository_returns_none_for_missing_task(monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
 
     assert repository.get_by_task_id("missing-task") is None
 
 
-def test_review_service_can_save_result_with_injected_repository(monkeypatch, tmp_path):
-    repository = SQLiteReviewResultRepository(tmp_path / "reviews.sqlite3")
+def test_review_service_can_save_result_with_injected_mysql_repository(monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
     result = build_review_result("review-task-000001")
 
     class StubUseCase:
@@ -94,3 +99,15 @@ def test_review_service_without_repository_keeps_existing_no_persistence_behavio
     service = ReviewService()
 
     assert service.repository is None
+
+
+def _repository() -> MySQLReviewResultRepository:
+    return MySQLReviewResultRepository(
+        MySqlSettings(
+            host="127.0.0.1",
+            port=3306,
+            user="review",
+            password="secret",
+            database="document_ai_review",
+        )
+    )

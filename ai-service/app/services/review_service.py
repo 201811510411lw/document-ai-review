@@ -2,6 +2,7 @@ from typing import Protocol
 from uuid import uuid4
 
 from app.models import ReviewInput, ReviewInputContext, ReviewResult
+from app.repositories import build_review_result_repository_from_env
 from app.use_cases.registry import use_case_registry
 
 
@@ -48,4 +49,4 @@ class ReviewService:
         return result
 
 
-review_service = ReviewService()
+review_service = ReviewService(repository=build_review_result_repository_from_env())

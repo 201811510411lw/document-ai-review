@@ -103,7 +103,7 @@ LangChain 在 V1 中承担以下职责：
 - workflow 中的字段抽取节点应根据输入类型选择文本抽取器或视觉抽取器。
 - 规则执行节点不应关心字段来自 OCR、PDF 文本还是视觉模型，只消费规范化后的营业执照字段。
 - `ReviewResult.skill_result` 应保留文件输入摘要、模型抽取元数据、原始字段快照、规范化字段快照、来源证据和错误详情。
-- SQLite 营业执照投影应继续保存抽取字段、规则结果和来源证据，并补充模型调用元数据字段或 JSON 快照。
+- MySQL 营业执照投影应继续保存抽取字段、规则结果和来源证据，并补充模型调用元数据字段或 JSON 快照。
 - FastAPI 应新增营业执照审核接口，避免复用食品许可证路径。接口应调用 `ReviewService.review(..., use_case_name="business_license")`。
 - API 请求应避免同时提交 `ocr_text` 和文件输入；二者同时存在时返回稳定的歧义输入错误。
 - API 返回应使用现有 `ReviewResult` JSON 形态，避免为营业执照视觉链路单独创建不兼容输出。
@@ -142,7 +142,7 @@ LangChain 在 V1 中承担以下职责：
 
 ## Further Notes
 
-- 当前代码已经有营业执照文本驱动闭环，新增能力应优先复用既有字段 schema、规则模块、use_case 和 SQLite 投影，不应重写一条平行链路。
+- 当前代码已经有营业执照文本驱动闭环，新增能力应优先复用既有字段 schema、规则模块、use_case 和 MySQL 审核结果库投影，不应重写一条平行链路。
 - 本 PRD 与现有 V1 架构不冲突：FastAPI 仍是 HTTP 边界，Review Service 仍是任务入口，LangGraph 仍是 workflow 编排，LangChain 负责模型调用和结构化输出，Python 规则引擎负责确定性审核。
 - 本 PRD 与 `docs/prd-business-license-review-v1.md` 的关系是递进关系：后者定义营业执照单证审核 tracer bullet，本文档定义其文件输入和多模态大模型提取能力。
 - 推荐实施顺序：

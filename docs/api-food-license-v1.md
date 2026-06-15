@@ -15,7 +15,7 @@ API 契约目标：
 - 优先支持 OCR 文本输入跑通食品安全证照审核闭环；
 - 为 FastAPI 创建审核任务、查询审核结果和人工复核提供稳定 HTTP 边界；
 - 明确请求字段、响应字段、错误语义和状态流转；
-- 明确 FastAPI、Review Service、use_case、capability、LangGraph、LangChain、Python 规则引擎和 SQLite / MySQL 的职责边界；
+- 明确 FastAPI、Review Service、use_case、capability、LangGraph、LangChain、Python 规则引擎和 MySQL 审核结果库的职责边界；
 - 明确 `/api/v1/food-license/reviews` 是 `food_license` use_case 快捷入口，后续 `/api/v1/reviews` 是平台通用入口；
 - 为后续文件上传、图片解析和 PDF 解析保留接口扩展空间，但不把它们列为第一阶段必实现能力。
 
@@ -32,7 +32,7 @@ API 契约目标：
 | LangChain | 在 capability 或 workflow 内部负责模型调用、Prompt、结构化输出和工具封装 |
 | LLM | 只用于字段抽取、结构化输出和摘要建议，不直接做最终规则判定 |
 | Python 规则引擎 | 执行确定性规则校验，并基于规则结果汇总最终风险等级 |
-| SQLite / MySQL | 保存审核任务、审核结果、规则结果、人工复核记录和审计日志 |
+| MySQL 审核结果库 | 保存审核任务、审核结果、规则结果、人工复核记录和审计日志 |
 
 平台只调用 `use_case.review(input_context) -> ReviewResult`。API 层不得直接实现食品安全证照规则判断，也不得直接调用 `extract_fields`、`run_rules`、`summarize_risk` 或 `route_review` 等 workflow / capability 内部节点。最终风险等级不得由 LLM 直接给出，必须由 Python 规则引擎结果汇总得到。
 
@@ -379,7 +379,7 @@ API 中的日期和时间使用：
 - LangChain / LLM 在 Skill 内部负责字段抽取、结构化输出和摘要建议；
 - Python 规则引擎负责规则判断，具体食品安全证照规则来自 `food_license` Skill 内部 `rules.yaml`；
 - 最终风险等级由 Python 规则引擎结果汇总得到；
-- SQLite / MySQL 保存任务、结果、规则结果、人工复核状态和审计日志。
+- MySQL 审核结果库保存任务、结果、规则结果、人工复核状态和审计日志。
 
 ## 8. 查询审核任务和结果
 
@@ -572,7 +572,7 @@ API 中的日期和时间使用：
 
 ## 12. 数据保存要求
 
-API 实现应通过 Service / Repository 将以下数据保存到 SQLite / MySQL：
+API 实现应通过 Service / Repository 将以下数据保存到 MySQL 审核结果库：
 
 - 审核任务：任务 ID、输入来源、供应商信息、任务状态、创建时间、更新时间；
 - 审核结果：证照类型、`use_case_name`、`use_case_version`、`capability_names`、`ruleset_version`、最终风险等级、审核建议、是否需要人工复核；
@@ -604,6 +604,6 @@ API 实现应通过 Service / Repository 将以下数据保存到 SQLite / MySQL
 - API 契约明确 Python 规则引擎负责规则判断和最终风险等级汇总；
 - API 契约明确 `app/rules/` 只放通用规则基础设施，具体业务规则和 `rules.yaml` 放在 capability 内部；
 - API 契约明确人工复核基础设施属于平台，复核决策由 use_case / workflow 根据规则结果决定；
-- API 契约明确 SQLite / MySQL 保存审核任务、审核结果、规则结果、人工复核和审计日志；
+- API 契约明确 MySQL 审核结果库保存审核任务、审核结果、规则结果、人工复核和审计日志；
 - API 契约没有把 Java / Spring Boot 或任何 Java 模块放入 V1 技术栈或实现范围；
 - 本文档只描述契约，不要求实现接口代码。

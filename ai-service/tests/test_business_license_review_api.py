@@ -4,12 +4,18 @@ from app.main import app
 from tests.pdf_helpers import write_blank_pdf, write_blank_pdf_with_pages, write_minimal_pdf
 from app.tools.remote_document import RemoteDocument
 from app.workflows.business_license import nodes as business_license_nodes
+from tests.mysql_repository_stub import install_mysql_repository_stub
+
+
+def setup_function():
+    app.dependency_overrides.clear()
 
 
 def test_business_license_review_accepts_image_file_with_fake_vision_extractor(
     tmp_path,
     monkeypatch,
 ):
+    install_mysql_repository_stub(monkeypatch)
     image_path = tmp_path / "business-license.png"
     image_path.write_bytes(b"fake-image-bytes")
 
@@ -68,6 +74,7 @@ def test_business_license_review_accepts_structured_fields_from_vision_adapter(
     tmp_path,
     monkeypatch,
 ):
+    install_mysql_repository_stub(monkeypatch)
     image_path = tmp_path / "business-license.png"
     image_path.write_bytes(b"fake-image-bytes")
     monkeypatch.setenv(
@@ -121,6 +128,7 @@ def test_business_license_local_image_passes_file_bytes_to_vision_adapter(
     tmp_path,
     monkeypatch,
 ):
+    install_mysql_repository_stub(monkeypatch)
     image_path = tmp_path / "business-license.png"
     image_path.write_bytes(b"fake-image-bytes")
     seen = {}
@@ -231,6 +239,7 @@ def test_business_license_review_rejects_text_only_input():
 
 
 def test_business_license_review_uses_llm_file_extractor_for_text_pdf(tmp_path, monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
     pdf_path = tmp_path / "business-license.pdf"
     write_minimal_pdf(pdf_path, _business_license_text())
     monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_JSON", _business_license_json())
@@ -277,6 +286,7 @@ def test_business_license_text_only_model_output_does_not_bypass_structured_fiel
     tmp_path,
     monkeypatch,
 ):
+    install_mysql_repository_stub(monkeypatch)
     pdf_path = tmp_path / "business-license.pdf"
     write_minimal_pdf(pdf_path, _business_license_text())
 
@@ -325,6 +335,7 @@ def test_business_license_hallucinated_fields_route_high_risk_manual_review(
     tmp_path,
     monkeypatch,
 ):
+    install_mysql_repository_stub(monkeypatch)
     pdf_path = tmp_path / "liaoji-business-license.pdf"
     write_minimal_pdf(pdf_path, _business_license_text())
     monkeypatch.setenv(
@@ -390,6 +401,7 @@ def test_business_license_image_without_vision_configuration_routes_manual_revie
     tmp_path,
     monkeypatch,
 ):
+    install_mysql_repository_stub(monkeypatch)
     image_path = tmp_path / "business-license.png"
     image_path.write_bytes(b"fake-image-bytes")
     monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
@@ -544,6 +556,7 @@ def test_business_license_rejects_image_over_pixel_limit(tmp_path, monkeypatch):
 def test_business_license_review_accepts_remote_image_file(
     monkeypatch,
 ):
+    install_mysql_repository_stub(monkeypatch)
     monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_JSON", _business_license_json())
     monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
 
@@ -598,6 +611,7 @@ def test_business_license_review_accepts_remote_image_file(
 
 
 def test_business_license_review_accepts_remote_jpeg_file(monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
     monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_JSON", _business_license_json())
     monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
 
@@ -640,6 +654,7 @@ def test_business_license_review_accepts_remote_jpeg_file(monkeypatch):
 
 
 def test_business_license_review_uses_llm_file_extractor_for_remote_pdf(tmp_path, monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
     pdf_path = tmp_path / "business-license.pdf"
     write_minimal_pdf(pdf_path, _business_license_text())
     monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_JSON", _business_license_json())
@@ -706,6 +721,7 @@ def test_business_license_scanned_local_pdf_uses_vision_extractor(
     tmp_path,
     monkeypatch,
 ):
+    install_mysql_repository_stub(monkeypatch)
     pdf_path = tmp_path / "business-license-scan.pdf"
     write_blank_pdf(pdf_path)
     monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_JSON", _business_license_json())
@@ -745,6 +761,7 @@ def test_business_license_scanned_local_pdf_passes_pdf_bytes_to_vision_adapter(
     tmp_path,
     monkeypatch,
 ):
+    install_mysql_repository_stub(monkeypatch)
     pdf_path = tmp_path / "business-license-scan.pdf"
     write_blank_pdf(pdf_path)
     seen = {}

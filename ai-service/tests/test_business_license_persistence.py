@@ -1,11 +1,14 @@
 from app.models import ReviewInput
 from app.models import ReviewDocumentInput
-from app.repositories.review_result_repository import SQLiteReviewResultRepository
+from app.integrations.mysql_client import MySqlSettings
+from app.repositories.review_result_repository import MySQLReviewResultRepository
 from app.services.review_service import ReviewService
+from tests.mysql_repository_stub import install_mysql_repository_stub
 from tests.pdf_helpers import write_minimal_pdf
 
 
 def test_business_license_review_projection_is_saved_and_loaded(tmp_path, monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
     pdf_path = tmp_path / "business-license.pdf"
     write_minimal_pdf(pdf_path, "embedded text should not be used")
     monkeypatch.setenv(
@@ -13,7 +16,7 @@ def test_business_license_review_projection_is_saved_and_loaded(tmp_path, monkey
         _business_license_json(),
     )
     monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
-    repository = SQLiteReviewResultRepository(tmp_path / "reviews.db")
+    repository = _repository()
     result = ReviewService(repository=repository).review(
         ReviewInput(
             file=ReviewDocumentInput(
@@ -56,6 +59,7 @@ def test_business_license_projection_saves_file_and_vision_metadata(
     tmp_path,
     monkeypatch,
 ):
+    install_mysql_repository_stub(monkeypatch)
     image_path = tmp_path / "business-license.png"
     image_path.write_bytes(b"fake-image-bytes")
     monkeypatch.setenv(
@@ -63,7 +67,7 @@ def test_business_license_projection_saves_file_and_vision_metadata(
         _business_license_json(),
     )
     monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
-    repository = SQLiteReviewResultRepository(tmp_path / "reviews.db")
+    repository = _repository()
 
     result = ReviewService(repository=repository).review(
         ReviewInput(
@@ -101,3 +105,15 @@ def _business_license_json() -> str:
       "valid_to": "2030-01-01"
     }
     """
+
+
+def _repository() -> MySQLReviewResultRepository:
+    return MySQLReviewResultRepository(
+        MySqlSettings(
+            host="127.0.0.1",
+            port=3306,
+            user="review",
+            password="secret",
+            database="document_ai_review",
+        )
+    )

@@ -2,6 +2,17 @@ from datetime import date
 
 import pytest
 
+
+def pytest_configure():
+    import os
+
+    os.environ.setdefault("REVIEW_RESULT_MYSQL_HOST", "127.0.0.1")
+    os.environ.setdefault("REVIEW_RESULT_MYSQL_PORT", "3306")
+    os.environ.setdefault("REVIEW_RESULT_MYSQL_USER", "review")
+    os.environ.setdefault("REVIEW_RESULT_MYSQL_PASSWORD", "secret")
+    os.environ.setdefault("REVIEW_RESULT_MYSQL_DATABASE", "document_ai_review")
+
+
 from app.models import RiskLevel, RuleResult
 from app.tools.skill_rule_review import FakeSkillRuleReviewAdapter
 from app.tools.vision_adapter import FakeVisionAdapter

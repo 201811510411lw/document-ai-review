@@ -1,9 +1,11 @@
 from datetime import date
 
 from app.models import ReviewDocumentInput, ReviewInput
-from app.repositories import SQLiteReviewResultRepository
+from app.integrations.mysql_client import MySqlSettings
+from app.repositories import MySQLReviewResultRepository
 from app.services.review_service import ReviewService
 from app.workflows.food_license import nodes as food_license_nodes
+from tests.mysql_repository_stub import install_mysql_repository_stub
 from tests.pdf_helpers import write_minimal_pdf
 
 
@@ -93,17 +95,18 @@ def test_file_recognition_fields_drive_subject_name_manual_review(
     assert subject_rule["risk_level_on_failure"] == "MEDIUM"
 
 
-def test_pdf_file_recognition_flags_credit_code_mismatch_and_saves_sqlite(
+def test_pdf_file_recognition_flags_credit_code_mismatch_and_saves_mysql(
     tmp_path,
     monkeypatch,
 ):
+    install_mysql_repository_stub(monkeypatch)
     pdf_path = _write_pdf(tmp_path)
     monkeypatch.setattr(
         food_license_nodes,
         "food_license_file_adapter",
         StubFileAdapter(BASE_FIELDS),
     )
-    repository = SQLiteReviewResultRepository(tmp_path / "reviews.sqlite3")
+    repository = _repository()
 
     result = ReviewService(repository=repository).review_food_license(
         _review_input(pdf_path, supplier_credit_code="91510100MA99999999")
@@ -119,6 +122,18 @@ def test_pdf_file_recognition_flags_credit_code_mismatch_and_saves_sqlite(
     assert credit_rule["risk_level_on_failure"] == "HIGH"
     assert loaded is not None
     assert loaded.model_dump(mode="json") == payload
+
+
+def _repository() -> MySQLReviewResultRepository:
+    return MySQLReviewResultRepository(
+        MySqlSettings(
+            host="127.0.0.1",
+            port=3306,
+            user="review",
+            password="secret",
+            database="document_ai_review",
+        )
+    )
 
 
 def test_file_recognition_expired_license_is_high_risk(tmp_path, monkeypatch):
