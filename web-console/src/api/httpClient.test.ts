@@ -4,6 +4,7 @@ import { httpReviewClient } from "./httpClient";
 afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
+  window.localStorage.clear();
 });
 
 describe("httpReviewClient", () => {
@@ -64,6 +65,49 @@ describe("httpReviewClient", () => {
       attachmentId: "ATT-001"
     });
     expect(response.metrics.passRate).toBe(100);
+  });
+
+  it("sends the saved bearer token with review queries", async () => {
+    window.localStorage.setItem(
+      "document-ai-review.web-console.session",
+      JSON.stringify({
+        accessToken: "review-token",
+        expiresAt: Math.floor(Date.now() / 1000) + 3600,
+        user: {username: "reviewer", displayName: "审核员"}
+      })
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [],
+          metrics: {
+            today_reviewed: 0,
+            pending_manual_review: 0,
+            high_risk: 0,
+            pass_rate: 0
+          },
+          page: 1,
+          page_size: 20,
+          total: 0,
+          total_pages: 1
+        }),
+        { status: 200 }
+      )
+    );
+
+    await httpReviewClient.listReviews({
+      businessName: "",
+      creditCode: "",
+      riskLevel: "ALL",
+      reviewStatus: "ALL",
+      dateRange: "all",
+      page: 1,
+      pageSize: 20
+    });
+
+    expect(fetchMock.mock.calls[0][1]).toEqual({
+      headers: {Authorization: "Bearer review-token"}
+    });
   });
 
   it("maps detail response and treats 404 as empty detail", async () => {

@@ -108,6 +108,10 @@ select {
   padding: 4px 10px;
 }
 
+.sign-out-button {
+  min-width: 72px;
+}
+
 .icon-button {
   display: none;
   width: 38px;
@@ -660,6 +664,91 @@ td small {
   white-space: pre-wrap;
 }
 
+.login-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  background: #f3f6fb;
+  padding: 24px;
+}
+
+.login-panel {
+  width: min(420px, 100%);
+  border: 1px solid #dbe2ec;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 16px 40px rgba(28, 39, 60, 0.08);
+  padding: 34px;
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 30px;
+}
+
+.login-brand svg {
+  color: #1263eb;
+}
+
+.login-brand span,
+.login-brand strong {
+  display: block;
+}
+
+.login-brand span {
+  color: #687386;
+  font-size: 13px;
+}
+
+.login-brand strong {
+  margin-top: 4px;
+  font-size: 22px;
+}
+
+.login-form {
+  display: grid;
+  gap: 18px;
+}
+
+.login-form label {
+  display: grid;
+  gap: 7px;
+  color: #687386;
+  font-size: 13px;
+}
+
+.login-form input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #d8dee9;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #111827;
+  padding: 0 12px;
+}
+
+.login-form .primary-button {
+  width: 100%;
+  min-height: 44px;
+}
+
+.login-form .primary-button:disabled {
+  opacity: 0.72;
+  cursor: wait;
+}
+
+.login-error {
+  margin: 0;
+  border: 1px solid #ffd1d1;
+  border-radius: 8px;
+  background: #fff7f7;
+  color: #e03131;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
 @media (max-width: 760px) {
   .app-shell {
     display: block;
@@ -676,8 +765,7 @@ td small {
   }
 
   .topbar > div {
-    width: 100%;
-    justify-content: space-between;
+    min-width: 0;
   }
 
   .topbar strong {
@@ -686,6 +774,12 @@ td small {
 
   .topbar span {
     font-size: 11px;
+  }
+
+  .sign-out-button {
+    min-width: 56px;
+    min-height: 34px;
+    padding: 0 10px;
   }
 
   .content {
