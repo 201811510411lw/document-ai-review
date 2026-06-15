@@ -52,6 +52,35 @@ class StubMySQLCursor:
         if compact.startswith("select * from business_license_reviews"):
             self.result = self.storage["business_license_reviews"].get(params[0])
             return
+        if compact.startswith("select count(*) as total from business_license_reviews"):
+            rows = _filter_business_license_rows(self.storage, params)
+            self.result = {"total": len(rows)}
+            return
+        if compact.startswith("select count(*) as total, sum(case when date(created_at)"):
+            rows = _filter_business_license_rows(self.storage, params)
+            self.result = {
+                "total": len(rows),
+                "today_reviewed": sum(
+                    1 for row in rows if str(row.get("created_at", "")).startswith("2026-06-15")
+                ),
+                "pending_manual_review": sum(
+                    1 for row in rows if int(row.get("needs_manual_review") or 0) == 1
+                ),
+                "high_risk": sum(1 for row in rows if row.get("risk_level") == "HIGH"),
+                "reviewed": sum(1 for row in rows if row.get("review_status") == "REVIEWED"),
+            }
+            return
+        if compact.startswith("select task_id, source_record_id"):
+            rows = _filter_business_license_rows(self.storage, params[:-2])
+            rows = sorted(
+                rows,
+                key=lambda row: (row.get("created_at") or "", row.get("task_id") or ""),
+                reverse=True,
+            )
+            limit = int(params[-2])
+            offset = int(params[-1])
+            self.result = rows[offset : offset + limit]
+            return
         if compact.startswith("insert into product_report_reviews"):
             keys = [
                 "task_id",
@@ -163,3 +192,40 @@ def install_mysql_repository_stub(monkeypatch):
 
     monkeypatch.setattr("app.repositories.review_result_repository.pymysql.connect", connect)
     return storage
+
+
+def _filter_business_license_rows(storage, params):
+    rows = list(storage["business_license_reviews"].values())
+    if not params:
+        return rows
+
+    sql = " ".join(storage["executed_sql"][-1].split()).lower()
+    param_index = 0
+    if "business_name like %s" in sql:
+        expected = str(params[param_index]).strip("%")
+        rows = [row for row in rows if expected in str(row.get("business_name") or "")]
+        param_index += 1
+    if "credit_code like %s" in sql:
+        expected = str(params[param_index]).strip("%").upper()
+        rows = [row for row in rows if expected in str(row.get("credit_code") or "").upper()]
+        param_index += 1
+    if "risk_level = %s" in sql:
+        expected = params[param_index]
+        rows = [row for row in rows if row.get("risk_level") == expected]
+        param_index += 1
+    if "review_status = %s" in sql:
+        expected = params[param_index]
+        rows = [row for row in rows if row.get("review_status") == expected]
+        param_index += 1
+    if "needs_manual_review = %s" in sql:
+        expected = int(params[param_index])
+        rows = [row for row in rows if int(row.get("needs_manual_review") or 0) == expected]
+        param_index += 1
+    if "created_at >= %s" in sql:
+        expected = params[param_index]
+        rows = [row for row in rows if str(row.get("created_at") or "") >= expected]
+        param_index += 1
+    if "created_at <= %s" in sql:
+        expected = params[param_index]
+        rows = [row for row in rows if str(row.get("created_at") or "") <= expected]
+    return rows

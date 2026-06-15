@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, RotateCcw } from "lucide-react";
-import { mockReviewClient } from "../api/mockClient";
+import { reviewClient } from "../api/client";
 import type { ListReviewsResponse, ReviewFilters, ReviewRow } from "../api/reviews";
 import { EmptyState, ErrorState, LoadingState } from "../components/EmptyState";
 import { MetricCard } from "../components/MetricCard";
@@ -26,7 +26,7 @@ export function ReviewsPage() {
     let mounted = true;
     setStatus("loading");
 
-    mockReviewClient
+    reviewClient
       .listReviews(filters)
       .then((response) => {
         if (!mounted) {
@@ -70,7 +70,7 @@ export function ReviewsPage() {
           onClick={() => setRefreshKey((current) => current + 1)}
         >
           <RotateCcw size={16} aria-hidden="true" />
-          刷新 mock 数据
+          刷新数据
         </button>
       </section>
 
@@ -181,7 +181,7 @@ export function ReviewsPage() {
       </section>
 
       {status === "loading" && <LoadingState />}
-      {status === "error" && <ErrorState message="mock client 返回异常，请检查本地前端状态。" />}
+      {status === "error" && <ErrorState message="审核结果查询失败，请检查 API 服务状态。" />}
       {status === "empty" && (
         <EmptyState title="没有匹配的审核结果" message="调整筛选条件后再查看。" />
       )}

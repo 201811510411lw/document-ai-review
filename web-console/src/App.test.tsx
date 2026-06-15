@@ -89,7 +89,7 @@ describe("business license review workbench", () => {
     expect(screen.getAllByText("上海云岚供应链管理有限公司").length).toBeGreaterThan(0);
   });
 
-  it("refreshes the review list through the mock client boundary", async () => {
+  it("refreshes the review list through the review client boundary", async () => {
     const user = userEvent.setup();
     setPath("/reviews");
     render(<App />);
@@ -98,7 +98,7 @@ describe("business license review workbench", () => {
       expect(screen.getAllByText("上海云岚供应链管理有限公司").length).toBeGreaterThan(0);
     });
 
-    await user.click(screen.getByRole("button", { name: /刷新 mock 数据/ }));
+    await user.click(screen.getByRole("button", { name: /刷新数据/ }));
 
     await waitFor(() => {
       expect(screen.getAllByText("上海云岚供应链管理有限公司").length).toBeGreaterThan(0);

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft } from "lucide-react";
-import { mockReviewClient } from "../api/mockClient";
+import { reviewClient } from "../api/client";
 import type { ReviewDetail } from "../api/reviews";
 import { RiskBadge, StatusBadge } from "../components/Badge";
 import { EmptyState, ErrorState, LoadingState } from "../components/EmptyState";
@@ -13,7 +13,7 @@ export function ManualReviewPlaceholderPage({ taskId }: { taskId: string }) {
     let mounted = true;
     setStatus("loading");
 
-    mockReviewClient
+    reviewClient
       .getReview(taskId)
       .then((response) => {
         if (!mounted) {
@@ -38,11 +38,11 @@ export function ManualReviewPlaceholderPage({ taskId }: { taskId: string }) {
   }
 
   if (status === "error") {
-    return <ErrorState message="mock client 返回异常，请检查本地前端状态。" />;
+    return <ErrorState message="审核记录查询失败，请检查 API 服务状态。" />;
   }
 
   if (status === "empty" || !detail) {
-    return <EmptyState title="未找到审核记录" message="该任务 ID 不存在于 mock 数据中。" />;
+    return <EmptyState title="未找到审核记录" message="该任务 ID 不存在或已被清理。" />;
   }
 
   return (
