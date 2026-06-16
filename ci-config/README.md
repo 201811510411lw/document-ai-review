@@ -11,7 +11,7 @@ Kubernetes 发布清单不放在应用仓库内，统一放在 GitOps 仓库：
 ## 文件
 
 - `Dockerfile`：单镜像构建，先构建 `web-console`，再把静态产物复制到 FastAPI 镜像，由 `ai-service` 同时提供 API 和前端页面。
-- `deps.Dockerfile`：项目依赖基础镜像，基于 Node 22 镜像安装 Python venv、PDF/图片系统依赖和 `ai-service/requirements.txt`。
+- `python-runtime.Dockerfile`：Python 运行基础镜像，只安装系统运行依赖，不安装项目 Python 包。
 - `Jenkinsfile`：使用 Jenkins Kubernetes agent + Kaniko 构建并推送镜像。
 
 Kubernetes 相关文件：
@@ -33,7 +33,8 @@ GIT_REPO=https://git.lsym.cn/datacenter/data-development/document-ai-review.git
 GIT_BRANCH=fix/qc-review-closure-followup
 IMAGE_REGISTRY=prod-mirror-cn-beijing.cr.volces.com/metadata
 IMAGE_TAG=v1.${BUILD_NUMBER}
-BASE_IMAGE=prod-mirror-cn-beijing.cr.volces.com/metadata/document-ai-review-deps:node22-python311-v1
+PYTHON_IMAGE=prod-mirror-cn-beijing.cr.volces.com/metadata/document-ai-review-python-runtime:3.12-slim
+NODE_IMAGE=prod-mirror-cn-beijing.cr.volces.com/metadata/node:22-bookworm-slim-pnpm11.5.1
 ```
 
 构建出的镜像：
@@ -42,10 +43,37 @@ BASE_IMAGE=prod-mirror-cn-beijing.cr.volces.com/metadata/document-ai-review-deps
 prod-mirror-cn-beijing.cr.volces.com/metadata/document-ai-review:<IMAGE_TAG>
 ```
 
-依赖基础镜像建议先单独构建：
+## Python 运行基础镜像
+
+基础镜像基于：
 
 ```text
-prod-mirror-cn-beijing.cr.volces.com/metadata/document-ai-review-deps:node22-python311-v1
+python:3.12-slim
+```
+
+需要安装的系统包：
+
+```text
+ca-certificates
+libglib2.0-0
+libjpeg62-turbo
+libpng16-16
+poppler-utils
+```
+
+其中 `poppler-utils` 提供 `pdftoppm`，用于 `pdf2image` 处理 PDF；`libjpeg62-turbo`、`libpng16-16` 是 Pillow 常见图片运行依赖；`libglib2.0-0` 作为图片/PDF 处理的保守运行依赖保留。
+
+`python-runtime.Dockerfile` 会删除 `python:3.12-slim` 默认的 `/etc/apt/sources.list.d/debian.sources`，避免同时访问 `deb.debian.org` 和国内源。
+
+构建并推送：
+
+```bash
+docker build \
+  -f ci-config/python-runtime.Dockerfile \
+  -t prod-mirror-cn-beijing.cr.volces.com/metadata/document-ai-review-python-runtime:3.12-slim \
+  .
+
+docker push prod-mirror-cn-beijing.cr.volces.com/metadata/document-ai-review-python-runtime:3.12-slim
 ```
 
 ## 域名和企微
