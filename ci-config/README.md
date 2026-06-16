@@ -31,7 +31,7 @@ Kubernetes 相关文件：
 GIT_REPO=https://git.lsym.cn/datacenter/data-development/document-ai-review.git
 GIT_BRANCH=fix/qc-review-closure-followup
 IMAGE_REGISTRY=prod-mirror-cn-beijing.cr.volces.com/metadata
-IMAGE_TAG=v1.${BUILD_NUMBER}
+IMAGE_TAG=v1
 PYTHON_IMAGE=prod-mirror-cn-beijing.cr.volces.com/metadata/document-ai-review-python-runtime:3.12-slim
 NODE_IMAGE=prod-mirror-cn-beijing.cr.volces.com/metadata/node:22-bookworm-slim-pnpm11.5.1
 ```
@@ -39,7 +39,7 @@ NODE_IMAGE=prod-mirror-cn-beijing.cr.volces.com/metadata/node:22-bookworm-slim-p
 构建出的镜像：
 
 ```text
-prod-mirror-cn-beijing.cr.volces.com/metadata/document-ai-review:<IMAGE_TAG>
+prod-mirror-cn-beijing.cr.volces.com/metadata/document-ai-review:v1
 ```
 
 ## Python 运行基础镜像
