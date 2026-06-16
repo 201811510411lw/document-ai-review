@@ -76,7 +76,7 @@ def buildImage(String imageName) {
     sh """
       /kaniko/executor \
         --context=${env.WORKSPACE}/document-ai-review \
-        --dockerfile=config/Dockerfile \
+        --dockerfile=ci-config/Dockerfile \
         --destination=${imageName} \
         --skip-tls-verify \
         --verbosity=debug

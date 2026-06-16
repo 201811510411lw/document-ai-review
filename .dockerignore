@@ -8,4 +8,4 @@ ai-service/data
 web-console/node_modules
 web-console/dist
 web-console/.vite
-config/secret*.env
+ci-config/secret*.env

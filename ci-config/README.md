@@ -1,6 +1,6 @@
 # document-ai-review deployment config
 
-本目录保存应用仓库内的镜像构建相关文件，参考同组项目的 `config/` 目录约定。
+本目录保存应用仓库内的镜像构建相关文件。
 
 Kubernetes 发布清单不放在应用仓库内，统一放在 GitOps 仓库：
 
