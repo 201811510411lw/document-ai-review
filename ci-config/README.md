@@ -32,9 +32,9 @@ GIT_REPO=https://git.lsym.cn/datacenter/data-development/document-ai-review.git
 GIT_BRANCH=fix/qc-review-closure-followup
 IMAGE_REGISTRY=prod-mirror-cn-beijing.cr.volces.com/metadata
 IMAGE_TAG=v1
-PYTHON_IMAGE=prod-mirror-cn-beijing.cr.volces.com/metadata/document-ai-review-python-runtime:3.12-slim
-NODE_IMAGE=prod-mirror-cn-beijing.cr.volces.com/metadata/node:22-bookworm-slim-pnpm11.5.1
 ```
+
+`PYTHON_IMAGE` 和 `NODE_IMAGE` 在 `Jenkinsfile` 内固定，不作为 Jenkins 构建参数展示。
 
 构建出的镜像：
 
