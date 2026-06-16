@@ -77,8 +77,7 @@ def buildImage(String imageName) {
       /kaniko/executor \
         --context=${env.WORKSPACE}/document-ai-review \
         --dockerfile=ci-config/Dockerfile \
-        --build-arg PYTHON_IMAGE=${params.PYTHON_IMAGE} \
-        --build-arg NODE_IMAGE=${params.NODE_IMAGE} \
+        --build-arg BASE_IMAGE=${params.BASE_IMAGE} \
         --destination=${imageName} \
         --skip-tls-verify \
         --verbosity=debug
@@ -100,8 +99,7 @@ pipeline {
     string(name: 'GIT_BRANCH', defaultValue: 'main', description: 'Git分支')
     string(name: 'IMAGE_REGISTRY', defaultValue: 'prod-mirror-cn-beijing.cr.volces.com/metadata', description: '镜像仓库命名空间')
     string(name: 'IMAGE_TAG', defaultValue: 'v1.${BUILD_NUMBER}', description: '镜像Tag')
-    string(name: 'PYTHON_IMAGE', defaultValue: 'python:3.12-slim', description: 'Dockerfile Python 基础镜像')
-    string(name: 'NODE_IMAGE', defaultValue: 'node:22-bookworm-slim', description: 'Dockerfile Node 基础镜像')
+    string(name: 'BASE_IMAGE', defaultValue: 'prod-mirror-cn-beijing.cr.volces.com/metadata/document-ai-review-deps:node22-python311-v1', description: 'Dockerfile 构建/运行基础镜像')
   }
 
   stages {

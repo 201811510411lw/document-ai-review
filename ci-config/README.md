@@ -11,6 +11,7 @@ Kubernetes 发布清单不放在应用仓库内，统一放在 GitOps 仓库：
 ## 文件
 
 - `Dockerfile`：单镜像构建，先构建 `web-console`，再把静态产物复制到 FastAPI 镜像，由 `ai-service` 同时提供 API 和前端页面。
+- `deps.Dockerfile`：项目依赖基础镜像，基于 Node 22 镜像安装 Python venv、PDF/图片系统依赖和 `ai-service/requirements.txt`。
 - `Jenkinsfile`：使用 Jenkins Kubernetes agent + Kaniko 构建并推送镜像。
 
 Kubernetes 相关文件：
@@ -32,12 +33,19 @@ GIT_REPO=https://git.lsym.cn/datacenter/data-development/document-ai-review.git
 GIT_BRANCH=fix/qc-review-closure-followup
 IMAGE_REGISTRY=prod-mirror-cn-beijing.cr.volces.com/metadata
 IMAGE_TAG=v1.${BUILD_NUMBER}
+BASE_IMAGE=prod-mirror-cn-beijing.cr.volces.com/metadata/document-ai-review-deps:node22-python311-v1
 ```
 
 构建出的镜像：
 
 ```text
 prod-mirror-cn-beijing.cr.volces.com/metadata/document-ai-review:<IMAGE_TAG>
+```
+
+依赖基础镜像建议先单独构建：
+
+```text
+prod-mirror-cn-beijing.cr.volces.com/metadata/document-ai-review-deps:node22-python311-v1
 ```
 
 ## 域名和企微
