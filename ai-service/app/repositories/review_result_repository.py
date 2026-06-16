@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from json import dumps, loads
 from typing import Any
 
@@ -6,6 +6,7 @@ import pymysql
 
 from app.integrations.mysql_client import MySqlSettings, mysql_settings_from_env
 from app.models import AuditEvent, ManualReview, ManualReviewStatus, ReviewResult, ReviewStatus
+from app.services.wecom_notifications import notification_details_json
 
 
 BUSINESS_LICENSE_REVIEW_ROW_COLUMNS = """
@@ -243,6 +244,208 @@ class MySQLReviewResultRepository:
             }
             for row in rows
         ]
+
+    def enqueue_wecom_notification(
+        self,
+        *,
+        template: str,
+        to_user_ids: list[str],
+        recipient_names: list[str],
+        message: str,
+        task_id: str | None,
+        document_type: str | None,
+        detail_url: str | None,
+        created_at: datetime,
+    ) -> dict[str, Any]:
+        self._ensure_schema_once()
+        created_at_text = created_at.isoformat()
+        details_json = notification_details_json(
+            to_user_ids=to_user_ids,
+            recipient_names=recipient_names,
+            detail_url=detail_url,
+        )
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO wecom_notification_queue (
+                        channel,
+                        status,
+                        template,
+                        to_user_ids_json,
+                        recipient_names_json,
+                        message,
+                        task_id,
+                        document_type,
+                        detail_url,
+                        attempts,
+                        error,
+                        next_retry_at,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        "wecom",
+                        "queued" if to_user_ids else "failed",
+                        template,
+                        dumps(to_user_ids, ensure_ascii=False),
+                        dumps(recipient_names, ensure_ascii=False),
+                        message,
+                        task_id,
+                        document_type,
+                        detail_url,
+                        0,
+                        None if to_user_ids else "企业微信通知缺少接收人",
+                        None,
+                        created_at_text,
+                        created_at_text,
+                    ),
+                )
+                notification_id = cursor.lastrowid
+                if task_id:
+                    cursor.execute(
+                        """
+                        INSERT INTO business_license_review_audit_events (
+                            task_id,
+                            event_type,
+                            message,
+                            occurred_at,
+                            actor_id,
+                            actor_username,
+                            details_json
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            task_id,
+                            "WECOM_NOTIFICATION_QUEUED" if to_user_ids else "WECOM_NOTIFICATION_FAILED",
+                            "企业微信通知已入队" if to_user_ids else "企业微信通知缺少接收人",
+                            created_at_text,
+                            None,
+                            None,
+                            details_json,
+                        ),
+                    )
+            connection.commit()
+        return {
+            "id": notification_id,
+            "status": "queued" if to_user_ids else "failed",
+            "task_id": task_id,
+        }
+
+    def list_due_wecom_notifications(self, now: datetime) -> list[dict[str, Any]]:
+        self._ensure_schema_once()
+        now_text = now.isoformat()
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT *
+                    FROM wecom_notification_queue
+                    WHERE channel = 'wecom'
+                        AND status = 'queued'
+                        AND attempts < 3
+                        AND (next_retry_at IS NULL OR next_retry_at <= %s)
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT 100
+                    """,
+                    (now_text,),
+                )
+                rows = cursor.fetchall()
+        return [_wecom_notification_row(row) for row in rows]
+
+    def mark_wecom_notification_sent(
+        self,
+        *,
+        notification_id: int,
+        sent_at: datetime,
+    ) -> None:
+        self._update_wecom_notification_status(
+            notification_id=notification_id,
+            status="sent",
+            attempts=None,
+            error=None,
+            sent_at=sent_at,
+            next_retry_at=None,
+            updated_at=sent_at,
+        )
+
+    def mark_wecom_notification_retry(
+        self,
+        *,
+        notification_id: int,
+        attempts: int,
+        error: str,
+        next_retry_at: datetime,
+        updated_at: datetime,
+    ) -> None:
+        self._update_wecom_notification_status(
+            notification_id=notification_id,
+            status="queued",
+            attempts=attempts,
+            error=error,
+            sent_at=None,
+            next_retry_at=next_retry_at,
+            updated_at=updated_at,
+        )
+
+    def mark_wecom_notification_failed(
+        self,
+        *,
+        notification_id: int,
+        attempts: int,
+        error: str,
+        updated_at: datetime,
+    ) -> None:
+        self._update_wecom_notification_status(
+            notification_id=notification_id,
+            status="failed",
+            attempts=attempts,
+            error=error,
+            sent_at=None,
+            next_retry_at=None,
+            updated_at=updated_at,
+        )
+
+    def _update_wecom_notification_status(
+        self,
+        *,
+        notification_id: int,
+        status: str,
+        attempts: int | None,
+        error: str | None,
+        sent_at: datetime | None,
+        next_retry_at: datetime | None,
+        updated_at: datetime,
+    ) -> None:
+        self._ensure_schema_once()
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE wecom_notification_queue
+                    SET
+                        status = %s,
+                        attempts = COALESCE(%s, attempts),
+                        error = %s,
+                        sent_at = %s,
+                        next_retry_at = %s,
+                        updated_at = %s
+                    WHERE id = %s
+                    """,
+                    (
+                        status,
+                        attempts,
+                        error,
+                        sent_at.isoformat() if sent_at else None,
+                        next_retry_at.isoformat() if next_retry_at else None,
+                        updated_at.isoformat(),
+                        notification_id,
+                    ),
+                )
+            connection.commit()
 
     def list_business_license_reviews(
         self,
@@ -765,6 +968,30 @@ class MySQLReviewResultRepository:
                         details_json JSON NOT NULL,
                         INDEX idx_business_license_review_audit_task_id (task_id),
                         INDEX idx_business_license_review_audit_occurred_at (occurred_at)
+                    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS wecom_notification_queue (
+                        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        channel VARCHAR(32) NOT NULL,
+                        status VARCHAR(32) NOT NULL,
+                        template VARCHAR(128) NOT NULL,
+                        to_user_ids_json JSON NOT NULL,
+                        recipient_names_json JSON NOT NULL,
+                        message TEXT NOT NULL,
+                        task_id VARCHAR(128),
+                        document_type VARCHAR(64),
+                        detail_url TEXT,
+                        attempts INT NOT NULL DEFAULT 0,
+                        error TEXT,
+                        next_retry_at VARCHAR(64),
+                        sent_at VARCHAR(64),
+                        created_at VARCHAR(64) NOT NULL,
+                        updated_at VARCHAR(64) NOT NULL,
+                        INDEX idx_wecom_notification_status (channel, status, next_retry_at),
+                        INDEX idx_wecom_notification_task_id (task_id)
                     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
                     """
                 )
@@ -1685,9 +1912,7 @@ def _qc_review_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         document_type = str(row.get("document_type") or "unknown")
         document_type_counts[document_type] = document_type_counts.get(document_type, 0) + 1
     return {
-        "today_reviewed": sum(
-            1 for row in rows if str(row.get("created_at") or "").startswith("2026-06-15")
-        ),
+        "today_reviewed": sum(1 for row in rows if _is_today(row.get("created_at"))),
         "pending_manual_review": sum(1 for row in rows if row.get("needs_manual_review")),
         "high_risk": sum(1 for row in rows if row.get("risk_level") == "HIGH"),
         "pass_rate": 0 if total == 0 else round((reviewed / total) * 100),
@@ -1719,6 +1944,27 @@ def _manual_review_audit_message(decision: str) -> str:
         "approved": "人工复核确认通过",
         "rejected": "人工复核驳回",
     }.get(decision, "人工复核完成")
+
+
+def _wecom_notification_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "channel": row["channel"],
+        "status": row["status"],
+        "template": row["template"],
+        "to_user_ids": loads(row["to_user_ids_json"] or "[]"),
+        "recipient_names": loads(row["recipient_names_json"] or "[]"),
+        "message": row["message"],
+        "task_id": row.get("task_id"),
+        "document_type": row.get("document_type"),
+        "detail_url": row.get("detail_url"),
+        "attempts": int(row.get("attempts") or 0),
+        "error": row.get("error"),
+        "next_retry_at": row.get("next_retry_at"),
+        "sent_at": row.get("sent_at"),
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
+    }
 
 
 def _manual_review_payload(
@@ -2125,3 +2371,7 @@ def _product_report_projection_values(projection: dict[str, Any]) -> tuple[Any, 
         projection["created_at"],
         projection["updated_at"],
     )
+
+
+def _is_today(value: Any) -> bool:
+    return str(value or "").startswith(date.today().isoformat())

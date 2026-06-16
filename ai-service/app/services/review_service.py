@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from app.models import ReviewInput, ReviewInputContext, ReviewResult
 from app.repositories import build_review_result_repository_from_env
+from app.services.wecom_notifications import enqueue_review_notification
 from app.use_cases.registry import use_case_registry
 
 
@@ -46,6 +47,8 @@ class ReviewService:
         result = use_case.review(input_context)
         if self.repository is not None:
             self.repository.save(result)
+            if hasattr(self.repository, "enqueue_wecom_notification"):
+                enqueue_review_notification(self.repository, result)
         return result
 
 

@@ -1,6 +1,9 @@
 export interface AuthUser {
   username: string;
   displayName: string;
+  provider?: string;
+  externalId?: string;
+  email?: string;
 }
 
 export interface AuthSession {
@@ -12,8 +15,15 @@ export interface AuthSession {
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 const SESSION_KEY = "document-ai-review.web-console.session";
 
+function apiUrl(path: string) {
+  if (API_BASE_URL) {
+    return `${API_BASE_URL}${path}`;
+  }
+  return new URL(path, window.location.origin).toString();
+}
+
 export async function login(username: string, password: string): Promise<AuthSession> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+  const response = await fetch(apiUrl("/api/v1/auth/login"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
@@ -30,6 +40,83 @@ export async function login(username: string, password: string): Promise<AuthSes
       displayName: payload.user.display_name,
     },
   };
+}
+
+export interface AuthProvider {
+  id: string;
+  label: string;
+  type: string;
+  configured: boolean;
+  loginPath: string;
+  callbackPath: string;
+  status: string;
+}
+
+export async function loadAuthProviders(): Promise<AuthProvider[]> {
+  let response: Response;
+  try {
+    response = await fetch(apiUrl("/api/v1/auth/providers"));
+  } catch {
+    return [];
+  }
+  if (!response.ok) {
+    return [];
+  }
+  const payload = await response.json();
+  return (payload.providers ?? []).map((provider: ApiAuthProvider) => ({
+    id: provider.id,
+    label: provider.label,
+    type: provider.type,
+    configured: provider.configured,
+    loginPath: apiUrl(provider.login_path),
+    callbackPath: provider.callback_path,
+    status: provider.status
+  }));
+}
+
+export async function startSso(providerId: string, mode = "qr"): Promise<string> {
+  const response = await fetch(
+    apiUrl(
+      `/api/v1/auth/sso/start?provider=${encodeURIComponent(providerId)}&mode=${encodeURIComponent(mode)}`
+    )
+  );
+  if (!response.ok) {
+    throw new Error("SSO_START_FAILED");
+  }
+  const payload = await response.json();
+  return payload.redirect_url;
+}
+
+export async function loadCurrentSession(): Promise<AuthSession | null> {
+  const local = loadSession();
+  if (local) {
+    return local;
+  }
+  let response: Response;
+  try {
+    response = await fetch(apiUrl("/api/v1/auth/me"), {
+      credentials: "include"
+    });
+  } catch {
+    return null;
+  }
+  if (!response.ok) {
+    return null;
+  }
+  const payload = await response.json();
+  const session = {
+    accessToken: "cookie-session",
+    expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    user: {
+      username: payload.user.username,
+      displayName: payload.user.display_name,
+      provider: payload.user.provider,
+      externalId: payload.user.external_id,
+      email: payload.user.email
+    }
+  };
+  saveSession(session);
+  return session;
 }
 
 export function loadSession(): AuthSession | null {
@@ -60,5 +147,18 @@ export function clearSession(): void {
 
 export function authHeaders(): Record<string, string> {
   const session = loadSession();
-  return session ? { Authorization: `Bearer ${session.accessToken}` } : {};
+  if (!session || session.accessToken === "cookie-session") {
+    return {};
+  }
+  return { Authorization: `Bearer ${session.accessToken}` };
+}
+
+interface ApiAuthProvider {
+  id: string;
+  label: string;
+  type: string;
+  configured: boolean;
+  login_path: string;
+  callback_path: string;
+  status: string;
 }

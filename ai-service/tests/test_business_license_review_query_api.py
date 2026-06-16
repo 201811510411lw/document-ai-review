@@ -254,9 +254,12 @@ def test_business_license_manual_review_writes_decision_and_audit_event(
     assert payload["manual_review"]["comment"] == "已核对原始营业执照，主体和信用代码可接受。"
     assert payload["manual_review"]["reviewer_id"] == "wecom-reviewer-001"
     assert payload["manual_review"]["reviewer_username"] == "reviewer"
-    assert len(payload["audit_events"]) == 1
-    assert payload["audit_events"][0]["event_type"] == "BUSINESS_LICENSE_MANUAL_REVIEW"
-    assert payload["audit_events"][0]["details"]["decision"] == "approved"
+    manual_review_event = next(
+        event
+        for event in payload["audit_events"]
+        if event["event_type"] == "BUSINESS_LICENSE_MANUAL_REVIEW"
+    )
+    assert manual_review_event["details"]["decision"] == "approved"
 
     detail_response = client.get(
         f"/api/v1/business-license/reviews/{result.task_id}",
@@ -268,7 +271,12 @@ def test_business_license_manual_review_writes_decision_and_audit_event(
     assert detail_payload["review_status"] == "MANUAL_REVIEWED"
     assert detail_payload["needs_manual_review"] is False
     assert detail_payload["manual_review"]["decision"] == "approved"
-    assert detail_payload["audit_events"][0]["details"]["reviewer_id"] == "wecom-reviewer-001"
+    detail_manual_review_event = next(
+        event
+        for event in detail_payload["audit_events"]
+        if event["event_type"] == "BUSINESS_LICENSE_MANUAL_REVIEW"
+    )
+    assert detail_manual_review_event["details"]["reviewer_id"] == "wecom-reviewer-001"
     assert detail_payload["payload"]["status"] == "MANUAL_REVIEWED"
     assert detail_payload["payload"]["needs_manual_review"] is False
     assert detail_payload["payload"]["manual_review"]["status"] == "COMPLETED"

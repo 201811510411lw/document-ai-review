@@ -152,7 +152,7 @@ ai-service/app/capabilities/food_license/
 | workflows | 编排 LangGraph / OCR / LLM / Skill 规则审核 / 人工复核路由 |
 | capabilities | 承接字段 schema、提示边界和能力结果构造 |
 | Agent Skills | 维护业务规则口径，供 runtime 读取并约束 LLM 结构化审核 |
-| tools adapter | OCR、LLM、PDF、图片、ERP、OA、IM 等外部能力 Stub |
+| tools adapter | 远程文件、OCR/视觉识别、规则审核、企微通知等外部能力 Adapter |
 | repositories | 保存审核结果及后续人工复核、审计数据 |
 
 平台层不能直接调用 workflow 或 capability 内部节点，例如：
