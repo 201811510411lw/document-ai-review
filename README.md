@@ -1,6 +1,6 @@
 # document-ai-review
 
-企业内部 AI 文档智能审核系统。当前主线已经从 `food_license` 单场景技术验证，收口为 **`use_cases + capabilities + Agent Skills`** 的私有化多场景审核架构。
+企业内部 AI 文档智能审核系统。当前主线已经从 `food_license` 单场景技术验证，收口为 **`use_cases + capabilities + Agent Skills`** 的私有化多场景审核架构；当前交付主线聚焦 **营业执照单证审核 `business_license`**，先把一条可运行、可持久化、可查询、可人工复核的单证链路跑通。
 
 `README.md` 是项目唯一主上下文。当前不使用 `CONTEXT.md` / `CONTEXT-MAP.md`，也不要求创建 `AGENTS.md` / `CLAUDE.md`。
 
@@ -31,7 +31,7 @@
 
 ## 2. 当前主线
 
-当前主线优先做架构收口，不继续扩展 `food_license` 业务能力。运行时结构已经固定为：
+当前主线优先完善 `business_license` 单证审核流程，不继续扩展 `food_license` 业务能力，也不在本轮推进烟草证、双证一致性、QC 文档或合同审核。运行时结构已经固定为：
 
 ```text
 ReviewService
@@ -51,19 +51,18 @@ ReviewResult
 
 当前内置 use_case：
 
+- `business_license`
 - `food_license`
+- `tobacco_license`
 - `qc_document_review`
 - `tobacco_license_consistency_review`
 - `contract_review`
 
 其中：
 
+- `business_license` 是当前交付主线，用于跑通营业执照文件接入、字段抽取、字段标准化、Skill 规则审核、`ReviewResult` 生成、MySQL 持久化、工作台查询和轻量人工复核；
 - `food_license` 是历史 V1 兼容 use_case，继续保留快捷入口；
-- `qc_document_review`
-- `tobacco_license_consistency_review`
-- `contract_review`
-
-目前都还是主线占位 use_case，尚未进入完整业务规则实现。
+- `tobacco_license`、`tobacco_license_consistency_review`、`qc_document_review`、`contract_review` 保持已有注册和测试边界，本轮不作为交付主线推进。
 
 ---
 
@@ -127,7 +126,18 @@ ai-service/app/capabilities/
 - 组织 capability 专属字段 schema 和结果 payload；
 - 为 workflow 提供可复用执行能力。
 
-当前首个样板是：
+当前首个完整交付样板是：
+
+```text
+ai-service/app/capabilities/business_license/
+```
+
+其中包含：
+
+- `schemas.py`
+- `executor.py`
+
+历史兼容样板是：
 
 ```text
 ai-service/app/capabilities/food_license/
@@ -261,6 +271,7 @@ document-ai-review/
 - 不接真实 OCR / LLM / OA / ERP；
 - 不删除 `food_license` 兼容入口；
 - 不继续扩展 `food_license` 规则；
+- 不推进 `tobacco_license`、`tobacco_license_consistency_review`、`qc_document_review`、`contract_review` 的新业务能力；
 - 不把 Agent Skill、use_case、capability 混成一个对象。
 
 ---
@@ -271,6 +282,9 @@ document-ai-review/
 
 - runtime 入口从旧 `app/skills` 迁移到 `app/use_cases`；
 - 新增 `app/capabilities`，并将 `food_license` 的真实能力迁入 capability 层；
+- 新增 `business_license` use_case、workflow 和 capability，作为当前营业执照单证审核交付主线；
+- 营业执照审核已具备 PDF/图片/远程文件接入边界、视觉识别 adapter、字段抽取和标准化结果容器、Skill 规则审核、`ReviewResult` 输出；
+- 营业执照审核结果已具备 MySQL 完整 payload 保存、投影表保存、列表查询、详情查询和轻量人工复核写回接口；
 - `ReviewService` 已切换到 `use_case_registry`；
 - `ReviewInputContext`、`ReviewResult` 已新增 `use_case_*` 和 `capability_names`；
 - `.agents/skills` 继续保留为 Agent Skill 描述层；
@@ -278,9 +292,11 @@ document-ai-review/
 
 后续优先级：
 
-1. 收口 README 和架构文档的旧 Skill 术语；
-2. 收口测试与 stub 命名残留；
-3. 再讨论 `ReviewResult.skill_*` / `skill_result` 的兼容迁移策略。
+1. 完善营业执照端到端验收说明，确保 API/SRM、文件识别、规则审核、持久化、工作台查询和人工复核可本地验证；
+2. 完善营业执照字段标准化、规则边界、异常路径和人工复核原因；
+3. 对齐营业执照工作台列表、详情、人工复核接口契约；
+4. 收口 `business_license` 测试命名、夹具和 fake 数据复用；
+5. 再讨论 `ReviewResult.skill_*` / `skill_result` 的兼容迁移策略。
 
 ---
 
@@ -289,5 +305,8 @@ document-ai-review/
 - [docs/skill-architecture.md](docs/skill-architecture.md)
 - [docs/v1-python-architecture.md](docs/v1-python-architecture.md)
 - [docs/product-requirements-ai-review.md](docs/product-requirements-ai-review.md)
+- [docs/prd-business-license-review-v1.md](docs/prd-business-license-review-v1.md)
+- [docs/prd-business-license-review-workbench-v1.md](docs/prd-business-license-review-workbench-v1.md)
+- [docs/business-license-e2e-acceptance.md](docs/business-license-e2e-acceptance.md)
 - [docs/prd-food-license-v1.md](docs/prd-food-license-v1.md)
 - [docs/api-food-license-v1.md](docs/api-food-license-v1.md)

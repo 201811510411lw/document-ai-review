@@ -8,6 +8,7 @@ from app.repositories.review_result_repository import MySQLReviewResultRepositor
 from app.services.review_service import ReviewService
 from app.workflows.food_license import nodes as food_license_nodes
 from app.workflows.tobacco_license import workflow as tobacco_license_workflow
+from tests.business_license_helpers import business_license_auth_headers
 from tests.mysql_repository_stub import install_mysql_repository_stub
 from tests.pdf_helpers import write_minimal_pdf
 
@@ -524,9 +525,4 @@ def _repository() -> MySQLReviewResultRepository:
 
 
 def _auth_headers(client: TestClient) -> dict[str, str]:
-    response = client.post(
-        "/api/v1/auth/login",
-        json={"username": "reviewer", "password": "reviewer123"},
-    )
-    assert response.status_code == 200
-    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+    return business_license_auth_headers(client)

@@ -285,6 +285,7 @@ def manual_review_business_license(
         **row,
         "manual_review": _manual_review(snapshot, payload_dict),
         "audit_events": repository.list_business_license_audit_events(task_id),
+        "payload": payload_dict,
     }
 
 

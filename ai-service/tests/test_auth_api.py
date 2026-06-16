@@ -1,9 +1,12 @@
 from fastapi.testclient import TestClient
 
+from app.core.config import settings
 from app.main import app
 
 
-def test_web_console_login_and_me_roundtrip():
+def test_web_console_login_and_me_roundtrip(monkeypatch):
+    monkeypatch.setattr(settings, "web_console_auth_username", "reviewer")
+    monkeypatch.setattr(settings, "web_console_auth_password", "reviewer123")
     client = TestClient(app)
 
     login_response = client.post(
@@ -28,7 +31,9 @@ def test_web_console_login_and_me_roundtrip():
     assert me_response.json()["user"]["username"] == "reviewer"
 
 
-def test_web_console_login_rejects_invalid_credentials():
+def test_web_console_login_rejects_invalid_credentials(monkeypatch):
+    monkeypatch.setattr(settings, "web_console_auth_username", "reviewer")
+    monkeypatch.setattr(settings, "web_console_auth_password", "reviewer123")
     client = TestClient(app)
 
     response = client.post(
