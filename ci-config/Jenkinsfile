@@ -77,6 +77,8 @@ def buildImage(String imageName) {
       /kaniko/executor \
         --context=${env.WORKSPACE}/document-ai-review \
         --dockerfile=ci-config/Dockerfile \
+        --build-arg PYTHON_IMAGE=${params.PYTHON_IMAGE} \
+        --build-arg NODE_IMAGE=${params.NODE_IMAGE} \
         --destination=${imageName} \
         --skip-tls-verify \
         --verbosity=debug
@@ -95,9 +97,11 @@ pipeline {
 
   parameters {
     string(name: 'GIT_REPO', defaultValue: 'https://git.lsym.cn/datacenter/data-development/document-ai-review.git', description: 'Git仓库地址')
-    string(name: 'GIT_BRANCH', defaultValue: 'fix/qc-review-closure-followup', description: 'Git分支')
+    string(name: 'GIT_BRANCH', defaultValue: 'main', description: 'Git分支')
     string(name: 'IMAGE_REGISTRY', defaultValue: 'prod-mirror-cn-beijing.cr.volces.com/metadata', description: '镜像仓库命名空间')
-    string(name: 'IMAGE_TAG', defaultValue: 'v1.${BUILD_NUMBER}', description: '镜像Tag')
+    string(name: 'IMAGE_TAG', defaultValue: 'v1', description: '镜像Tag')
+    string(name: 'PYTHON_IMAGE', defaultValue: 'prod-mirror-cn-beijing.cr.volces.com/metadata/document-ai-review-python-runtime:3.12-slim', description: 'Dockerfile Python 运行基础镜像')
+    string(name: 'NODE_IMAGE', defaultValue: 'prod-mirror-cn-beijing.cr.volces.com/metadata/node:22-bookworm-slim-pnpm11.5.1', description: 'Dockerfile Node 前端构建基础镜像')
   }
 
   stages {
