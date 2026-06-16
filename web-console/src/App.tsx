@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Layout } from "./components/Layout";
-import { loadCurrentSession, loadSession, type AuthSession } from "./api/auth";
+import { loadCurrentSession, loadSession, startSso, type AuthSession } from "./api/auth";
 import { navigateTo, NAVIGATION_EVENT } from "./navigation";
 import { LoginPage } from "./pages/LoginPage";
 import { ManualReviewPlaceholderPage } from "./pages/ManualReviewPlaceholderPage";
@@ -39,6 +39,7 @@ export function App() {
   const [, setNavigationVersion] = useState(0);
   const [cookieSession, setCookieSession] = useState<AuthSession | null>(loadSession());
   const [sessionChecked, setSessionChecked] = useState(false);
+  const [wecomSsoStarted, setWecomSsoStarted] = useState(false);
 
   useEffect(() => {
     const refreshRoute = () => setNavigationVersion((version) => version + 1);
@@ -65,12 +66,34 @@ export function App() {
 
   const route = currentRoute();
   const session = cookieSession ?? loadSession();
+  const shouldStartWecomSso =
+    route.page !== "login" && !session && sessionChecked && isEnterpriseWeChatBrowser();
+
+  useEffect(() => {
+    if (!shouldStartWecomSso || wecomSsoStarted) {
+      return;
+    }
+    setWecomSsoStarted(true);
+    startSso("wecom", "work")
+      .then((redirectUrl) => {
+        window.location.href = redirectUrl;
+      })
+      .catch(() => {
+        navigateTo(`/login?next=${encodeURIComponent(window.location.pathname)}`, { replace: true });
+      });
+  }, [shouldStartWecomSso, wecomSsoStarted]);
 
   if (route.page === "login") {
     return <LoginPage />;
   }
 
   if (!session) {
+    if (!sessionChecked && isEnterpriseWeChatBrowser()) {
+      return null;
+    }
+    if (shouldStartWecomSso) {
+      return null;
+    }
     navigateTo(`/login?next=${encodeURIComponent(window.location.pathname)}`, { replace: true });
     return <LoginPage />;
   }
@@ -90,4 +113,9 @@ export function App() {
       )}
     </Layout>
   );
+}
+
+
+function isEnterpriseWeChatBrowser() {
+  return /wxwork/i.test(window.navigator.userAgent);
 }

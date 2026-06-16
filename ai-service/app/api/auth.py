@@ -73,15 +73,28 @@ def auth_providers() -> dict[str, Any]:
 
 
 @router.get("/sso/start")
-def start_sso(provider: str = Query(default="wecom")) -> dict[str, Any]:
+def start_sso(
+    provider: str = Query(default="wecom"),
+    mode: str = Query(default="qr"),
+) -> dict[str, Any]:
     if provider != "wecom":
         raise HTTPException(
             status_code=501,
             detail={"code": "SSO_NOT_IMPLEMENTED", "message": "当前仅支持企业微信 SSO"},
         )
+    if mode not in {"qr", "work"}:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_SSO_MODE", "message": "企业微信登录模式不支持"},
+        )
     try:
         state = _create_sso_state(provider)
-        redirect_url = WecomClient().build_authorize_url(state)
+        client = WecomClient()
+        redirect_url = (
+            client.build_work_authorize_url(state)
+            if mode == "work"
+            else client.build_authorize_url(state)
+        )
     except WecomConfigError as error:
         raise HTTPException(
             status_code=503,

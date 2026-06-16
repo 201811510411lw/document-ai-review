@@ -74,9 +74,11 @@ export async function loadAuthProviders(): Promise<AuthProvider[]> {
   }));
 }
 
-export async function startSso(providerId: string): Promise<string> {
+export async function startSso(providerId: string, mode = "qr"): Promise<string> {
   const response = await fetch(
-    apiUrl(`/api/v1/auth/sso/start?provider=${encodeURIComponent(providerId)}`)
+    apiUrl(
+      `/api/v1/auth/sso/start?provider=${encodeURIComponent(providerId)}&mode=${encodeURIComponent(mode)}`
+    )
   );
   if (!response.ok) {
     throw new Error("SSO_START_FAILED");

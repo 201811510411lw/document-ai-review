@@ -29,7 +29,7 @@ export function LoginPage() {
   async function submitWecom() {
     setSsoStatus("submitting");
     try {
-      window.location.href = await startSso("wecom");
+      window.location.href = await startSso("wecom", isEnterpriseWeChatBrowser() ? "work" : "qr");
     } catch {
       setSsoStatus("error");
     }
@@ -102,4 +102,8 @@ function nextPath() {
   const params = new URLSearchParams(window.location.search);
   const next = params.get("next");
   return next && next.startsWith("/") ? next : "/reviews";
+}
+
+function isEnterpriseWeChatBrowser() {
+  return /wxwork/i.test(window.navigator.userAgent);
 }

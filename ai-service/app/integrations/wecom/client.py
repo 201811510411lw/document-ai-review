@@ -9,6 +9,7 @@ from app.core.config import settings
 
 
 QR_CONNECT_URL = "https://open.work.weixin.qq.com/wwopen/sso/qrConnect"
+WORK_OAUTH_URL = "https://open.weixin.qq.com/connect/oauth2/authorize"
 API_BASE_URL = "https://qyapi.weixin.qq.com/cgi-bin"
 
 
@@ -61,6 +62,15 @@ class WecomClient:
             'redirect_uri': self.config.redirect_uri,
             'state': state,
         })}"
+
+    def build_work_authorize_url(self, state: str) -> str:
+        return f"{WORK_OAUTH_URL}?{urlencode({
+            'appid': self.config.corp_id,
+            'redirect_uri': self.config.redirect_uri,
+            'response_type': 'code',
+            'scope': 'snsapi_base',
+            'state': state,
+        })}#wechat_redirect"
 
     def resolve_login_user(self, code: str) -> WecomUser:
         if not code.strip():

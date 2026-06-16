@@ -33,6 +33,22 @@ def test_wecom_sso_start_returns_authorize_url(monkeypatch):
     assert "appid=corp" in response.json()["redirect_url"]
 
 
+def test_wecom_sso_start_returns_work_oauth_url(monkeypatch):
+    monkeypatch.setattr(settings, "wecom_corp_id", "corp")
+    monkeypatch.setattr(settings, "wecom_agent_id", "1001")
+    monkeypatch.setattr(settings, "wecom_secret", "secret")
+    monkeypatch.setattr(settings, "wecom_redirect_uri", "https://example.com/callback")
+
+    response = TestClient(app).get("/api/v1/auth/sso/start?provider=wecom&mode=work")
+
+    assert response.status_code == 200
+    redirect_url = response.json()["redirect_url"]
+    assert "open.weixin.qq.com/connect/oauth2/authorize" in redirect_url
+    assert "appid=corp" in redirect_url
+    assert "scope=snsapi_base" in redirect_url
+    assert redirect_url.endswith("#wechat_redirect")
+
+
 def test_wecom_sso_callback_sets_session_cookie(monkeypatch):
     monkeypatch.setattr(settings, "wecom_corp_id", "corp")
     monkeypatch.setattr(settings, "wecom_agent_id", "1001")
