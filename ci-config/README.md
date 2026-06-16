@@ -11,7 +11,6 @@ Kubernetes 发布清单不放在应用仓库内，统一放在 GitOps 仓库：
 ## 文件
 
 - `Dockerfile`：单镜像构建，先构建 `web-console`，再把静态产物复制到 FastAPI 镜像，由 `ai-service` 同时提供 API 和前端页面。
-- `python-runtime.Dockerfile`：Python 运行基础镜像，只安装系统运行依赖，不安装项目 Python 包。
 - `Jenkinsfile`：使用 Jenkins Kubernetes agent + Kaniko 构建并推送镜像。
 
 Kubernetes 相关文件：
@@ -63,17 +62,10 @@ poppler-utils
 
 其中 `poppler-utils` 提供 `pdftoppm`，用于 `pdf2image` 处理 PDF；`libjpeg62-turbo`、`libpng16-16` 是 Pillow 常见图片运行依赖；`libglib2.0-0` 作为图片/PDF 处理的保守运行依赖保留。
 
-`python-runtime.Dockerfile` 会删除 `python:3.12-slim` 默认的 `/etc/apt/sources.list.d/debian.sources`，避免同时访问 `deb.debian.org` 和国内源。
+当前已推送到私有镜像仓库：
 
-构建并推送：
-
-```bash
-docker build \
-  -f ci-config/python-runtime.Dockerfile \
-  -t prod-mirror-cn-beijing.cr.volces.com/metadata/document-ai-review-python-runtime:3.12-slim \
-  .
-
-docker push prod-mirror-cn-beijing.cr.volces.com/metadata/document-ai-review-python-runtime:3.12-slim
+```text
+prod-mirror-cn-beijing.cr.volces.com/metadata/document-ai-review-python-runtime:3.12-slim
 ```
 
 ## 域名和企微
