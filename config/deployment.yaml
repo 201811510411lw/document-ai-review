@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: document-ai-review
+  namespace: ds-api
+  labels:
+    app: document-ai-review
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: document-ai-review
+  template:
+    metadata:
+      labels:
+        app: document-ai-review
+    spec:
+      imagePullSecrets:
+        - name: dapi-secret
+      containers:
+        - name: app
+          image: prod-mirror-cn-beijing.cr.volces.com/metadata/document-ai-review:v1.1
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: document-ai-review-config
+            - secretRef:
+                name: document-ai-review-secret
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
+      restartPolicy: Always

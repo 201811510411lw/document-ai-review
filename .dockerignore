@@ -1,0 +1,11 @@
+.git
+.pytest_cache
+**/__pycache__
+**/*.pyc
+.env
+ai-service/.env
+ai-service/data
+web-console/node_modules
+web-console/dist
+web-console/.vite
+config/secret*.env

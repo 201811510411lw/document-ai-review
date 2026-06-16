@@ -270,6 +270,29 @@ class StubMySQLCursor:
                 }
             )
             return
+        if compact.startswith("insert into wecom_notification_queue"):
+            row_id = len(self.storage["wecom_notification_queue"]) + 1
+            self.lastrowid = row_id
+            self.storage["wecom_notification_queue"].append(
+                {
+                    "id": row_id,
+                    "channel": params[0],
+                    "status": params[1],
+                    "template": params[2],
+                    "to_user_ids_json": params[3],
+                    "recipient_names_json": params[4],
+                    "message": params[5],
+                    "task_id": params[6],
+                    "document_type": params[7],
+                    "detail_url": params[8],
+                    "attempts": params[9],
+                    "error": params[10],
+                    "next_retry_at": params[11],
+                    "created_at": params[12],
+                    "updated_at": params[13],
+                }
+            )
+            return
         if compact.startswith("select event_type, message, occurred_at"):
             rows = [
                 row
@@ -439,6 +462,7 @@ def install_mysql_repository_stub(monkeypatch):
         "review_results": {},
         "business_license_reviews": {},
         "business_license_review_audit_events": [],
+        "wecom_notification_queue": [],
         "food_license_reviews": {},
         "tobacco_license_reviews": {},
         "tobacco_consistency_reviews": {},

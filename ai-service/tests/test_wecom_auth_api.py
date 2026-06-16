@@ -39,6 +39,7 @@ def test_wecom_sso_callback_sets_session_cookie(monkeypatch):
     monkeypatch.setattr(settings, "wecom_secret", "secret")
     monkeypatch.setattr(settings, "wecom_redirect_uri", "https://example.com/callback")
     monkeypatch.setattr(settings, "wecom_unmatched_user_policy", "auto_create")
+    monkeypatch.setattr(settings, "web_console_base_url", "")
     state = auth_api._create_sso_state("wecom")
 
     class FakeWecomClient:
