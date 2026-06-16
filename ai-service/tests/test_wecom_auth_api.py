@@ -88,3 +88,15 @@ def test_wecom_sso_callback_rejects_invalid_state():
 
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "INVALID_SSO_STATE"
+
+
+def test_wecom_sso_callback_without_code_or_state_returns_to_workbench(monkeypatch):
+    monkeypatch.setattr(settings, "web_console_base_url", "")
+
+    response = TestClient(app).get(
+        "/api/v1/auth/sso/callback?provider=wecom",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/reviews"

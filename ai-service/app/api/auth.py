@@ -114,6 +114,8 @@ def sso_callback(
             status_code=501,
             detail={"code": "SSO_NOT_IMPLEMENTED", "message": "当前仅支持企业微信 SSO"},
         )
+    if not code and not state:
+        return RedirectResponse(_post_login_redirect_url(), status_code=302)
     if not _consume_sso_state(provider, state):
         raise HTTPException(
             status_code=400,
