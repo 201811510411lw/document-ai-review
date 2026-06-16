@@ -1,0 +1,130 @@
+def jenkinsServiceAccount() {
+  return "jenkins-admin"
+}
+
+def jnlpImage() {
+  return "prod-mirror-cn-beijing.cr.volces.com/metadata/inbound-agent:latest-jdk17"
+}
+
+def kanikoImage() {
+  return "prod-mirror-cn-beijing.cr.volces.com/metadata/kaniko:latest2"
+}
+
+def agentImagePullSecret() {
+  return "jenkins-secret"
+}
+
+def kanikoDockerConfigSecret() {
+  return "jenkins-secret"
+}
+
+def agentImagePullSecretsYaml() {
+  if (!agentImagePullSecret().trim()) {
+    return ""
+  }
+  return """
+  imagePullSecrets:
+    - name: ${agentImagePullSecret()}
+"""
+}
+
+def buildKanikoPodYaml() {
+  return """
+apiVersion: v1
+kind: Pod
+spec:
+  serviceAccountName: ${jenkinsServiceAccount()}
+${agentImagePullSecretsYaml()}  restartPolicy: Never
+  containers:
+    - name: jnlp
+      image: ${jnlpImage()}
+    - name: kaniko
+      image: ${kanikoImage()}
+      imagePullPolicy: IfNotPresent
+      command: ["/bin/sh"]
+      args: ["-c", "sleep 3600"]
+      tty: true
+      stdin: true
+      volumeMounts:
+        - name: kaniko-secret
+          mountPath: /kaniko/.docker
+  volumes:
+    - name: kaniko-secret
+      secret:
+        secretName: ${kanikoDockerConfigSecret()}
+        items:
+          - key: .dockerconfigjson
+            path: config.json
+"""
+}
+
+def cloneProject() {
+  withCredentials([usernamePassword(credentialsId: 'ds-cicd', usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_PASSWORD')]) {
+    script {
+      def repoUrl = params.GIT_REPO.replace('https://', '').replace('http://', '')
+      sh """#!/bin/bash
+        set -e
+        git clone -b ${params.GIT_BRANCH} https://\${GIT_USERNAME}:\${GIT_PASSWORD}@${repoUrl} document-ai-review
+      """
+      sh 'ls -la document-ai-review'
+    }
+  }
+}
+
+def buildImage(String imageName) {
+  container('kaniko') {
+    sh """
+      /kaniko/executor \
+        --context=${env.WORKSPACE}/document-ai-review \
+        --dockerfile=ci-config/Dockerfile \
+        --destination=${imageName} \
+        --skip-tls-verify \
+        --verbosity=debug
+    """
+  }
+}
+
+def resolveImageTag() {
+  return params.IMAGE_TAG
+    .replace('${BUILD_NUMBER}', env.BUILD_NUMBER)
+    .replace('$BUILD_NUMBER', env.BUILD_NUMBER)
+}
+
+pipeline {
+  agent none
+
+  parameters {
+    string(name: 'GIT_REPO', defaultValue: 'https://git.lsym.cn/datacenter/data-development/document-ai-review.git', description: 'Git仓库地址')
+    string(name: 'GIT_BRANCH', defaultValue: 'fix/qc-review-closure-followup', description: 'Git分支')
+    string(name: 'IMAGE_REGISTRY', defaultValue: 'prod-mirror-cn-beijing.cr.volces.com/metadata', description: '镜像仓库命名空间')
+    string(name: 'IMAGE_TAG', defaultValue: 'v1.${BUILD_NUMBER}', description: '镜像Tag')
+  }
+
+  stages {
+    stage('Build & Push Image') {
+      steps {
+        script {
+          podTemplate(yaml: buildKanikoPodYaml()) {
+            node(POD_LABEL) {
+              cloneProject()
+              def imageTag = resolveImageTag()
+              def imageName = "${params.IMAGE_REGISTRY}/document-ai-review:${imageTag}"
+              echo "Build image: ${imageName}"
+              buildImage(imageName)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "构建成功"
+      echo "app: ${params.IMAGE_REGISTRY}/document-ai-review:${resolveImageTag()}"
+    }
+    failure {
+      echo "构建失败，请检查 Jenkins 日志"
+    }
+  }
+}
