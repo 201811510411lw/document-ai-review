@@ -3,6 +3,7 @@ import os
 from typing import Any
 
 import pytest
+from pypdf.errors import PdfReadError, PdfStreamError
 
 from app.core.config import load_local_env
 from app.integrations.mysql_client import MySqlFetchClient, mysql_settings_from_env
@@ -89,12 +90,15 @@ def test_manual_mysql_pdf_llm_extraction_snapshot():
     if _debug_enabled():
         _print_json({"source": source_snapshot})
 
-    recognition_result = recognize_license_file(
-        task.review_input,
-        adapter=adapter,
-        downloader=downloader,
-        include_legacy_vision_metadata=True,
-    )
+    try:
+        recognition_result = recognize_license_file(
+            task.review_input,
+            adapter=adapter,
+            downloader=downloader,
+            include_legacy_vision_metadata=True,
+        )
+    except (PdfReadError, PdfStreamError) as error:
+        pytest.skip(f"source document is not a readable PDF: {type(error).__name__}")
     review_result = ReviewService().review(
         task.review_input,
         use_case_name="business_license",

@@ -1,8 +1,11 @@
 from app.models import ReviewInput
 from app.models import ReviewDocumentInput
-from app.integrations.mysql_client import MySqlSettings
 from app.repositories.review_result_repository import MySQLReviewResultRepository
 from app.services.review_service import ReviewService
+from tests.business_license_helpers import (
+    business_license_json,
+    business_license_repository,
+)
 from tests.mysql_repository_stub import install_mysql_repository_stub
 from tests.pdf_helpers import write_minimal_pdf
 
@@ -13,7 +16,7 @@ def test_business_license_review_projection_is_saved_and_loaded(tmp_path, monkey
     write_minimal_pdf(pdf_path, "embedded text should not be used")
     monkeypatch.setenv(
         "BUSINESS_LICENSE_FAKE_VISION_JSON",
-        _business_license_json(),
+        business_license_json(),
     )
     monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
     repository = _repository()
@@ -64,7 +67,7 @@ def test_business_license_projection_saves_file_and_vision_metadata(
     image_path.write_bytes(b"fake-image-bytes")
     monkeypatch.setenv(
         "BUSINESS_LICENSE_FAKE_VISION_JSON",
-        _business_license_json(),
+        business_license_json(),
     )
     monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
     repository = _repository()
@@ -94,26 +97,8 @@ def test_business_license_projection_saves_file_and_vision_metadata(
 
 
 def _business_license_json() -> str:
-    return """
-    {
-      "document_type": "business_license",
-      "subject_name": "成都示例商贸有限公司",
-      "credit_code": "91510100MA0000000X",
-      "business_address": "成都市高新区天府大道 1 号",
-      "legal_person": "张三",
-      "valid_from": "2020-01-02",
-      "valid_to": "2030-01-01"
-    }
-    """
+    return business_license_json()
 
 
 def _repository() -> MySQLReviewResultRepository:
-    return MySQLReviewResultRepository(
-        MySqlSettings(
-            host="127.0.0.1",
-            port=3306,
-            user="review",
-            password="secret",
-            database="document_ai_review",
-        )
-    )
+    return business_license_repository()

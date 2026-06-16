@@ -23,7 +23,7 @@ def test_manual_local_file_aliyun_ocr_dump():
         )
     )
     if not local_file.exists():
-        pytest.fail(f"ALIYUN_OCR_LOCAL_FILE does not exist: {local_file}", pytrace=False)
+        pytest.skip(f"ALIYUN_OCR_LOCAL_FILE does not exist: {local_file}")
 
     result = AliyunCloudMarketOcrAdapter().extract_text(
         VisionInput(

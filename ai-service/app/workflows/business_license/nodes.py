@@ -3,6 +3,8 @@ from app.capabilities.business_license.schemas import (
     BusinessLicenseDocumentInputResult,
     BusinessLicenseExtractedFields,
     BusinessLicenseNormalizedFields,
+    normalize_business_license_source_fields,
+    normalize_business_license_fields,
 )
 from app.models import ManualReview, ManualReviewStatus, ReviewStatus, RiskLevel
 from app.tools import build_business_license_vision_adapter
@@ -108,9 +110,7 @@ def extract_fields(state: BusinessLicenseWorkflowState) -> BusinessLicenseWorkfl
 
 def normalize_fields(state: BusinessLicenseWorkflowState) -> BusinessLicenseWorkflowState:
     extracted = state.get("extracted_fields")
-    normalized = BusinessLicenseNormalizedFields.model_validate(
-        extracted.model_dump() if extracted is not None else {}
-    )
+    normalized = normalize_business_license_fields(extracted)
     return {**state, "normalized_fields": normalized}
 
 
@@ -118,19 +118,23 @@ def run_rules(state: BusinessLicenseWorkflowState) -> BusinessLicenseWorkflowSta
     input_context = state["input_context"]
     classification = state.get("document_classification")
     normalized_fields = state.get("normalized_fields")
+    normalized_payload = (
+        normalized_fields.model_dump(mode="json") if normalized_fields else {}
+    )
     skill_name = "business-license-review"
     review_payload = {
         "task_id": input_context.task_id,
         "declared_document_type": input_context.input.declared_document_type,
-        "document_type": classification.document_type if classification else None,
-        "source_fields": {
-            "supplier_name": input_context.input.supplier_name,
-            "supplier_credit_code": input_context.input.supplier_credit_code,
-            "supplier_address": input_context.input.supplier_address,
-        },
-        "extracted_fields": (
-            normalized_fields.model_dump(mode="json") if normalized_fields else {}
+        "document_type": normalized_payload.get("document_type")
+        or (classification.document_type if classification else None),
+        "source_fields": normalize_business_license_source_fields(
+            {
+                "supplier_name": input_context.input.supplier_name,
+                "supplier_credit_code": input_context.input.supplier_credit_code,
+                "supplier_address": input_context.input.supplier_address,
+            }
         ),
+        "extracted_fields": normalized_payload,
         "source_evidence": state.get("source_evidence", {}),
         "extraction_metadata": state.get("extraction_metadata", {}),
     }
