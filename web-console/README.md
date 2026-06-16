@@ -4,7 +4,7 @@
 
 当前版本默认调用 `ai-service` 的营业执照审核结果 API，并提供轻量登录验证和人工复核写回，便于本地打开前台页面做真实 API 联调。
 
-当前版本不接入企业微信 SDK、OAuth、权限系统或完整审批流。
+当前版本已接入企业微信 OAuth 登录和审核通知 worker。企微内打开时复用同一套 `/reviews` 与 `/reviews/{task_id}` 页面；本地账号登录仍作为开发和应急 fallback 保留。
 
 ## 登录验证
 
@@ -24,7 +24,46 @@ WEB_CONSOLE_AUTH_SECRET=change-me
 WEB_CONSOLE_AUTH_TOKEN_TTL_SECONDS=28800
 ```
 
-登录成功后，前端会把 bearer token 保存在 `localStorage`，并在查询营业执照审核结果列表和详情时自动带上 `Authorization` 请求头。未登录或 token 失效时会回到 `/login`。
+登录成功后，前端会把本地 bearer token 保存在 `localStorage`，并在查询营业执照审核结果列表和详情时自动带上 `Authorization` 请求头。企业微信 OAuth 回调由后端写入 `HttpOnly` cookie，前端启动时通过 `/api/v1/auth/me` 恢复会话。未登录或 token 失效时会回到 `/login`。
+
+## 企业微信接入
+
+后端配置：
+
+```bash
+WECOM_CORP_ID=<企业 ID>
+WECOM_AGENT_ID=<自建应用 AgentId>
+WECOM_SECRET=<自建应用 Secret>
+WECOM_REDIRECT_URI=https://your-domain.example.com/api/v1/auth/sso/callback?provider=wecom
+WECOM_REVIEWER_USER_IDS=
+WECOM_ADMIN_USER_IDS=
+WECOM_WORKER_TOKEN=<worker bearer token>
+WECOM_NOTIFICATION_BASE_URL=https://your-domain.example.com
+WEB_CONSOLE_BASE_URL=https://your-domain.example.com
+```
+
+企微后台需要配置：
+
+- 自建应用 OAuth2.0 网页授权回调域名，需匹配 `WECOM_REDIRECT_URI` 的域名；
+- 自建应用可信 IP，需包含 `ai-service` 出口 IP；
+- 应用可见范围，需包含审核员；登录准入由企微应用可见范围控制，系统侧不再维护登录白名单；
+- 企微工作台入口可配置为 `https://your-domain.example.com/reviews`。
+
+接口：
+
+```text
+GET /api/v1/auth/providers
+GET /api/v1/auth/sso/start?provider=wecom
+GET /api/v1/auth/sso/callback?provider=wecom
+GET|POST /api/v1/wecom/notifications/worker
+```
+
+营业执照审核保存后，若结果为高风险、审核失败或待人工复核，会写入持久化企微通知队列。`WECOM_REVIEWER_USER_IDS` 可选；不配置时默认发送给企微应用可见范围内的 `@all`。worker 使用如下方式触发发送：
+
+```bash
+curl -H "Authorization: Bearer $WECOM_WORKER_TOKEN" \
+  https://your-domain.example.com/api/v1/wecom/notifications/worker
+```
 
 ## API 与本地联调
 

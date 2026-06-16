@@ -769,6 +769,22 @@ td small {
   gap: 18px;
 }
 
+.login-divider {
+  color: #687386;
+  display: flex;
+  font-size: 12px;
+  gap: 10px;
+  align-items: center;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: "";
+  height: 1px;
+  background: #dbe2ec;
+  flex: 1;
+}
+
 .login-form label {
   display: grid;
   gap: 7px;

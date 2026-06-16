@@ -1,12 +1,18 @@
-import { FormEvent, useState } from "react";
-import { LockKeyhole, LogIn, ShieldCheck } from "lucide-react";
-import { login, saveSession } from "../api/auth";
+import { FormEvent, useEffect, useState } from "react";
+import { LockKeyhole, LogIn, QrCode, ShieldCheck } from "lucide-react";
+import { loadAuthProviders, login, saveSession, startSso, type AuthProvider } from "../api/auth";
 import { navigateTo } from "../navigation";
 
 export function LoginPage() {
   const [username, setUsername] = useState("reviewer");
   const [password, setPassword] = useState("reviewer123");
   const [status, setStatus] = useState<"idle" | "submitting" | "error">("idle");
+  const [ssoStatus, setSsoStatus] = useState<"idle" | "submitting" | "error">("idle");
+  const [providers, setProviders] = useState<AuthProvider[]>([]);
+
+  useEffect(() => {
+    loadAuthProviders().then(setProviders);
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -20,6 +26,17 @@ export function LoginPage() {
     }
   }
 
+  async function submitWecom() {
+    setSsoStatus("submitting");
+    try {
+      window.location.href = await startSso("wecom", isEnterpriseWeChatBrowser() ? "work" : "qr");
+    } catch {
+      setSsoStatus("error");
+    }
+  }
+
+  const wecomProvider = providers.find((provider) => provider.id === "wecom");
+
   return (
     <main className="login-shell">
       <section className="login-panel" aria-label="登录工作台">
@@ -31,6 +48,24 @@ export function LoginPage() {
           </div>
         </div>
         <form className="login-form" onSubmit={submit}>
+          <button
+            className="primary-button"
+            disabled={ssoStatus === "submitting" || wecomProvider?.configured === false}
+            onClick={submitWecom}
+            type="button"
+          >
+            {ssoStatus === "submitting" ? (
+              <LockKeyhole size={16} aria-hidden="true" />
+            ) : (
+              <QrCode size={16} aria-hidden="true" />
+            )}
+            企业微信登录
+          </button>
+          {wecomProvider && !wecomProvider.configured && (
+            <p className="login-error">企业微信应用尚未配置。</p>
+          )}
+          {ssoStatus === "error" && <p className="login-error">企业微信登录启动失败。</p>}
+          <div className="login-divider">本地账号登录</div>
           <label>
             <span>账号</span>
             <input
@@ -67,4 +102,8 @@ function nextPath() {
   const params = new URLSearchParams(window.location.search);
   const next = params.get("next");
   return next && next.startsWith("/") ? next : "/reviews";
+}
+
+function isEnterpriseWeChatBrowser() {
+  return /wxwork/i.test(window.navigator.userAgent);
 }

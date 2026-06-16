@@ -234,23 +234,57 @@ describe("business license review workbench", () => {
     render(<App />);
 
     expect(screen.getByText("营业执照审核工作台")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "企业微信登录" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/login");
     expect(window.location.search).toBe("?next=%2Freviews");
   });
 
+  it("starts enterprise WeChat OAuth automatically inside WeCom", async () => {
+    Object.defineProperty(window.navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 wxwork/4.1.0"
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/api/v1/auth/me")) {
+        return new Response("", {status: 401});
+      }
+      if (url.includes("/api/v1/auth/sso/start")) {
+        return new Response(JSON.stringify({redirect_url: "/oauth-redirect"}), {
+          status: 200
+        });
+      }
+      return new Response("", {status: 404});
+    });
+    setPath("/reviews");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([input]) => String(input).includes("mode=work"))).toBe(true);
+    });
+  });
+
   it("logs in and returns to the requested route", async () => {
     const user = userEvent.setup();
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          access_token: "login-token",
-          token_type: "bearer",
-          expires_at: Math.floor(Date.now() / 1000) + 3600,
-          user: {username: "reviewer", display_name: "审核员"}
-        }),
-        {status: 200}
-      )
-    );
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/api/v1/auth/login")) {
+        return new Response(
+          JSON.stringify({
+            access_token: "login-token",
+            token_type: "bearer",
+            expires_at: Math.floor(Date.now() / 1000) + 3600,
+            user: {username: "reviewer", display_name: "审核员"}
+          }),
+          {status: 200}
+        );
+      }
+      if (url.includes("/api/v1/auth/providers")) {
+        return new Response(JSON.stringify({providers: []}), {status: 200});
+      }
+      return new Response("", {status: 401});
+    });
     setPath("/login?next=/reviews");
     render(<App />);
 

@@ -17,7 +17,7 @@ export const httpReviewClient: ReviewClient = {
   async listReviews(filters: ReviewFilters): Promise<ListReviewsResponse> {
     const response = await fetch(
       `${API_BASE_URL}/api/v1/business-license/reviews?${queryString(filters)}`,
-      {headers: authHeaders()}
+      {headers: authHeaders(), credentials: "include"}
     );
     handleUnauthorized(response);
     if (!response.ok) {
@@ -29,7 +29,7 @@ export const httpReviewClient: ReviewClient = {
   async listQcReviews(filters: ReviewFilters): Promise<ListReviewsResponse> {
     const response = await fetch(
       `${API_BASE_URL}/api/v1/qc/reviews?${queryString(filters)}`,
-      {headers: authHeaders()}
+      {headers: authHeaders(), credentials: "include"}
     );
     handleUnauthorized(response);
     if (!response.ok) {
@@ -41,7 +41,7 @@ export const httpReviewClient: ReviewClient = {
   async getReview(taskId: string): Promise<ReviewDetail | null> {
     const response = await fetch(
       `${API_BASE_URL}/api/v1/business-license/reviews/${encodeURIComponent(taskId)}`,
-      {headers: authHeaders()}
+      {headers: authHeaders(), credentials: "include"}
     );
     handleUnauthorized(response);
     if (response.status === 404) {
@@ -56,7 +56,7 @@ export const httpReviewClient: ReviewClient = {
   async getQcReview(taskId: string): Promise<ReviewDetail | null> {
     const response = await fetch(
       `${API_BASE_URL}/api/v1/qc/reviews/${encodeURIComponent(taskId)}`,
-      {headers: authHeaders()}
+      {headers: authHeaders(), credentials: "include"}
     );
     handleUnauthorized(response);
     if (response.status === 404) {
@@ -71,7 +71,8 @@ export const httpReviewClient: ReviewClient = {
   async createReviewFromSrm(): Promise<ReviewDetail> {
     const response = await fetch(`${API_BASE_URL}/api/v1/business-license/reviews/from-srm`, {
       method: "POST",
-      headers: authHeaders()
+      headers: authHeaders(),
+      credentials: "include"
     });
     handleUnauthorized(response);
     if (!response.ok) {
@@ -92,6 +93,7 @@ export const httpReviewClient: ReviewClient = {
           "Content-Type": "application/json",
           ...authHeaders()
         },
+        credentials: "include",
         body: JSON.stringify({
           decision: request.decision,
           comment: request.comment,

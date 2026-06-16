@@ -42,6 +42,16 @@ PROJECT_ENV_KEYS = {
     "WEB_CONSOLE_AUTH_PASSWORD",
     "WEB_CONSOLE_AUTH_SECRET",
     "WEB_CONSOLE_AUTH_TOKEN_TTL_SECONDS",
+    "WECOM_CORP_ID",
+    "WECOM_AGENT_ID",
+    "WECOM_SECRET",
+    "WECOM_REDIRECT_URI",
+    "WECOM_UNMATCHED_USER_POLICY",
+    "WECOM_REVIEWER_USER_IDS",
+    "WECOM_ADMIN_USER_IDS",
+    "WECOM_WORKER_TOKEN",
+    "WECOM_NOTIFICATION_BASE_URL",
+    "WEB_CONSOLE_BASE_URL",
 }
 
 
@@ -80,6 +90,18 @@ class Settings(BaseModel):
     web_console_auth_token_ttl_seconds: int = int(
         os.environ.get("WEB_CONSOLE_AUTH_TOKEN_TTL_SECONDS", "28800")
     )
+    wecom_corp_id: str = os.environ.get("WECOM_CORP_ID", "")
+    wecom_agent_id: str = os.environ.get("WECOM_AGENT_ID", "")
+    wecom_secret: str = os.environ.get("WECOM_SECRET", "")
+    wecom_redirect_uri: str = os.environ.get("WECOM_REDIRECT_URI", "")
+    wecom_unmatched_user_policy: str = os.environ.get(
+        "WECOM_UNMATCHED_USER_POLICY", "reject"
+    )
+    wecom_reviewer_user_ids: str = os.environ.get("WECOM_REVIEWER_USER_IDS", "")
+    wecom_admin_user_ids: str = os.environ.get("WECOM_ADMIN_USER_IDS", "")
+    wecom_worker_token: str = os.environ.get("WECOM_WORKER_TOKEN", "")
+    wecom_notification_base_url: str = os.environ.get("WECOM_NOTIFICATION_BASE_URL", "")
+    web_console_base_url: str = os.environ.get("WEB_CONSOLE_BASE_URL", "")
 
 
 settings = Settings()
