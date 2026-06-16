@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+ai-service/data/
+docs/docs.md
+.env
+ai-service/.env

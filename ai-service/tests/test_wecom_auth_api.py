@@ -1,0 +1,73 @@
+from fastapi.testclient import TestClient
+
+from app.api import auth as auth_api
+from app.core.config import settings
+from app.integrations.wecom.client import WecomUser
+from app.main import app
+
+
+def test_wecom_provider_reports_configuration(monkeypatch):
+    monkeypatch.setattr(settings, "wecom_corp_id", "corp")
+    monkeypatch.setattr(settings, "wecom_agent_id", "1001")
+    monkeypatch.setattr(settings, "wecom_secret", "secret")
+    monkeypatch.setattr(settings, "wecom_redirect_uri", "https://example.com/callback")
+
+    response = TestClient(app).get("/api/v1/auth/providers")
+
+    assert response.status_code == 200
+    provider = response.json()["providers"][0]
+    assert provider["id"] == "wecom"
+    assert provider["configured"] is True
+
+
+def test_wecom_sso_start_returns_authorize_url(monkeypatch):
+    monkeypatch.setattr(settings, "wecom_corp_id", "corp")
+    monkeypatch.setattr(settings, "wecom_agent_id", "1001")
+    monkeypatch.setattr(settings, "wecom_secret", "secret")
+    monkeypatch.setattr(settings, "wecom_redirect_uri", "https://example.com/callback")
+
+    response = TestClient(app).get("/api/v1/auth/sso/start?provider=wecom")
+
+    assert response.status_code == 200
+    assert "open.work.weixin.qq.com/wwopen/sso/qrConnect" in response.json()["redirect_url"]
+    assert "appid=corp" in response.json()["redirect_url"]
+
+
+def test_wecom_sso_callback_sets_session_cookie(monkeypatch):
+    monkeypatch.setattr(settings, "wecom_corp_id", "corp")
+    monkeypatch.setattr(settings, "wecom_agent_id", "1001")
+    monkeypatch.setattr(settings, "wecom_secret", "secret")
+    monkeypatch.setattr(settings, "wecom_redirect_uri", "https://example.com/callback")
+    monkeypatch.setattr(settings, "wecom_unmatched_user_policy", "auto_create")
+    state = auth_api._create_sso_state("wecom")
+
+    class FakeWecomClient:
+        def resolve_login_user(self, code):
+            assert code == "code-1"
+            return WecomUser(user_id="wecom-reviewer", name="企微审核员", email="u@example.com")
+
+    monkeypatch.setattr(auth_api, "WecomClient", FakeWecomClient)
+
+    client = TestClient(app)
+    response = client.get(
+        f"/api/v1/auth/sso/callback?provider=wecom&code=code-1&state={state}",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/reviews"
+    assert "document_ai_review_session" in response.headers["set-cookie"]
+
+    me = client.get("/api/v1/auth/me")
+    assert me.status_code == 200
+    assert me.json()["user"]["username"] == "wecom-reviewer"
+    assert me.json()["user"]["provider"] == "wecom"
+
+
+def test_wecom_sso_callback_rejects_invalid_state():
+    response = TestClient(app).get(
+        "/api/v1/auth/sso/callback?provider=wecom&code=code-1&state=missing"
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "INVALID_SSO_STATE"

@@ -1,0 +1,500 @@
+class StubMySQLCursor:
+    def __init__(self, storage):
+        self.storage = storage
+        self.result = None
+
+    def execute(self, sql, params=None):
+        compact = " ".join(sql.split()).lower()
+        params = params or ()
+        self.storage["executed_sql"].append(sql)
+        if compact.startswith("create table"):
+            return
+        if compact.startswith("alter table"):
+            return
+        if compact.startswith("insert into review_results"):
+            self.storage["review_results"][params[0]] = {
+                "task_id": params[0],
+                "payload_json": params[1],
+                "created_at": params[2],
+            }
+            return
+        if compact.startswith("select payload_json from review_results"):
+            self.result = self.storage["review_results"].get(params[0])
+            return
+        if compact.startswith("update review_results set payload_json"):
+            row = self.storage["review_results"].get(params[1])
+            if row is not None:
+                row["payload_json"] = params[0]
+            return
+        if compact.startswith("insert into business_license_reviews"):
+            keys = [
+                "task_id",
+                "source_record_id",
+                "source_attachment_ref_id",
+                "source_url",
+                "tenant",
+                "document_type",
+                "business_name",
+                "credit_code",
+                "business_address",
+                "legal_person",
+                "valid_from",
+                "valid_to",
+                "issue_authority",
+                "issue_date",
+                "review_status",
+                "risk_level",
+                "needs_manual_review",
+                "summary",
+                "rule_results_json",
+                "extracted_fields_json",
+                "normalized_fields_json",
+                "extraction_metadata_json",
+                "source_evidence_json",
+                "created_at",
+                "updated_at",
+            ]
+            self.storage["business_license_reviews"][params[0]] = dict(zip(keys, params))
+            return
+        if compact.startswith("insert into food_license_reviews"):
+            keys = [
+                "task_id",
+                "source_record_id",
+                "source_attachment_ref_id",
+                "source_url",
+                "tenant",
+                "document_type",
+                "subject_name",
+                "credit_code",
+                "license_no",
+                "business_address",
+                "legal_person",
+                "business_items_json",
+                "valid_from",
+                "valid_to",
+                "issue_authority",
+                "issue_date",
+                "review_status",
+                "risk_level",
+                "needs_manual_review",
+                "summary",
+                "rule_results_json",
+                "extracted_fields_json",
+                "normalized_fields_json",
+                "extraction_metadata_json",
+                "source_evidence_json",
+                "created_at",
+                "updated_at",
+            ]
+            self.storage["food_license_reviews"][params[0]] = dict(zip(keys, params))
+            return
+        if compact.startswith("insert into tobacco_license_reviews"):
+            keys = [
+                "task_id",
+                "source_record_id",
+                "source_attachment_ref_id",
+                "source_url",
+                "tenant",
+                "document_type",
+                "subject_name",
+                "business_address",
+                "legal_person",
+                "license_no",
+                "valid_from",
+                "valid_to",
+                "review_status",
+                "risk_level",
+                "needs_manual_review",
+                "summary",
+                "rule_results_json",
+                "extracted_fields_json",
+                "normalized_fields_json",
+                "extraction_metadata_json",
+                "source_evidence_json",
+                "created_at",
+                "updated_at",
+            ]
+            self.storage["tobacco_license_reviews"][params[0]] = dict(zip(keys, params))
+            return
+        if compact.startswith("insert into tobacco_consistency_reviews"):
+            keys = [
+                "task_id",
+                "source_record_id",
+                "source_attachment_ref_id",
+                "source_url",
+                "tenant",
+                "document_type",
+                "subject_name",
+                "review_status",
+                "risk_level",
+                "needs_manual_review",
+                "summary",
+                "rule_results_json",
+                "comparison_json",
+                "business_license_fields_json",
+                "tobacco_license_fields_json",
+                "source_evidence_json",
+                "created_at",
+                "updated_at",
+            ]
+            self.storage["tobacco_consistency_reviews"][params[0]] = dict(zip(keys, params))
+            return
+        if compact.startswith("select * from business_license_reviews"):
+            self.result = self.storage["business_license_reviews"].get(params[0])
+            return
+        if compact.startswith("select * from food_license_reviews"):
+            self.result = self.storage["food_license_reviews"].get(params[0])
+            return
+        if compact.startswith("select * from tobacco_license_reviews"):
+            self.result = self.storage["tobacco_license_reviews"].get(params[0])
+            return
+        if compact.startswith("select * from tobacco_consistency_reviews"):
+            self.result = self.storage["tobacco_consistency_reviews"].get(params[0])
+            return
+        if compact.startswith("select task_id from business_license_reviews"):
+            row = self.storage["business_license_reviews"].get(params[0])
+            self.result = {"task_id": params[0]} if row is not None else None
+            return
+        if compact.startswith("select task_id from food_license_reviews"):
+            row = self.storage["food_license_reviews"].get(params[0])
+            self.result = {"task_id": params[0]} if row is not None else None
+            return
+        if compact.startswith("select task_id from tobacco_license_reviews"):
+            row = self.storage["tobacco_license_reviews"].get(params[0])
+            self.result = {"task_id": params[0]} if row is not None else None
+            return
+        if compact.startswith("select task_id from tobacco_consistency_reviews"):
+            row = self.storage["tobacco_consistency_reviews"].get(params[0])
+            self.result = {"task_id": params[0]} if row is not None else None
+            return
+        if compact.startswith("select task_id from product_report_reviews"):
+            row = self.storage["product_report_reviews"].get(params[0])
+            self.result = {"task_id": params[0]} if row is not None else None
+            return
+        if compact.startswith("update business_license_reviews set review_status"):
+            row = self.storage["business_license_reviews"].get(params[-1])
+            if row is not None:
+                row.update(
+                    {
+                        "review_status": params[0],
+                        "needs_manual_review": params[1],
+                        "manual_review_status": params[2],
+                        "manual_review_decision": params[3],
+                        "manual_review_comment": params[4],
+                        "manual_review_reviewer_id": params[5],
+                        "manual_review_reviewer_username": params[6],
+                        "manual_review_reviewed_at": params[7],
+                        "updated_at": params[8],
+                    }
+                )
+            return
+        if compact.startswith("update food_license_reviews set review_status"):
+            row = self.storage["food_license_reviews"].get(params[-1])
+            if row is not None:
+                row.update(
+                    {
+                        "review_status": params[0],
+                        "needs_manual_review": params[1],
+                        "manual_review_status": params[2],
+                        "manual_review_decision": params[3],
+                        "manual_review_comment": params[4],
+                        "manual_review_reviewer_id": params[5],
+                        "manual_review_reviewer_username": params[6],
+                        "manual_review_reviewed_at": params[7],
+                        "updated_at": params[8],
+                    }
+                )
+            return
+        if compact.startswith("update tobacco_license_reviews set review_status"):
+            row = self.storage["tobacco_license_reviews"].get(params[-1])
+            if row is not None:
+                row.update(
+                    {
+                        "review_status": params[0],
+                        "needs_manual_review": params[1],
+                        "manual_review_status": params[2],
+                        "manual_review_decision": params[3],
+                        "manual_review_comment": params[4],
+                        "manual_review_reviewer_id": params[5],
+                        "manual_review_reviewer_username": params[6],
+                        "manual_review_reviewed_at": params[7],
+                        "updated_at": params[8],
+                    }
+                )
+            return
+        if compact.startswith("update tobacco_consistency_reviews set review_status"):
+            row = self.storage["tobacco_consistency_reviews"].get(params[-1])
+            if row is not None:
+                row.update(
+                    {
+                        "review_status": params[0],
+                        "needs_manual_review": params[1],
+                        "manual_review_status": params[2],
+                        "manual_review_decision": params[3],
+                        "manual_review_comment": params[4],
+                        "manual_review_reviewer_id": params[5],
+                        "manual_review_reviewer_username": params[6],
+                        "manual_review_reviewed_at": params[7],
+                        "updated_at": params[8],
+                    }
+                )
+            return
+        if compact.startswith("update product_report_reviews set review_status"):
+            row = self.storage["product_report_reviews"].get(params[-1])
+            if row is not None:
+                row.update(
+                    {
+                        "review_status": params[0],
+                        "needs_manual_review": params[1],
+                        "manual_review_status": params[2],
+                        "manual_review_decision": params[3],
+                        "manual_review_comment": params[4],
+                        "manual_review_reviewer_id": params[5],
+                        "manual_review_reviewer_username": params[6],
+                        "manual_review_reviewed_at": params[7],
+                        "updated_at": params[8],
+                    }
+                )
+            return
+        if compact.startswith("insert into business_license_review_audit_events"):
+            self.storage["business_license_review_audit_events"].append(
+                {
+                    "id": len(self.storage["business_license_review_audit_events"]) + 1,
+                    "task_id": params[0],
+                    "event_type": params[1],
+                    "message": params[2],
+                    "occurred_at": params[3],
+                    "actor_id": params[4],
+                    "actor_username": params[5],
+                    "details_json": params[6],
+                }
+            )
+            return
+        if compact.startswith("select event_type, message, occurred_at"):
+            rows = [
+                row
+                for row in self.storage["business_license_review_audit_events"]
+                if row["task_id"] == params[0]
+            ]
+            self.result = sorted(rows, key=lambda row: (row["occurred_at"], row["id"]))
+            return
+        if compact.startswith("select count(*) as total from business_license_reviews"):
+            rows = _filter_business_license_rows(self.storage, params)
+            self.result = {"total": len(rows)}
+            return
+        if compact.startswith("select count(*) as total, sum(case when date(created_at)"):
+            rows = _filter_business_license_rows(self.storage, params)
+            self.result = {
+                "total": len(rows),
+                "today_reviewed": sum(1 for row in rows if _is_today(row.get("created_at"))),
+                "pending_manual_review": sum(
+                    1 for row in rows if int(row.get("needs_manual_review") or 0) == 1
+                ),
+                "high_risk": sum(1 for row in rows if row.get("risk_level") == "HIGH"),
+                "reviewed": sum(1 for row in rows if row.get("review_status") == "REVIEWED"),
+            }
+            return
+        if (
+            compact.startswith("select task_id, source_record_id")
+            and "from product_report_reviews" in compact
+            and "limit %s offset %s" not in compact
+        ):
+            self.result = list(self.storage["product_report_reviews"].values())
+            return
+        if (
+            compact.startswith("select task_id, source_record_id")
+            and "from food_license_reviews" in compact
+            and "limit %s offset %s" not in compact
+        ):
+            self.result = list(self.storage["food_license_reviews"].values())
+            return
+        if (
+            compact.startswith("select task_id, source_record_id")
+            and "from tobacco_license_reviews" in compact
+            and "limit %s offset %s" not in compact
+        ):
+            self.result = list(self.storage["tobacco_license_reviews"].values())
+            return
+        if (
+            compact.startswith("select task_id, source_record_id")
+            and "from tobacco_consistency_reviews" in compact
+            and "limit %s offset %s" not in compact
+        ):
+            self.result = list(self.storage["tobacco_consistency_reviews"].values())
+            return
+        if (
+            compact.startswith("select task_id, source_record_id")
+            and "from business_license_reviews" in compact
+            and "limit %s offset %s" not in compact
+        ):
+            self.result = list(self.storage["business_license_reviews"].values())
+            return
+        if compact.startswith("select task_id, source_record_id") and "limit %s offset %s" in compact:
+            rows = _filter_business_license_rows(self.storage, params[:-2])
+            rows = sorted(
+                rows,
+                key=lambda row: (row.get("created_at") or "", row.get("task_id") or ""),
+                reverse=True,
+            )
+            limit = int(params[-2])
+            offset = int(params[-1])
+            self.result = rows[offset : offset + limit]
+            return
+        if compact.startswith("insert into product_report_reviews"):
+            keys = [
+                "task_id",
+                "source_record_id",
+                "source_attachment_ref_id",
+                "tenant",
+                "document_type",
+                "product_name",
+                "sample_name",
+                "vendor_name",
+                "vendor_name_extracted",
+                "entrusting_party",
+                "manufacturer_name",
+                "batch_no",
+                "production_date",
+                "issue_date",
+                "sign_date",
+                "inspection_conclusion",
+                "inspection_result",
+                "review_status",
+                "risk_level",
+                "needs_manual_review",
+                "summary",
+                "rule_results_json",
+                "extraction_metadata_json",
+                "source_evidence_json",
+                "created_at",
+                "updated_at",
+            ]
+            self.storage["product_report_reviews"][params[0]] = dict(zip(keys, params))
+            return
+        if compact.startswith("delete from product_report_inspection_items"):
+            self.storage["product_report_inspection_items"][params[0]] = []
+            return
+        if compact.startswith("insert into product_report_inspection_items"):
+            task_id = params[0]
+            self.storage["product_report_inspection_items"].setdefault(task_id, []).append(
+                {
+                    "task_id": task_id,
+                    "item_index": params[1],
+                    "item_name": params[2],
+                    "item_result": params[3],
+                    "item_payload_json": params[4],
+                }
+            )
+            return
+        if compact.startswith("select * from product_report_reviews"):
+            self.result = self.storage["product_report_reviews"].get(params[0])
+            return
+        if compact.startswith("select item_index, item_name, item_result, item_payload_json"):
+            self.result = sorted(
+                self.storage["product_report_inspection_items"].get(params[0], []),
+                key=lambda row: row["item_index"],
+            )
+            return
+        raise AssertionError(f"Unexpected SQL: {sql}")
+
+    def fetchone(self):
+        return self.result
+
+    def fetchall(self):
+        return self.result or []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+class StubMySQLConnection:
+    def __init__(self, storage):
+        self.storage = storage
+        self.closed = False
+        self.commits = 0
+
+    def cursor(self):
+        return StubMySQLCursor(self.storage)
+
+    def commit(self):
+        self.commits += 1
+
+    def close(self):
+        self.closed = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
+
+
+def install_mysql_repository_stub(monkeypatch):
+    storage = {
+        "executed_sql": [],
+        "review_results": {},
+        "business_license_reviews": {},
+        "business_license_review_audit_events": [],
+        "food_license_reviews": {},
+        "tobacco_license_reviews": {},
+        "tobacco_consistency_reviews": {},
+        "product_report_reviews": {},
+        "product_report_inspection_items": {},
+        "connections": [],
+    }
+
+    def connect(**kwargs):
+        storage["connect_kwargs"] = kwargs
+        connection = StubMySQLConnection(storage)
+        storage["connections"].append(connection)
+        return connection
+
+    monkeypatch.setattr("app.repositories.review_result_repository.pymysql.connect", connect)
+    return storage
+
+
+def _filter_business_license_rows(storage, params):
+    rows = list(storage["business_license_reviews"].values())
+    if not params:
+        return rows
+
+    sql = " ".join(storage["executed_sql"][-1].split()).lower()
+    param_index = 0
+    if "business_name like %s" in sql:
+        expected = str(params[param_index]).strip("%")
+        rows = [row for row in rows if expected in str(row.get("business_name") or "")]
+        param_index += 1
+    if "credit_code like %s" in sql:
+        expected = str(params[param_index]).strip("%").upper()
+        rows = [row for row in rows if expected in str(row.get("credit_code") or "").upper()]
+        param_index += 1
+    if "risk_level = %s" in sql:
+        expected = params[param_index]
+        rows = [row for row in rows if row.get("risk_level") == expected]
+        param_index += 1
+    if "review_status = %s" in sql:
+        expected = params[param_index]
+        rows = [row for row in rows if row.get("review_status") == expected]
+        param_index += 1
+    if "needs_manual_review = %s" in sql:
+        expected = int(params[param_index])
+        rows = [row for row in rows if int(row.get("needs_manual_review") or 0) == expected]
+        param_index += 1
+    if "created_at >= %s" in sql:
+        expected = params[param_index]
+        rows = [row for row in rows if str(row.get("created_at") or "") >= expected]
+        param_index += 1
+    if "created_at <= %s" in sql:
+        expected = params[param_index]
+        rows = [row for row in rows if str(row.get("created_at") or "") <= expected]
+    return rows
+
+
+def _is_today(value):
+    from datetime import date
+
+    return str(value or "").startswith(date.today().isoformat())
