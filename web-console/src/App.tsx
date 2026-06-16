@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Layout } from "./components/Layout";
-import { loadSession } from "./api/auth";
+import { loadCurrentSession, loadSession, type AuthSession } from "./api/auth";
 import { navigateTo, NAVIGATION_EVENT } from "./navigation";
 import { LoginPage } from "./pages/LoginPage";
 import { ManualReviewPlaceholderPage } from "./pages/ManualReviewPlaceholderPage";
@@ -37,6 +37,8 @@ function currentRoute() {
 
 export function App() {
   const [, setNavigationVersion] = useState(0);
+  const [cookieSession, setCookieSession] = useState<AuthSession | null>(loadSession());
+  const [sessionChecked, setSessionChecked] = useState(false);
 
   useEffect(() => {
     const refreshRoute = () => setNavigationVersion((version) => version + 1);
@@ -48,8 +50,21 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    loadCurrentSession().then((session) => {
+      if (!cancelled) {
+        setCookieSession(session);
+        setSessionChecked(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const route = currentRoute();
-  const session = loadSession();
+  const session = cookieSession ?? loadSession();
 
   if (route.page === "login") {
     return <LoginPage />;

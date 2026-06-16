@@ -234,23 +234,31 @@ describe("business license review workbench", () => {
     render(<App />);
 
     expect(screen.getByText("营业执照审核工作台")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "企业微信登录" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/login");
     expect(window.location.search).toBe("?next=%2Freviews");
   });
 
   it("logs in and returns to the requested route", async () => {
     const user = userEvent.setup();
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          access_token: "login-token",
-          token_type: "bearer",
-          expires_at: Math.floor(Date.now() / 1000) + 3600,
-          user: {username: "reviewer", display_name: "审核员"}
-        }),
-        {status: 200}
-      )
-    );
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/api/v1/auth/login")) {
+        return new Response(
+          JSON.stringify({
+            access_token: "login-token",
+            token_type: "bearer",
+            expires_at: Math.floor(Date.now() / 1000) + 3600,
+            user: {username: "reviewer", display_name: "审核员"}
+          }),
+          {status: 200}
+        );
+      }
+      if (url.includes("/api/v1/auth/providers")) {
+        return new Response(JSON.stringify({providers: []}), {status: 200});
+      }
+      return new Response("", {status: 401});
+    });
     setPath("/login?next=/reviews");
     render(<App />);
 

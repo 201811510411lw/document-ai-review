@@ -286,9 +286,7 @@ class StubMySQLCursor:
             rows = _filter_business_license_rows(self.storage, params)
             self.result = {
                 "total": len(rows),
-                "today_reviewed": sum(
-                    1 for row in rows if str(row.get("created_at", "")).startswith("2026-06-15")
-                ),
+                "today_reviewed": sum(1 for row in rows if _is_today(row.get("created_at"))),
                 "pending_manual_review": sum(
                     1 for row in rows if int(row.get("needs_manual_review") or 0) == 1
                 ),
@@ -494,3 +492,9 @@ def _filter_business_license_rows(storage, params):
         expected = params[param_index]
         rows = [row for row in rows if str(row.get("created_at") or "") <= expected]
     return rows
+
+
+def _is_today(value):
+    from datetime import date
+
+    return str(value or "").startswith(date.today().isoformat())

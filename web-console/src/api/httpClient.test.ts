@@ -108,7 +108,8 @@ describe("httpReviewClient", () => {
     });
 
     expect(fetchMock.mock.calls[0][1]).toEqual({
-      headers: {Authorization: "Bearer review-token"}
+      headers: {Authorization: "Bearer review-token"},
+      credentials: "include"
     });
   });
 
