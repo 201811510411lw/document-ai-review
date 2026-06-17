@@ -80,6 +80,18 @@ def test_business_license_provider_can_build_aliyun_adapter(monkeypatch):
     assert adapter.__class__.__name__ == "AliyunCloudMarketOcrAdapter"
 
 
+def test_aliyun_ocr_llm_parse_requires_model(monkeypatch):
+    monkeypatch.delenv("ALIYUN_OCR_LLM_PARSE_MODEL", raising=False)
+    adapter = AliyunCloudMarketOcrAdapter(api_url="https://example.test", appcode="code")
+
+    result = adapter._parse_ocr_text_with_llm("营业执照")
+
+    assert (
+        result["metadata"]["error_code"]
+        == "ALIYUN_OCR_LLM_PARSE_MODEL_NOT_CONFIGURED"
+    )
+
+
 def test_aliyun_adapter_selects_rotated_pdf_page_orientation(monkeypatch):
     adapter = AliyunCloudMarketOcrAdapter(api_url="https://example.test", appcode="code")
     calls = []
