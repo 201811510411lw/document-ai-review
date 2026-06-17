@@ -77,9 +77,10 @@ curl -H "Authorization: Bearer $WECOM_WORKER_TOKEN" \
 
 ```text
 POST /api/v1/business-license/reviews/{task_id}/manual-review
+POST /api/v1/qc/reviews/{task_id}/manual-review
 ```
 
-提交后后端会将记录状态更新为 `MANUAL_REVIEWED`，并写入人工复核审计事件。
+从 `/reviews/{task_id}/manual-review` 进入时写回营业执照审核接口；从 `/qc/reviews/{task_id}/manual-review` 进入时写回 QC 统一审核接口。提交后后端会将记录状态更新为 `MANUAL_REVIEWED`，并写入人工复核审计事件。已完成人工复核的记录会以只读方式展示复核结论、复核人、复核时间和审计事件。
 
 本地开发时，Vite 已将 `/api` 代理到 `ai-service` 默认地址，避免 `5173 -> 8000` 直连触发 CORS：
 
@@ -99,7 +100,7 @@ npm install
 npm run dev
 ```
 
-打开 `http://127.0.0.1:5173/reviews`，使用默认账号登录后即可验证前台页面调用真实后端查询 API，并可在详情页进入人工复核页提交复核结论。
+打开 `http://127.0.0.1:5173/reviews`，使用默认账号登录后即可验证前台页面调用真实后端查询 API。营业执照验收路径为：列表筛选记录 -> 进入详情查看原始文件、抽取字段、标准化字段、规则结果、待复核原因和审计事件 -> 进入人工复核页提交复核结论 -> 返回详情确认状态和审计事件更新。
 
 如需调用其他后端地址，配置：
 
@@ -127,3 +128,5 @@ npm run dev
 - `/reviews`
 - `/reviews/blr-20260615-0002`
 - `/reviews/blr-20260615-0002/manual-review`
+- `/qc/reviews`
+- `/qc/reviews/qc-task-1/manual-review`（mock 预览）

@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.api.business_license_reviews import get_srm_sql_client
 from app.main import app
+from app.models import RiskLevel, RuleResult
 from tests.business_license_helpers import (
     business_license_auth_headers,
     business_license_fields,
@@ -976,6 +977,71 @@ def test_business_license_scanned_local_pdf_passes_pdf_bytes_to_vision_adapter(
     assert response.status_code == 200
     assert response.json()["status"] == "REVIEWED"
     assert seen == {"content_prefix": b"%PDF-", "mime_type": "application/pdf"}
+
+
+def test_business_license_passed_rules_normalize_low_risk_to_none(
+    tmp_path,
+    monkeypatch,
+):
+    install_mysql_repository_stub(monkeypatch)
+    image_path = tmp_path / "business-license.png"
+    image_path.write_bytes(b"fake-image-bytes")
+
+    monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_JSON", _business_license_json())
+    monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
+
+    class LowRiskReviewAdapter:
+        def review(self, *, skill_name, skill_text, review_payload):
+            return {
+                "status": "REVIEWED",
+                "status_label": "已审核",
+                "risk_level": "LOW",
+                "risk_level_label": "低风险",
+                "needs_manual_review": False,
+                "summary": "营业执照规则校验通过",
+                "manual_review_reasons": [],
+                "rule_results": [
+                    RuleResult(
+                        rule_code="BUSINESS_LICENSE_CREDIT_CODE_MATCH",
+                        rule_name="统一社会信用代码匹配",
+                        passed=True,
+                        risk_level_on_failure=RiskLevel.HIGH,
+                        message="统一社会信用代码一致",
+                    )
+                ],
+                "metadata": {"implementation_status": "stub", "skill_name": skill_name},
+            }
+
+    monkeypatch.setattr(
+        business_license_nodes,
+        "business_license_skill_rule_review_adapter",
+        LowRiskReviewAdapter(),
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/business-license/reviews",
+        json={
+            "file": {
+                "local_path": str(image_path),
+                "file_name": "business-license.png",
+                "mime_type": "image/png",
+                "document_format": "image",
+            },
+            "supplier_name": "成都示例商贸有限公司",
+            "supplier_credit_code": "91510100MA0000000X",
+            "declared_document_type": "business_license",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "REVIEWED"
+    assert payload["risk_level"] == "NONE"
+    assert payload["needs_manual_review"] is False
+    assert payload["skill_result"]["source_evidence"]["skill_rule_review_metadata"][
+        "risk_level_label"
+    ] == "低风险"
 
 
 def _business_license_text() -> str:

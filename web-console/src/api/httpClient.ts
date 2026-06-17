@@ -108,6 +108,33 @@ export const httpReviewClient: ReviewClient = {
       throw new Error(`Failed to submit business license manual review: ${response.status}`);
     }
     return mapDetailResponse(await response.json());
+  },
+
+  async submitQcManualReview(
+    taskId: string,
+    request: ManualReviewRequest
+  ): Promise<ReviewDetail> {
+    const response = await fetch(
+      `${API_BASE_URL}/api/v1/qc/reviews/${encodeURIComponent(taskId)}/manual-review`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders()
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          decision: request.decision,
+          comment: request.comment,
+          reviewer_id: request.reviewerId
+        })
+      }
+    );
+    handleUnauthorized(response);
+    if (!response.ok) {
+      throw new Error(`Failed to submit QC manual review: ${response.status}`);
+    }
+    return mapDetailResponse(await response.json());
   }
 };
 

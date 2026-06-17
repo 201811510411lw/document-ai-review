@@ -68,7 +68,7 @@ describe("business license review workbench", () => {
     await user.selectOptions(screen.getByLabelText("时间范围"), "today");
 
     await waitFor(() => {
-      expect(screen.getByText(/共 2 条/)).toBeInTheDocument();
+      expect(screen.getByText(/共 3 条/)).toBeInTheDocument();
     });
 
     expect(screen.queryByText("杭州简禾食品科技有限公司")).not.toBeInTheDocument();
@@ -85,6 +85,31 @@ describe("business license review workbench", () => {
     await waitFor(() => {
       expect(screen.getAllByText("深圳岭南电子商务有限公司").length).toBeGreaterThan(0);
     });
+  });
+
+  it("shows completed manual reviews as reviewed instead of not required", async () => {
+    const user = userEvent.setup();
+    setSession();
+    setPath("/reviews");
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("上海云岚供应链管理有限公司").length).toBeGreaterThan(0);
+    });
+
+    await user.selectOptions(screen.getByLabelText("审核状态"), "MANUAL_REVIEWED");
+
+    await waitFor(() => {
+      expect(screen.getAllByText("苏州复核完成商贸有限公司").length).toBeGreaterThan(0);
+    });
+
+    const row = screen
+      .getAllByText("苏州复核完成商贸有限公司")
+      .map((element) => element.closest("tr"))
+      .find((element): element is HTMLTableRowElement => element !== null);
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLTableRowElement).getByText("已复核")).toBeInTheDocument();
+    expect(within(row as HTMLTableRowElement).queryByText("不需要")).not.toBeInTheDocument();
   });
 
   it("resets immediate filters back to defaults and the first page", async () => {
@@ -190,13 +215,43 @@ describe("business license review workbench", () => {
     });
 
     expect(screen.getByText("字段抽取结果")).toBeInTheDocument();
+    expect(screen.getByText("标准化字段")).toBeInTheDocument();
     expect(screen.getByText("规则校验结果")).toBeInTheDocument();
+    expect(screen.getByText("统一社会信用代码与来源系统不一致，需要人工核对原件。")).toBeInTheDocument();
     expect(screen.getByText("统一社会信用代码不一致")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "打开原文件" })).toHaveAttribute(
+      "href",
+      "https://files.example.test/business-license-0002.png"
+    );
+    expect(screen.getByText("审计事件")).toBeInTheDocument();
+    expect(screen.getByText("暂无审计事件。")).toBeInTheDocument();
     expect(screen.getByText("审核详情")).toHaveAttribute("href", "/reviews");
-    expect(screen.getByText("查看复核预留页")).toBeInTheDocument();
+    expect(screen.getByText("进入人工复核")).toHaveAttribute(
+      "href",
+      "/reviews/blr-20260615-0002/manual-review"
+    );
   });
 
-  it("keeps manual review submission as a disabled placeholder", async () => {
+  it("renders manual review decision, comment, reviewer and audit details", async () => {
+    setSession();
+    setPath("/reviews/blr-20260615-0003");
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("苏州复核完成商贸有限公司").length).toBeGreaterThan(0);
+    });
+
+    expect(screen.getByText("复核结论")).toBeInTheDocument();
+    expect(screen.getByText("通过")).toBeInTheDocument();
+    expect(screen.getByText("复核备注")).toBeInTheDocument();
+    expect(screen.getByText("已核对原件，确认通过。")).toBeInTheDocument();
+    expect(screen.getByText("reviewer")).toBeInTheDocument();
+    expect(screen.getByText("人工复核确认通过")).toBeInTheDocument();
+    expect(screen.getByText("备注：已核对原件，确认通过。")).toBeInTheDocument();
+  });
+
+  it("submits a business license manual review decision and shows the audit trail", async () => {
+    const user = userEvent.setup();
     setSession();
     setPath("/reviews/blr-20260615-0002/manual-review");
     render(<App />);
@@ -205,12 +260,41 @@ describe("business license review workbench", () => {
       expect(screen.getByText("人工复核")).toBeInTheDocument();
     });
 
-    expect(
-      screen.getAllByText("后端写回接口已预留，前端提交表单后续接入").length
-    ).toBeGreaterThan(0);
-    expect(screen.getByText(/当前页面仅展示复核占位内容/)).toBeInTheDocument();
-    expect(screen.getByLabelText("复核备注")).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText("复核结论"), "rejected");
+    await user.clear(screen.getByLabelText("复核备注"));
+    await user.type(screen.getByLabelText("复核备注"), "统一社会信用代码与原件不一致");
+    await user.clear(screen.getByLabelText("复核人 ID"));
+    await user.type(screen.getByLabelText("复核人 ID"), "wecom-reviewer-001");
+    await user.click(screen.getByRole("button", { name: "提交复核结论" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/人工复核驳回/)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/status: COMPLETED/)).toBeInTheDocument();
+    expect(screen.getByText(/decision: rejected/)).toBeInTheDocument();
+    expect(screen.getByText(/reviewer: wecom-reviewer-001/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "提交复核结论" })).toBeDisabled();
+  });
+
+  it("submits a QC manual review through the QC endpoint", async () => {
+    const user = userEvent.setup();
+    setSession();
+    setPath("/qc/reviews/qc-task-1/manual-review");
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("人工复核")).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByLabelText("复核备注"), "确认原件信息一致");
+    await user.clear(screen.getByLabelText("复核人 ID"));
+    await user.type(screen.getByLabelText("复核人 ID"), "qc-reviewer-001");
+    await user.click(screen.getByRole("button", { name: "提交复核结论" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/人工复核确认通过/)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/status: COMPLETED/)).toBeInTheDocument();
   });
 
   it("renders real mobile bottom navigation entries", async () => {

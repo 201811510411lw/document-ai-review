@@ -12,12 +12,17 @@ function currentRoute() {
   if (path === "/login") {
     return { page: "login" as const };
   }
+  const qcManualMatch = path.match(/^\/qc\/reviews\/([^/]+)\/manual-review$/);
   const qcDetailMatch = path.match(/^\/qc\/reviews\/([^/]+)$/);
   const manualMatch = path.match(/^\/reviews\/([^/]+)\/manual-review$/);
   const detailMatch = path.match(/^\/reviews\/([^/]+)$/);
 
   if (path === "/qc/reviews") {
     return { page: "qc-list" as const };
+  }
+
+  if (qcManualMatch) {
+    return { page: "qc-manual" as const, taskId: qcManualMatch[1] };
   }
 
   if (qcDetailMatch) {
@@ -102,6 +107,8 @@ export function App() {
     <Layout session={session}>
       {route.page === "manual" ? (
         <ManualReviewPlaceholderPage taskId={route.taskId} />
+      ) : route.page === "qc-manual" ? (
+        <ManualReviewPlaceholderPage taskId={route.taskId} qcView />
       ) : route.page === "qc-detail" ? (
         <ReviewDetailPage taskId={route.taskId} qcView />
       ) : route.page === "detail" ? (

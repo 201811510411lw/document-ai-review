@@ -448,6 +448,9 @@ class StubMySQLConnection:
     def close(self):
         self.closed = True
 
+    def ping(self, reconnect=False):
+        return None
+
     def __enter__(self):
         return self
 
@@ -457,6 +460,13 @@ class StubMySQLConnection:
 
 
 def install_mysql_repository_stub(monkeypatch):
+    from app.repositories import (
+        build_review_result_repository_from_env,
+        reset_review_result_repository_cache,
+    )
+    from app.services import review_service as review_service_module
+
+    reset_review_result_repository_cache()
     storage = {
         "executed_sql": [],
         "review_results": {},
@@ -478,6 +488,8 @@ def install_mysql_repository_stub(monkeypatch):
         return connection
 
     monkeypatch.setattr("app.repositories.review_result_repository.pymysql.connect", connect)
+    reset_review_result_repository_cache()
+    review_service_module.review_service.repository = build_review_result_repository_from_env()
     return storage
 
 

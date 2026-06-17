@@ -269,6 +269,65 @@ describe("httpReviewClient", () => {
     expect(detail.auditEvents[0].message).toBe("人工复核确认通过");
   });
 
+  it("submits a QC manual review decision to the unified QC endpoint", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          task_id: "qc-task-1",
+          supplier_name: "成都示例食品有限公司",
+          credit_code: "91510100MA00000000",
+          review_status: "MANUAL_REVIEWED",
+          review_status_label: "人工已复核",
+          risk_level: "MEDIUM",
+          risk_level_label: "中风险",
+          needs_manual_review: false,
+          manual_review: {
+            status: "COMPLETED",
+            decision: "rejected",
+            comment: "经营范围与原件不一致。",
+            reviewer_id: "qc-reviewer-001",
+            reviewer_username: "reviewer",
+            reviewed_at: "2026-06-15T12:30:00+08:00",
+            reasons: ["经营范围需要人工确认"]
+          },
+          audit_events: [
+            {
+              event_type: "QC_MANUAL_REVIEW",
+              message: "人工复核驳回",
+              occurred_at: "2026-06-15T12:30:00+08:00",
+              actor_id: "qc-reviewer-001",
+              actor_username: "reviewer",
+              details: {decision: "rejected"}
+            }
+          ]
+        }),
+        { status: 200 }
+      )
+    );
+
+    const detail = await httpReviewClient.submitQcManualReview("qc-task-1", {
+      decision: "rejected",
+      comment: "经营范围与原件不一致。",
+      reviewerId: "qc-reviewer-001"
+    });
+
+    expect(fetchMock.mock.calls[0][0]).toContain(
+      "/api/v1/qc/reviews/qc-task-1/manual-review"
+    );
+    expect(fetchMock.mock.calls[0][0]).not.toContain("/api/v1/business-license");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({
+        decision: "rejected",
+        comment: "经营范围与原件不一致。",
+        reviewer_id: "qc-reviewer-001"
+      })
+    });
+    expect(detail.businessName).toBe("成都示例食品有限公司");
+    expect(detail.manualReview.decision).toBe("rejected");
+    expect(detail.auditEvents[0].message).toBe("人工复核驳回");
+  });
+
   it("maps detail response and treats 404 as empty detail", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")

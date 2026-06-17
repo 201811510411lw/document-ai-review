@@ -99,9 +99,15 @@ LLM 根据本 Skill 执行规则时，必须输出结构化 JSON。
 风险等级定义：
 
 - `NONE`：无风险。
-- `LOW`：低风险。
 - `MEDIUM`：中风险。
 - `HIGH`：高风险。
+
+营业执照自动审核不使用 `LOW` 作为最终风险等级。若全部规则均通过且 `needs_manual_review=false`，必须输出：
+
+- `risk_level`：`NONE`
+- `risk_level_label`：`无风险`
+
+仅当存在不通过规则或需要人工复核时，才根据失败规则输出 `MEDIUM` 或 `HIGH`。
 
 注意：不要把 `status` 或 `risk_level` 直接输出为中文；中文值必须放在 `status_label` 和 `risk_level_label`。若面向用户展示，应展示中文字段。
 
@@ -110,8 +116,8 @@ LLM 根据本 Skill 执行规则时，必须输出结构化 JSON。
   "document_type": "business_license",
   "status": "REVIEWED",
   "status_label": "已审核",
-  "risk_level": "LOW",
-  "risk_level_label": "低风险",
+  "risk_level": "NONE",
+  "risk_level_label": "无风险",
   "needs_manual_review": false,
   "summary": "营业执照规则校验通过",
   "rule_results": [

@@ -27,12 +27,20 @@ class BusinessLicenseSourceTask(BaseModel):
 
 
 DEFAULT_BUSINESS_LICENSE_SOURCE_SQL = """
-select * from ods.ods_hd_srm_certification_di t1
-                  left join  ods.ods_hd_srm_attachment_di t2 on t1.uuid=t2.refId
-where t1.category='vendor'
-  and t2.tenant='8560'  and t2.refType ='certification'
-  and t1.typeName='营业执照'
-  and removed =false limit 1;
+select
+	*
+from
+	srm.certification t1
+left join srm.attachment t2 on
+	t1.uuid = t2.refId
+where
+	t1.category = 'vendor'
+	and t2.tenant = '8560'
+	and t2.refType = 'certification'
+	and t2.url is not null
+	and t2.url <> ''
+	and typeName  = '营业执照'
+	limit 1
 """.strip()
 
 
