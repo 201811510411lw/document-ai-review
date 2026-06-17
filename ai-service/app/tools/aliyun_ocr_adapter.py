@@ -36,10 +36,7 @@ class AliyunCloudMarketOcrAdapter:
         self.image_field = image_field or os.environ.get("ALIYUN_OCR_IMAGE_FIELD", "img")
         self.timeout = timeout or float(os.environ.get("ALIYUN_OCR_TIMEOUT_SECONDS", "60"))
         self.body_options = body_options or _body_options_from_env()
-        self.llm_model = os.environ.get(
-            "ALIYUN_OCR_LLM_PARSE_MODEL",
-            os.environ.get("BUSINESS_LICENSE_VISION_MODEL", "gpt-4o-mini"),
-        )
+        self.llm_model = os.environ.get("ALIYUN_OCR_LLM_PARSE_MODEL", "")
         self.llm_base_url = os.environ.get("OPENAI_BASE_URL")
         self.llm_max_attempts = int(os.environ.get("OPENAI_MAX_ATTEMPTS", "3"))
         self.try_rotations = _env_bool("ALIYUN_OCR_TRY_ROTATIONS", default=True)
@@ -222,6 +219,15 @@ class AliyunCloudMarketOcrAdapter:
         return max(candidates, key=_ocr_result_score)
 
     def _parse_ocr_text_with_llm(self, document_text: str) -> dict[str, Any]:
+        if not self.llm_model:
+            return {
+                "structured_fields": {},
+                "metadata": {
+                    "implementation_status": "not_configured",
+                    "provider": "openai_compatible_chat_completions",
+                    "error_code": "ALIYUN_OCR_LLM_PARSE_MODEL_NOT_CONFIGURED",
+                },
+            }
         if OpenAI is None:
             return {
                 "structured_fields": {},

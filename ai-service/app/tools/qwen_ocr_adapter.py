@@ -28,10 +28,7 @@ class QwenOcrBusinessLicenseAdapter:
         timeout: float | None = None,
         max_attempts: int | None = None,
     ) -> None:
-        self.model = model or os.environ.get(
-            "BUSINESS_LICENSE_QWEN_OCR_MODEL",
-            os.environ.get("BUSINESS_LICENSE_VISION_MODEL", "qwen3.5-ocr"),
-        )
+        self.model = model or os.environ.get("BUSINESS_LICENSE_QWEN_OCR_MODEL", "")
         self.api_key = api_key
         self.base_url = base_url or os.environ.get("OPENAI_BASE_URL")
         self.timeout = timeout or float(
@@ -50,6 +47,9 @@ class QwenOcrBusinessLicenseAdapter:
         )
 
     def extract_text(self, source: Any) -> dict[str, Any]:
+        if not self.model:
+            return self._error("not_configured", "QWEN_OCR_MODEL_NOT_CONFIGURED")
+
         if OpenAI is None:
             return self._error("not_configured", "QWEN_OCR_DEPENDENCY_MISSING")
 

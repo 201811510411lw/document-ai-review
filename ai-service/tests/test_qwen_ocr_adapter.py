@@ -5,6 +5,16 @@ from app.tools.qwen_ocr_adapter import (
 from app.tools.vision_adapter import VisionInput
 
 
+def test_qwen_ocr_adapter_requires_model(monkeypatch):
+    monkeypatch.delenv("BUSINESS_LICENSE_QWEN_OCR_MODEL", raising=False)
+
+    result = QwenOcrBusinessLicenseAdapter().extract_text(
+        {"content": b"fake-png", "mime_type": "image/png"}
+    )
+
+    assert result["metadata"]["error_code"] == "QWEN_OCR_MODEL_NOT_CONFIGURED"
+
+
 def test_qwen_ocr_adapter_calls_openai_compatible_multimodal_api(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     calls = {}
