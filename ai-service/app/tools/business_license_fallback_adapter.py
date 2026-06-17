@@ -1,0 +1,150 @@
+import re
+import unicodedata
+from typing import Any
+
+from app.tools.aliyun_ocr_adapter import AliyunCloudMarketOcrAdapter
+from app.tools.qwen_ocr_adapter import QwenOcrBusinessLicenseAdapter
+
+
+class QwenOcrWithAliyunFallbackBusinessLicenseAdapter:
+    implementation_status = "configured"
+
+    def __init__(
+        self,
+        *,
+        primary_adapter: Any | None = None,
+        fallback_adapter: Any | None = None,
+    ) -> None:
+        self.primary_adapter = primary_adapter or QwenOcrBusinessLicenseAdapter()
+        self.fallback_adapter = fallback_adapter or AliyunCloudMarketOcrAdapter()
+
+    def extract_text(self, source: Any) -> dict[str, Any]:
+        primary_result = self.primary_adapter.extract_text(source)
+        validation = validate_business_license_ocr_result(
+            primary_result,
+            expected_subject_name=_get_value(source, "expected_subject_name"),
+            expected_credit_code=_get_value(source, "expected_credit_code"),
+        )
+        if validation["passed"]:
+            return _with_fallback_metadata(
+                primary_result,
+                final_provider="qwen_ocr",
+                primary_validation=validation,
+                fallback_used=False,
+            )
+
+        fallback_result = self.fallback_adapter.extract_text(source)
+        fallback_validation = validate_business_license_ocr_result(
+            fallback_result,
+            expected_subject_name=_get_value(source, "expected_subject_name"),
+            expected_credit_code=_get_value(source, "expected_credit_code"),
+        )
+        return _with_fallback_metadata(
+            fallback_result,
+            final_provider=str(
+                (fallback_result.get("metadata") or {}).get(
+                    "provider",
+                    "aliyun_cloud_market_ocr",
+                )
+            ),
+            primary_validation=validation,
+            fallback_validation=fallback_validation,
+            fallback_used=True,
+            fallback_trigger=validation["failure_reasons"][0],
+            primary_result=primary_result,
+        )
+
+
+def validate_business_license_ocr_result(
+    result: dict[str, Any],
+    *,
+    expected_subject_name: str | None,
+    expected_credit_code: str | None,
+) -> dict[str, Any]:
+    metadata = dict(result.get("metadata") or {})
+    fields = dict(result.get("structured_fields") or {})
+    failure_reasons: list[str] = []
+
+    if metadata.get("error_code"):
+        failure_reasons.append(str(metadata["error_code"]))
+
+    document_type = str(fields.get("document_type") or "").strip().lower()
+    if document_type not in {"business_license", "营业执照"}:
+        failure_reasons.append("document_type_invalid")
+
+    actual_credit = _normalize_credit_code(fields.get("credit_code"))
+    expected_credit = _normalize_credit_code(expected_credit_code)
+    if not actual_credit:
+        failure_reasons.append("credit_code_missing")
+    elif len(actual_credit) not in {15, 18}:
+        failure_reasons.append("credit_code_format_invalid")
+    elif expected_credit and actual_credit != expected_credit:
+        failure_reasons.append("credit_code_mismatch")
+
+    actual_subject = _normalize_subject_name(fields.get("subject_name"))
+    expected_subject = _normalize_subject_name(expected_subject_name)
+    if not actual_subject:
+        failure_reasons.append("subject_name_missing")
+    elif expected_subject and actual_subject != expected_subject:
+        failure_reasons.append("subject_name_mismatch")
+
+    return {
+        "passed": not failure_reasons,
+        "failure_reasons": failure_reasons,
+    }
+
+
+def _with_fallback_metadata(
+    result: dict[str, Any],
+    *,
+    final_provider: str,
+    primary_validation: dict[str, Any],
+    fallback_used: bool,
+    fallback_validation: dict[str, Any] | None = None,
+    fallback_trigger: str | None = None,
+    primary_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    metadata = dict(result.get("metadata") or {})
+    metadata["provider"] = "qwen_ocr_with_aliyun_fallback"
+    metadata["final_provider"] = final_provider
+    metadata["primary_provider"] = "qwen_ocr"
+    metadata["fallback_provider"] = "aliyun_cloud_market_ocr"
+    metadata["fallback_used"] = fallback_used
+    metadata["primary_validation"] = primary_validation
+    if fallback_validation is not None:
+        metadata["fallback_validation"] = fallback_validation
+    if fallback_trigger:
+        metadata["fallback_trigger"] = fallback_trigger
+    if primary_result is not None:
+        primary_metadata = dict(primary_result.get("metadata") or {})
+        metadata["primary_summary"] = {
+            "error_code": primary_metadata.get("error_code"),
+            "structured_extraction": primary_metadata.get("structured_extraction"),
+            "selected_page": primary_metadata.get("selected_page"),
+            "mismatched_fields": primary_metadata.get("mismatched_fields"),
+        }
+    return {**result, "metadata": metadata}
+
+
+def _normalize_subject_name(value: Any) -> str:
+    text = _normalize_text(value)
+    punctuation = set("()（）[]【】,，.。;；:：-—_·'\"“”‘’")
+    return "".join(character for character in text if character not in punctuation)
+
+
+def _normalize_credit_code(value: Any) -> str:
+    text = _normalize_text(value).upper()
+    return "".join(re.findall(r"[0-9A-Z]", text))
+
+
+def _normalize_text(value: Any) -> str:
+    if value is None:
+        return ""
+    normalized = unicodedata.normalize("NFKC", str(value))
+    return "".join(normalized.split()).strip()
+
+
+def _get_value(source: Any, key: str) -> Any:
+    if isinstance(source, dict):
+        return source.get(key)
+    return getattr(source, key, None)

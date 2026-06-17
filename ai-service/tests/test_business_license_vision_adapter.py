@@ -21,6 +21,24 @@ def test_business_license_vision_adapter_unknown_provider_falls_back_to_fake(mon
     assert adapter.implementation_status == "fake"
 
 
+def test_business_license_vision_adapter_can_build_qwen_ocr(monkeypatch):
+    monkeypatch.setenv("BUSINESS_LICENSE_VISION_PROVIDER", "qwen_ocr")
+    monkeypatch.setenv("BUSINESS_LICENSE_QWEN_OCR_MODEL", "qwen3.5-ocr")
+
+    adapter = build_business_license_vision_adapter()
+
+    assert adapter.__class__.__name__ == "QwenOcrBusinessLicenseAdapter"
+    assert adapter.model == "qwen3.5-ocr"
+
+
+def test_business_license_vision_adapter_can_build_qwen_ocr_with_aliyun_fallback(monkeypatch):
+    monkeypatch.setenv("BUSINESS_LICENSE_VISION_PROVIDER", "qwen_ocr_with_aliyun_fallback")
+
+    adapter = build_business_license_vision_adapter()
+
+    assert adapter.__class__.__name__ == "QwenOcrWithAliyunFallbackBusinessLicenseAdapter"
+
+
 def test_reject_source_mismatched_fields_records_mismatch_without_hiding_fields():
     result = reject_source_mismatched_fields(
         {
@@ -59,6 +77,23 @@ def test_reject_source_mismatched_fields_records_mismatch_without_hiding_fields(
         },
     }
     assert result["metadata"]["rejected_fields"] == result["metadata"]["mismatched_fields"]
+
+
+def test_reject_source_mismatched_fields_ignores_credit_code_format_noise():
+    result = reject_source_mismatched_fields(
+        {
+            "structured_fields": {
+                "document_type": "business_license",
+                "subject_name": "廖记食品有限责任公司",
+                "credit_code": "统一社会信用代码：９１５１０１３２-MA6AULU68M",
+            },
+            "metadata": {"implementation_status": "configured"},
+        },
+        expected_subject_name="廖记食品有限责任公司",
+        expected_credit_code="91510132 MA6AULU68M",
+    )
+
+    assert "mismatched_fields" not in result["metadata"]
 
 
 def test_parse_business_license_vision_json_accepts_markdown_json_block():

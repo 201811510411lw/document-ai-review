@@ -1,7 +1,11 @@
+import base64
+
 from app.tools.aliyun_ocr_adapter import (
     AliyunCloudMarketOcrAdapter,
     _debug_enabled,
     _merge_rule_and_llm_fields,
+    _prefilter_pdf_pages,
+    _source_pages,
     aliyun_ocr_json_to_text,
     extract_business_license_fields,
 )
@@ -74,6 +78,195 @@ def test_business_license_provider_can_build_aliyun_adapter(monkeypatch):
     adapter = build_business_license_vision_adapter()
 
     assert adapter.__class__.__name__ == "AliyunCloudMarketOcrAdapter"
+
+
+def test_aliyun_adapter_selects_rotated_pdf_page_orientation(monkeypatch):
+    adapter = AliyunCloudMarketOcrAdapter(api_url="https://example.test", appcode="code")
+    calls = []
+    responses = [
+        {"text": "如0000000管理品识cs出品m1长长", "word_count": 11},
+        {"text": "乱码", "word_count": 20},
+        {"text": "更多乱码", "word_count": 13},
+        {
+            "text": (
+                "营业执照 统一社会信用代码91510132MA6AULU68M "
+                "名称廖记食品有限责任公司"
+            ),
+            "word_count": 59,
+        },
+    ]
+
+    def fake_recognize_page(client, encoded_image):
+        calls.append(encoded_image)
+        return responses[len(calls) - 1]
+
+    monkeypatch.setattr(adapter, "_recognize_page", fake_recognize_page)
+    monkeypatch.setattr(
+        "app.tools.aliyun_ocr_adapter._rotate_base64_png",
+        lambda encoded_image, rotation: f"{encoded_image}-rotated-{rotation}",
+    )
+
+    result = adapter._recognize_page_with_orientation(
+        object(),
+        "page",
+        try_rotations=True,
+        rotation_order=(0, 90, 180, 270),
+    )
+
+    assert result["rotation"] == 270
+    assert result["text"].startswith("营业执照")
+    assert calls == [
+        "page",
+        "page-rotated-90",
+        "page-rotated-180",
+        "page-rotated-270",
+    ]
+
+
+def test_aliyun_adapter_respects_preferred_rotation_order(monkeypatch):
+    adapter = AliyunCloudMarketOcrAdapter(api_url="https://example.test", appcode="code")
+    calls = []
+
+    def fake_recognize_page(client, encoded_image):
+        calls.append(encoded_image)
+        return {
+            "text": (
+                "营业执照 统一社会信用代码91510132MA6AULU68M "
+                "名称廖记食品有限责任公司"
+            ),
+            "word_count": 59,
+        }
+
+    monkeypatch.setattr(adapter, "_recognize_page", fake_recognize_page)
+    monkeypatch.setattr(
+        "app.tools.aliyun_ocr_adapter._rotate_base64_png",
+        lambda encoded_image, rotation: f"{encoded_image}-rotated-{rotation}",
+    )
+
+    result = adapter._recognize_page_with_orientation(
+        object(),
+        "page",
+        try_rotations=True,
+        rotation_order=(270, 0, 90, 180),
+    )
+
+    assert result["rotation"] == 270
+    assert calls == ["page-rotated-270"]
+
+
+def test_source_pages_marks_pdf_vs_image(monkeypatch):
+    monkeypatch.setattr(
+        "app.tools.aliyun_ocr_adapter.convert_pdf_pages_to_png_data_urls",
+        lambda content, dpi=200: ["data:image/png;base64,pdf-page"],
+    )
+
+    assert _source_pages(b"pdf", "application/pdf") == [
+        {"base64": "pdf-page", "source": "pdf", "page": 1}
+    ]
+    assert _source_pages(b"image", "image/png") == [
+        {"base64": "aW1hZ2U=", "source": "image", "page": 1}
+    ]
+
+
+def test_aliyun_local_prefilter_selects_business_license_page(monkeypatch):
+    pages = [
+        {"base64": base64.b64encode(b"page-1").decode("ascii"), "source": "pdf", "page": 1},
+        {"base64": base64.b64encode(b"page-2").decode("ascii"), "source": "pdf", "page": 2},
+    ]
+
+    monkeypatch.setattr("app.tools.aliyun_ocr_adapter._rapidocr_engine", lambda: object())
+    monkeypatch.setattr(
+        "app.tools.aliyun_ocr_adapter._rapidocr_text",
+        lambda ocr, content: (
+            "营业执照 统一社会信用代码91510132MA6AULU68M 名称廖记食品有限责任公司"
+            if content == b"page-1"
+            else "中华人民共和国居民身份证 彭德林"
+        ),
+    )
+
+    selected_pages, metadata = _prefilter_pdf_pages(pages, provider="rapidocr")
+
+    assert selected_pages == [{"base64": base64.b64encode(b"page-1").decode("ascii"), "source": "pdf", "page": 1}]
+    assert metadata["status"] == "selected"
+    assert metadata["selected_page"] == 1
+    assert metadata["ignored_pages"] == [2]
+
+
+def test_aliyun_local_prefilter_falls_back_when_no_candidate(monkeypatch):
+    pages = [
+        {"base64": base64.b64encode(b"page-1").decode("ascii"), "source": "pdf", "page": 1},
+        {"base64": base64.b64encode(b"page-2").decode("ascii"), "source": "pdf", "page": 2},
+    ]
+
+    monkeypatch.setattr("app.tools.aliyun_ocr_adapter._rapidocr_engine", lambda: object())
+    monkeypatch.setattr(
+        "app.tools.aliyun_ocr_adapter._rapidocr_text",
+        lambda ocr, content: "无法判断",
+    )
+
+    selected_pages, metadata = _prefilter_pdf_pages(pages, provider="rapidocr")
+
+    assert selected_pages == pages
+    assert metadata["status"] == "no_candidate"
+
+
+def test_aliyun_adapter_stops_after_first_business_license_pdf_page(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    adapter = AliyunCloudMarketOcrAdapter(api_url="https://example.test", appcode="code")
+    calls = []
+
+    def fake_source_pages(content, mime_type):
+        return [
+            {"base64": "page-1", "source": "pdf"},
+            {"base64": "page-2", "source": "pdf"},
+        ]
+
+    def fake_recognize_page_with_orientation(
+        client,
+        encoded_image,
+        *,
+        try_rotations,
+        rotation_order,
+    ):
+        calls.append(encoded_image)
+        return {
+            "text": (
+                "营业执照 统一社会信用代码91510132MA6AULU68M "
+                "名称廖记食品有限责任公司"
+            ),
+            "word_count": 59,
+            "rotation": 270,
+        }
+
+    monkeypatch.setattr("app.tools.aliyun_ocr_adapter._source_pages", fake_source_pages)
+    monkeypatch.setattr(
+        adapter,
+        "_recognize_page_with_orientation",
+        fake_recognize_page_with_orientation,
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_parse_ocr_text_with_llm",
+        lambda document_text: {
+            "structured_fields": {
+                "document_type": "business_license",
+                "subject_name": "廖记食品有限责任公司",
+                "credit_code": "91510132MA6AULU68M",
+            },
+            "metadata": {"implementation_status": "configured"},
+        },
+    )
+
+    result = adapter.extract_text({"content": b"pdf", "mime_type": "application/pdf"})
+
+    assert calls == ["page-1"]
+    assert result["structured_fields"]["source_page"] == 1
+    assert result["metadata"]["pages"] == 2
+    assert result["metadata"]["processed_pages"] == 1
+    assert result["metadata"]["stopped_after_first_license"] is True
+    assert result["metadata"]["ignored_pages"] == [
+        {"page": 2, "reason": "skipped_after_business_license_page"}
+    ]
 
 
 def test_aliyun_adapter_parses_ocr_text_with_llm(monkeypatch):
