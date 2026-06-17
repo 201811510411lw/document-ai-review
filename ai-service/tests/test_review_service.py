@@ -4,57 +4,38 @@ from uuid import UUID
 from app.models import ReviewInput, ReviewInputContext, ReviewResult
 from app.services import review_service as review_service_module
 from app.services.review_service import ReviewService
+from app.workflows.runtime import ReviewGraphDefinition, ReviewRuntimeEntry
 
 
-def test_review_service_gets_food_license_use_case_from_registry_and_calls_review(
+def test_review_service_gets_food_license_runtime_entry_and_invokes_it(
     monkeypatch,
 ):
     calls = []
 
-    class StubUseCase:
-        name = "food_license"
-        version = "v1"
-        ruleset_version = "food-license-rules-v1"
-        supported_document_types = ("food_license",)
+    class StubRuntimeRegistry:
+        def __init__(self) -> None:
+            self.requested_names = []
 
-        def supports(self, input_context: ReviewInputContext) -> bool:
-            return True
+        def get_entry(self, use_case_name: str):
+            self.requested_names.append(use_case_name)
 
-        def review(self, input_context: ReviewInputContext) -> ReviewResult:
-            calls.append(input_context)
-            now = datetime(2026, 6, 8, 14, 30, tzinfo=timezone.utc)
-            return ReviewResult.model_validate(
-                {
-                    "task_id": input_context.task_id,
-                    "use_case_name": self.name,
-                    "use_case_version": self.version,
-                    "skill_name": self.name,
-                    "skill_version": self.version,
-                    "ruleset_version": self.ruleset_version,
-                    "document_type": "food_license",
-                    "status": "REVIEWED",
-                    "risk_level": "NONE",
-                    "needs_manual_review": False,
-                    "rule_results": [],
-                    "summary": "stub",
-                    "manual_review": {"status": "NOT_REQUIRED"},
-                    "audit_events": [],
-                    "created_at": now,
-                    "updated_at": now,
-                    "skill_result": {},
-                }
+            def invoke(input_context: ReviewInputContext) -> ReviewResult:
+                calls.append(input_context)
+                return _stub_result(input_context)
+
+            return ReviewRuntimeEntry(
+                definition=ReviewGraphDefinition(
+                    name="food_license",
+                    version="v1",
+                    ruleset_version="food-license-rules-v1",
+                    supported_document_types=("food_license",),
+                    capability_names=("food_license",),
+                ),
+                invoke=invoke,
             )
 
-    class StubRegistry:
-        def __init__(self) -> None:
-            self.requested_use_case_names = []
-
-        def get(self, use_case_name: str):
-            self.requested_use_case_names.append(use_case_name)
-            return StubUseCase()
-
-    registry = StubRegistry()
-    monkeypatch.setattr(review_service_module, "use_case_registry", registry)
+    registry = StubRuntimeRegistry()
+    monkeypatch.setattr(review_service_module, "review_graph_registry", registry)
 
     result = ReviewService().review_food_license(
         ReviewInput(
@@ -64,7 +45,7 @@ def test_review_service_gets_food_license_use_case_from_registry_and_calls_revie
         )
     )
 
-    assert registry.requested_use_case_names == ["food_license"]
+    assert registry.requested_names == ["food_license"]
     assert len(calls) == 1
     assert calls[0].use_case_name == "food_license"
     assert calls[0].skill_name == "food_license"
@@ -74,177 +55,120 @@ def test_review_service_gets_food_license_use_case_from_registry_and_calls_revie
     assert result.skill_name == "food_license"
 
 
-def test_review_service_review_can_call_use_case_by_name(monkeypatch):
+def test_review_service_review_can_call_runtime_entry_by_name(monkeypatch):
     calls = []
-
-    class StubUseCase:
-        name = "contract_review"
-        version = "v1"
-        ruleset_version = "contract-rules-v1-placeholder"
-        supported_document_types = ("contract_review",)
-
-        def supports(self, input_context: ReviewInputContext) -> bool:
-            return True
-
-        def review(self, input_context: ReviewInputContext) -> ReviewResult:
-            calls.append(input_context)
-            now = datetime(2026, 6, 8, 14, 30, tzinfo=timezone.utc)
-            return ReviewResult.model_validate(
-                {
-                    "task_id": input_context.task_id,
-                    "use_case_name": self.name,
-                    "use_case_version": self.version,
-                    "skill_name": self.name,
-                    "skill_version": self.version,
-                    "ruleset_version": self.ruleset_version,
-                    "document_type": "contract_review",
-                    "status": "PENDING_MANUAL_REVIEW",
-                    "risk_level": "MEDIUM",
-                    "needs_manual_review": True,
-                    "rule_results": [],
-                    "summary": "stub",
-                    "manual_review": {
-                        "status": "PENDING",
-                        "reasons": ["stub not implemented"],
-                    },
-                    "audit_events": [],
-                    "created_at": now,
-                    "updated_at": now,
-                    "skill_result": {"implementation_status": "not_implemented"},
-                }
-            )
 
     class StubRegistry:
         def __init__(self) -> None:
-            self.requested_use_case_names = []
+            self.requested_graph_names = []
 
-        def get(self, use_case_name: str):
-            self.requested_use_case_names.append(use_case_name)
-            return StubUseCase()
+        def get_entry(self, graph_name: str):
+            self.requested_graph_names.append(graph_name)
+
+            def invoke(input_context: ReviewInputContext) -> ReviewResult:
+                calls.append(input_context)
+                return _stub_result(input_context)
+
+            return ReviewRuntimeEntry(
+                definition=ReviewGraphDefinition(
+                    name="qc_document_review",
+                    version="v1",
+                    ruleset_version="qc-document-rules-v1",
+                    supported_document_types=("qc_document_review",),
+                    capability_names=("qc_document_review",),
+                ),
+                invoke=invoke,
+            )
 
     registry = StubRegistry()
-    monkeypatch.setattr(review_service_module, "use_case_registry", registry)
+    monkeypatch.setattr(review_service_module, "review_graph_registry", registry)
 
     result = ReviewService().review(
         ReviewInput(
-            ocr_text="合同文本",
+            ocr_text="质检报告文本",
             supplier_name="成都示例食品有限公司",
             supplier_credit_code="91510100MA00000000",
-            declared_document_type="contract_review",
+            declared_document_type="qc_document_review",
         ),
-        use_case_name="contract_review",
+        use_case_name="qc_document_review",
     )
 
-    assert registry.requested_use_case_names == ["contract_review"]
+    assert registry.requested_graph_names == ["qc_document_review"]
     assert len(calls) == 1
-    assert calls[0].use_case_name == "contract_review"
+    assert calls[0].use_case_name == "qc_document_review"
     assert _is_review_task_uuid(calls[0].task_id)
-    assert result.use_case_name == "contract_review"
-    assert result.skill_name == "contract_review"
+    assert result.use_case_name == "qc_document_review"
+    assert result.skill_name == "qc_document_review"
 
 
-def test_review_service_review_can_select_use_case(monkeypatch):
+def test_review_service_review_can_select_runtime_entry(monkeypatch):
     calls = []
-
-    class StubUseCase:
-        name = "contract_review"
-        version = "v1"
-        ruleset_version = "contract-rules-v1-placeholder"
-        supported_document_types = ("contract_review",)
-
-        def supports(self, input_context: ReviewInputContext) -> bool:
-            return input_context.input.declared_document_type == "contract_review"
-
-        def review(self, input_context: ReviewInputContext) -> ReviewResult:
-            calls.append(input_context)
-            now = datetime(2026, 6, 8, 14, 30, tzinfo=timezone.utc)
-            return ReviewResult.model_validate(
-                {
-                    "task_id": input_context.task_id,
-                    "use_case_name": self.name,
-                    "use_case_version": self.version,
-                    "skill_name": self.name,
-                    "skill_version": self.version,
-                    "ruleset_version": self.ruleset_version,
-                    "document_type": "contract_review",
-                    "status": "PENDING_MANUAL_REVIEW",
-                    "risk_level": "MEDIUM",
-                    "needs_manual_review": True,
-                    "rule_results": [],
-                    "summary": "stub",
-                    "manual_review": {"status": "PENDING"},
-                    "audit_events": [],
-                    "created_at": now,
-                    "updated_at": now,
-                    "skill_result": {"implementation_status": "not_implemented"},
-                }
-            )
 
     class StubRegistry:
         def __init__(self) -> None:
             self.select_calls = []
 
-        def select(self, input_context: ReviewInputContext):
+        def select_entry(self, input_context: ReviewInputContext):
             self.select_calls.append(input_context)
-            return StubUseCase()
+
+            def invoke(runtime_context: ReviewInputContext) -> ReviewResult:
+                calls.append(runtime_context)
+                return _stub_result(runtime_context)
+
+            return ReviewRuntimeEntry(
+                definition=ReviewGraphDefinition(
+                    name="qc_document_review",
+                    version="v1",
+                    ruleset_version="qc-document-rules-v1",
+                    supported_document_types=("qc_document_review",),
+                    capability_names=("qc_document_review",),
+                ),
+                invoke=invoke,
+            )
 
     registry = StubRegistry()
-    monkeypatch.setattr(review_service_module, "use_case_registry", registry)
+    monkeypatch.setattr(review_service_module, "review_graph_registry", registry)
 
     result = ReviewService().review(
         ReviewInput(
-            ocr_text="合同文本",
+            ocr_text="质检报告文本",
             supplier_name="成都示例食品有限公司",
             supplier_credit_code="91510100MA00000000",
-            declared_document_type="contract_review",
+            declared_document_type="qc_document_review",
         )
     )
 
     assert len(registry.select_calls) == 1
     assert registry.select_calls[0].use_case_name == ""
     assert len(calls) == 1
-    assert calls[0].use_case_name == "contract_review"
+    assert calls[0].use_case_name == "qc_document_review"
     assert _is_review_task_uuid(calls[0].task_id)
-    assert result.use_case_name == "contract_review"
-    assert result.skill_name == "contract_review"
+    assert result.use_case_name == "qc_document_review"
+    assert result.skill_name == "qc_document_review"
 
 
 def test_review_service_generates_unique_uuid_task_ids(monkeypatch):
-    class StubUseCase:
-        name = "food_license"
-        version = "v1"
-        ruleset_version = "food-license-rules-v1"
-        supported_document_types = ("food_license",)
+    class StubRuntimeRegistry:
+        def get_entry(self, use_case_name: str):
+            def invoke(input_context: ReviewInputContext) -> ReviewResult:
+                return _stub_result(input_context)
 
-        def review(self, input_context: ReviewInputContext) -> ReviewResult:
-            now = datetime(2026, 6, 8, 14, 30, tzinfo=timezone.utc)
-            return ReviewResult.model_validate(
-                {
-                    "task_id": input_context.task_id,
-                    "use_case_name": self.name,
-                    "use_case_version": self.version,
-                    "skill_name": self.name,
-                    "skill_version": self.version,
-                    "ruleset_version": self.ruleset_version,
-                    "document_type": "food_license",
-                    "status": "REVIEWED",
-                    "risk_level": "NONE",
-                    "needs_manual_review": False,
-                    "rule_results": [],
-                    "summary": "stub",
-                    "manual_review": {"status": "NOT_REQUIRED"},
-                    "audit_events": [],
-                    "created_at": now,
-                    "updated_at": now,
-                    "skill_result": {},
-                }
+            return ReviewRuntimeEntry(
+                definition=ReviewGraphDefinition(
+                    name="food_license",
+                    version="v1",
+                    ruleset_version="food-license-rules-v1",
+                    supported_document_types=("food_license",),
+                    capability_names=("food_license",),
+                ),
+                invoke=invoke,
             )
 
-    class StubRegistry:
-        def get(self, use_case_name: str):
-            return StubUseCase()
-
-    monkeypatch.setattr(review_service_module, "use_case_registry", StubRegistry())
+    monkeypatch.setattr(
+        review_service_module,
+        "review_graph_registry",
+        StubRuntimeRegistry(),
+    )
     service = ReviewService()
     review_input = ReviewInput(
         ocr_text="食品经营许可证",
@@ -269,3 +193,29 @@ def _is_review_task_uuid(task_id: str) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _stub_result(input_context: ReviewInputContext) -> ReviewResult:
+    now = datetime(2026, 6, 8, 14, 30, tzinfo=timezone.utc)
+    return ReviewResult.model_validate(
+        {
+            "task_id": input_context.task_id,
+            "use_case_name": input_context.use_case_name,
+            "use_case_version": input_context.use_case_version,
+            "skill_name": input_context.use_case_name,
+            "skill_version": input_context.use_case_version,
+            "ruleset_version": input_context.ruleset_version,
+            "document_type": input_context.input.declared_document_type
+            or input_context.use_case_name,
+            "status": "REVIEWED",
+            "risk_level": "NONE",
+            "needs_manual_review": False,
+            "rule_results": [],
+            "summary": "stub",
+            "manual_review": {"status": "NOT_REQUIRED"},
+            "audit_events": [],
+            "created_at": now,
+            "updated_at": now,
+            "skill_result": {},
+        }
+    )

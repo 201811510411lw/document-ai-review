@@ -107,10 +107,11 @@ describe("httpReviewClient", () => {
       pageSize: 20
     });
 
-    expect(fetchMock.mock.calls[0][1]).toEqual({
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
       headers: {Authorization: "Bearer review-token"},
       credentials: "include"
     });
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
   });
 
   it("maps list response from the unified QC review query API", async () => {
@@ -169,6 +170,33 @@ describe("httpReviewClient", () => {
       businessName: "成都示例商贸有限公司",
       sourceRecordId: "SRM-CERT-001"
     });
+  });
+
+  it("uses an abortable request for creating a review from SRM", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          task_id: "review-task-srm",
+          business_name: "劲仔食品集团股份有限公司",
+          credit_code: "91430600559532577G",
+          review_status: "REVIEWED",
+          review_status_label: "已审核",
+          risk_level: "LOW",
+          risk_level_label: "低风险",
+          needs_manual_review: false
+        }),
+        { status: 200 }
+      )
+    );
+
+    await httpReviewClient.createReviewFromSrm();
+
+    expect(fetchMock.mock.calls[0][0]).toContain("/api/v1/business-license/reviews/from-srm");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: "POST",
+      credentials: "include"
+    });
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
   });
 
   it("submits a manual review decision with bearer token and maps the response", async () => {

@@ -54,7 +54,7 @@ PDF metadata + stub_text：
 
 ## 输出位置
 
-平台级 `ReviewResult` 顶层结构保持不变。当前主线里，`food_license` 的 capability 专属结果仍通过兼容字段 `skill_result` 返回：
+平台级 `ReviewResult` 顶层结构保持不变。当前主线里，`food_license` 的 workflow artifact 通过 `skill_result` 返回：
 
 - `skill_result.document_input`：输入来源摘要。
 - `skill_result.document_classification`：文档类型识别结果。

@@ -184,7 +184,7 @@ def test_business_license_normalized_fields_drive_rule_review_without_hiding_raw
     assert payload["skill_result"]["normalized_fields"]["valid_to"] == "长期"
 
 
-def test_business_license_non_business_document_and_unparseable_validity_routes_manual_review(
+def test_business_license_non_business_document_is_rejected_before_rule_review(
     tmp_path,
     monkeypatch,
 ):
@@ -222,10 +222,10 @@ def test_business_license_non_business_document_and_unparseable_validity_routes_
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["status"] == "PENDING_MANUAL_REVIEW"
-    assert payload["needs_manual_review"] is True
-    assert "营业执照类型匹配" in payload["manual_review"]["reasons"]
-    assert "有效期无法判断" in payload["manual_review"]["reasons"]
+    assert payload["status"] == "FAILED"
+    assert payload["needs_manual_review"] is False
+    assert payload["manual_review"]["status"] == "NOT_REQUIRED"
+    assert payload["summary"] == "无法确认文件是营业执照"
     assert payload["skill_result"]["document_classification"]["document_type"] == "food_license"
 
 

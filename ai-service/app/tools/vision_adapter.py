@@ -71,6 +71,7 @@ class VisionInput:
 
 
 def build_business_license_vision_adapter() -> VisionAdapter:
+    _load_project_env()
     provider = os.environ.get("BUSINESS_LICENSE_VISION_PROVIDER", "aliyun").strip().lower()
     if provider in {"", "aliyun", "aliyun-ocr", "aliyun_cloud_market_ocr"}:
         from app.tools.aliyun_ocr_adapter import AliyunCloudMarketOcrAdapter
@@ -80,6 +81,7 @@ def build_business_license_vision_adapter() -> VisionAdapter:
 
 
 def build_food_license_file_adapter() -> VisionAdapter:
+    _load_project_env()
     provider = os.environ.get("FOOD_LICENSE_FILE_RECOGNITION_PROVIDER", "fake").strip().lower()
     if provider in {"openai", "langchain-openai"}:
         from app.tools.openai_file_adapter import OpenAiFileAdapter
@@ -94,6 +96,14 @@ def build_food_license_file_adapter() -> VisionAdapter:
         text_env="FOOD_LICENSE_FAKE_LLM_FILE_TEXT",
         model="fake-food-license-file-recognition",
     )
+
+
+def _load_project_env() -> None:
+    try:
+        from app.core.config import load_local_env
+    except Exception:
+        return
+    load_local_env()
 
 
 def _get_value(source: Any, key: str) -> Any:

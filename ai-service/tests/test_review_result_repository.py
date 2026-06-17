@@ -11,6 +11,7 @@ from app.models import (
 from app.integrations.mysql_client import MySqlSettings
 from app.repositories import MySQLReviewResultRepository
 from app.services.review_service import ReviewService
+from app.workflows.runtime import ReviewGraphDefinition, ReviewRuntimeEntry
 from tests.mysql_repository_stub import install_mysql_repository_stub
 
 
@@ -66,21 +67,25 @@ def test_review_service_can_save_result_with_injected_mysql_repository(monkeypat
     repository = _repository()
     result = build_review_result("review-task-000001")
 
-    class StubUseCase:
-        name = "food_license"
-        version = "v1"
-        ruleset_version = "food-license-rules-v1"
-
-        def review(self, input_context):
-            return result.model_copy(update={"task_id": input_context.task_id})
-
     class StubRegistry:
-        def get(self, use_case_name):
-            return StubUseCase()
+        def get_entry(self, graph_name):
+            def invoke(input_context):
+                return result.model_copy(update={"task_id": input_context.task_id})
+
+            return ReviewRuntimeEntry(
+                definition=ReviewGraphDefinition(
+                    name="food_license",
+                    version="v1",
+                    ruleset_version="food-license-rules-v1",
+                    supported_document_types=("food_license",),
+                    capability_names=("food_license",),
+                ),
+                invoke=invoke,
+            )
 
     from app.services import review_service as review_service_module
 
-    monkeypatch.setattr(review_service_module, "use_case_registry", StubRegistry())
+    monkeypatch.setattr(review_service_module, "review_graph_registry", StubRegistry())
 
     saved = ReviewService(repository=repository).review_food_license(
         ReviewInput(
