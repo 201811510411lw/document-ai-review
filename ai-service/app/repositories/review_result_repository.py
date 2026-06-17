@@ -3,6 +3,7 @@ from json import dumps, loads
 from typing import Any
 
 import pymysql
+from fastapi.encoders import jsonable_encoder
 
 from app.integrations.mysql_client import MySqlSettings, mysql_settings_from_env
 from app.models import AuditEvent, ManualReview, ManualReviewStatus, ReviewResult, ReviewStatus
@@ -31,6 +32,8 @@ BUSINESS_LICENSE_REVIEW_ROW_COLUMNS = """
     created_at,
     updated_at
 """
+
+_REPOSITORY_CACHE: dict[tuple[Any, ...], "MySQLReviewResultRepository"] = {}
 
 
 class MySQLReviewResultRepository:
@@ -1526,7 +1529,18 @@ class MySQLReviewResultRepository:
 
 
 def build_review_result_repository_from_env() -> MySQLReviewResultRepository:
-    return MySQLReviewResultRepository(mysql_settings_from_env("REVIEW_RESULT_MYSQL"))
+    settings = mysql_settings_from_env("REVIEW_RESULT_MYSQL")
+    cache_key = (
+        settings.host,
+        settings.port,
+        settings.user,
+        settings.database,
+        settings.charset,
+        settings.connect_timeout,
+    )
+    if cache_key not in _REPOSITORY_CACHE:
+        _REPOSITORY_CACHE[cache_key] = MySQLReviewResultRepository(settings)
+    return _REPOSITORY_CACHE[cache_key]
 
 
 def _business_license_review_filters(
@@ -2046,7 +2060,11 @@ def _skill_result_dict(review_result: ReviewResult) -> dict[str, Any]:
 
 
 def _rule_results_json(review_result: ReviewResult) -> str:
-    return dumps(review_result.model_dump(mode="json")["rule_results"], ensure_ascii=False)
+    return _json_dumps(review_result.model_dump(mode="json")["rule_results"])
+
+
+def _json_dumps(payload: Any) -> str:
+    return dumps(jsonable_encoder(payload), ensure_ascii=False)
 
 
 def _business_license_projection(review_result: ReviewResult) -> dict[str, Any]:
@@ -2077,10 +2095,10 @@ def _business_license_projection(review_result: ReviewResult) -> dict[str, Any]:
         "needs_manual_review": int(review_result.needs_manual_review),
         "summary": review_result.summary,
         "rule_results_json": _rule_results_json(review_result),
-        "extracted_fields_json": dumps(extracted_fields, ensure_ascii=False),
-        "normalized_fields_json": dumps(normalized_fields, ensure_ascii=False),
-        "extraction_metadata_json": dumps(extraction_metadata, ensure_ascii=False),
-        "source_evidence_json": dumps(source_evidence, ensure_ascii=False),
+        "extracted_fields_json": _json_dumps(extracted_fields),
+        "normalized_fields_json": _json_dumps(normalized_fields),
+        "extraction_metadata_json": _json_dumps(extraction_metadata),
+        "source_evidence_json": _json_dumps(source_evidence),
         "created_at": review_result.created_at.isoformat(),
         "updated_at": review_result.updated_at.isoformat(),
     }
@@ -2136,10 +2154,7 @@ def _food_license_projection(review_result: ReviewResult) -> dict[str, Any]:
         "license_no": extracted_fields.get("license_no"),
         "business_address": extracted_fields.get("business_address"),
         "legal_person": extracted_fields.get("legal_person"),
-        "business_items_json": dumps(
-            list(extracted_fields.get("business_items") or []),
-            ensure_ascii=False,
-        ),
+        "business_items_json": _json_dumps(list(extracted_fields.get("business_items") or [])),
         "valid_from": extracted_fields.get("valid_from"),
         "valid_to": extracted_fields.get("valid_to"),
         "issue_authority": extracted_fields.get("issue_authority"),
@@ -2149,10 +2164,10 @@ def _food_license_projection(review_result: ReviewResult) -> dict[str, Any]:
         "needs_manual_review": int(review_result.needs_manual_review),
         "summary": review_result.summary,
         "rule_results_json": _rule_results_json(review_result),
-        "extracted_fields_json": dumps(extracted_fields, ensure_ascii=False),
-        "normalized_fields_json": dumps(normalized_fields, ensure_ascii=False),
-        "extraction_metadata_json": dumps(extraction_metadata, ensure_ascii=False),
-        "source_evidence_json": dumps(source_evidence, ensure_ascii=False),
+        "extracted_fields_json": _json_dumps(extracted_fields),
+        "normalized_fields_json": _json_dumps(normalized_fields),
+        "extraction_metadata_json": _json_dumps(extraction_metadata),
+        "source_evidence_json": _json_dumps(source_evidence),
         "created_at": review_result.created_at.isoformat(),
         "updated_at": review_result.updated_at.isoformat(),
     }
@@ -2216,10 +2231,10 @@ def _tobacco_license_projection(review_result: ReviewResult) -> dict[str, Any]:
         "needs_manual_review": int(review_result.needs_manual_review),
         "summary": review_result.summary,
         "rule_results_json": _rule_results_json(review_result),
-        "extracted_fields_json": dumps(extracted_fields, ensure_ascii=False),
-        "normalized_fields_json": dumps(normalized_fields, ensure_ascii=False),
-        "extraction_metadata_json": dumps(extraction_metadata, ensure_ascii=False),
-        "source_evidence_json": dumps(source_evidence, ensure_ascii=False),
+        "extracted_fields_json": _json_dumps(extracted_fields),
+        "normalized_fields_json": _json_dumps(normalized_fields),
+        "extraction_metadata_json": _json_dumps(extraction_metadata),
+        "source_evidence_json": _json_dumps(source_evidence),
         "created_at": review_result.created_at.isoformat(),
         "updated_at": review_result.updated_at.isoformat(),
     }
@@ -2273,10 +2288,10 @@ def _tobacco_consistency_projection(review_result: ReviewResult) -> dict[str, An
         "needs_manual_review": int(review_result.needs_manual_review),
         "summary": review_result.summary,
         "rule_results_json": _rule_results_json(review_result),
-        "comparison_json": dumps(comparison, ensure_ascii=False),
-        "business_license_fields_json": dumps(business_fields, ensure_ascii=False),
-        "tobacco_license_fields_json": dumps(tobacco_fields, ensure_ascii=False),
-        "source_evidence_json": dumps(source_evidence, ensure_ascii=False),
+        "comparison_json": _json_dumps(comparison),
+        "business_license_fields_json": _json_dumps(business_fields),
+        "tobacco_license_fields_json": _json_dumps(tobacco_fields),
+        "source_evidence_json": _json_dumps(source_evidence),
         "created_at": review_result.created_at.isoformat(),
         "updated_at": review_result.updated_at.isoformat(),
     }
@@ -2334,8 +2349,8 @@ def _product_report_projection(review_result: ReviewResult) -> dict[str, Any]:
         "needs_manual_review": int(review_result.needs_manual_review),
         "summary": review_result.summary,
         "rule_results_json": _rule_results_json(review_result),
-        "extraction_metadata_json": dumps(extraction_metadata, ensure_ascii=False),
-        "source_evidence_json": dumps(source_evidence, ensure_ascii=False),
+        "extraction_metadata_json": _json_dumps(extraction_metadata),
+        "source_evidence_json": _json_dumps(source_evidence),
         "created_at": review_result.created_at.isoformat(),
         "updated_at": review_result.updated_at.isoformat(),
         "inspection_items": list(extracted_fields.get("inspection_items") or []),

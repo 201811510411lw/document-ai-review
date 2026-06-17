@@ -11,16 +11,16 @@
 平台不是单一 OCR 工具，也不是单一 `food_license` 审核服务。OCR、LLM、PDF、图片解析、OA 回写和 IM 通知都是可替换 Adapter。当前主线的产品能力边界依赖三层结构：
 
 - Agent Skill 描述层：沉淀审核能力边界；
-- runtime use_case：承接业务场景入口；
-- runtime capability：承接可复用执行能力。
+- LangGraph workflow runtime：承接业务流程编排；
+- LangChain Tool：承接可复用 LLM / OCR / 抽取 / 标准化能力。
 
 产品目标：
 
 - 支持企业内部私有化部署；
 - 保证敏感文档和抽取数据不出内网；
 - 将人工审核经验沉淀为可测试的确定性规则和可复核结果；
-- 通过统一 ReviewService 和 `use_case_registry` 暴露审核入口；
-- 为不同审核场景保留独立 use_case 演进空间，并通过 capability 复用执行能力。
+- 通过统一 ReviewService 和 `ReviewGraphRegistry` 暴露审核入口；
+- 为不同审核场景保留独立 graph 演进空间，并通过 LangChain Tool 复用执行能力。
 
 ---
 
@@ -123,12 +123,12 @@
 
 - FastAPI 服务骨架；
 - ReviewService 审核入口；
-- `use_case_registry` 显式注册骨架；
-- `food_license` Python use_case facade；
-- `food_license` runtime capability 样板；
+- `ReviewGraphRegistry` 显式注册骨架；
+- `food_license` Thin Entry；
+- `food_license` workflow runtime 样板；
 - `food_license` LangGraph 工作流；
 - `ReviewResult` 平台级返回契约；
-- `skill_result` 承载 capability 专属 payload 的兼容边界；
+- `skill_result` 承载 workflow artifact payload 的输出边界；
 - 食品安全证照 OCR 文本输入、本地 PDF、文件输入边界的最小测试闭环。
 
 当前 V1 本轮扩展范围：
@@ -136,9 +136,9 @@
 - 保留多场景 Agent Skill 描述层；
 - 保留多场景 workflow 目录骨架；
 - 保留 OCR、LLM、文档、文件、PDF、图片、ERP、OA、IM Adapter Stub；
-- 保持 `use_case_registry` 和 ReviewService 的多场景调用骨架；
-- 保留 `food_license` 兼容入口；
-- 优先收口 use_case、capability 和 Agent Skill 的命名边界。
+- 保持 `ReviewGraphRegistry` 和 ReviewService 的多场景调用骨架；
+- 保留 `food_license` 快捷入口并统一路由到 graph runtime；
+- 优先收口 Thin Entry、LangChain Tool 和 Agent Skill 的命名边界。
 
 ---
 
@@ -153,7 +153,7 @@
 - 真实 LLM 接入；
 - 真实 ERP、OA、飞书或企微调用；
 - 数据库规则配置、规则热加载或租户级规则覆盖；
-- 删除 `food_license` 兼容入口；
+- 删除 `food_license` 快捷入口；
 - 将旧分支上的实验能力整包合并回主线。
 
 当前主线优先做架构、术语和边界收口，不继续扩展 `food_license` 业务能力。

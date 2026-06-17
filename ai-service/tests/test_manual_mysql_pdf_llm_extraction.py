@@ -36,7 +36,6 @@ _ENV_KEYS = {
 
 def test_manual_mysql_pdf_llm_extraction_snapshot():
     _load_test_env()
-    _require_env("OPENAI_API_KEY")
 
     task = fetch_one_business_license_source_task(
         MySqlFetchClient(mysql_settings_from_env())
@@ -48,7 +47,7 @@ def test_manual_mysql_pdf_llm_extraction_snapshot():
     adapter = build_business_license_vision_adapter()
     if getattr(adapter, "implementation_status", None) == "fake":
         pytest.fail(
-            "BUSINESS_LICENSE_VISION_PROVIDER must be openai/langchain-openai "
+            "BUSINESS_LICENSE_VISION_PROVIDER must be aliyun "
             "for this manual extraction test",
             pytrace=False,
         )

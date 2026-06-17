@@ -6,7 +6,7 @@ from app.tools.vision_adapter import (
 
 
 def test_business_license_vision_adapter_defaults_to_aliyun(monkeypatch):
-    monkeypatch.delenv("BUSINESS_LICENSE_VISION_PROVIDER", raising=False)
+    monkeypatch.setenv("BUSINESS_LICENSE_VISION_PROVIDER", "")
 
     adapter = build_business_license_vision_adapter()
 

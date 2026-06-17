@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi.testclient import TestClient
 
 from app.api.business_license_reviews import get_review_read_repository
@@ -215,6 +217,38 @@ def test_business_license_review_detail_returns_projection_and_full_payload(
     assert payload["payload"]["task_id"] == result.task_id
 
 
+def test_business_license_review_persistence_accepts_srm_datetime_source_payload(
+    tmp_path,
+    monkeypatch,
+):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    result = _save_review(
+        tmp_path,
+        monkeypatch,
+        repository,
+        task_name="business-srm-datetime.pdf",
+        supplier_name="重庆示例科技有限公司",
+        supplier_credit_code="91500000MA00000000",
+        source_record_id="SRM-CERT-DATETIME",
+        attachment_ref_id="ATT-DATETIME",
+        source_url="https://files.example.test/business-srm-datetime.pdf",
+        extra_source={
+            "source_payload": {
+                "created": datetime(2026, 4, 10, 10, 15, 31),
+                "expiredEnd": datetime(2099, 12, 31, 23, 59, 59),
+            }
+        },
+    )
+
+    snapshot = repository.get_business_license_snapshot(result.task_id)
+
+    assert snapshot is not None
+    source_payload = snapshot["source_evidence"]["source"]["source_payload"]
+    assert source_payload["created"] == "2026-04-10T10:15:31"
+    assert source_payload["expiredEnd"] == "2099-12-31T23:59:59"
+
+
 def test_business_license_manual_review_writes_decision_and_audit_event(
     tmp_path,
     monkeypatch,
@@ -257,6 +291,11 @@ def test_business_license_manual_review_writes_decision_and_audit_event(
     assert payload["manual_review"]["comment"] == "已核对原始营业执照，主体和信用代码可接受。"
     assert payload["manual_review"]["reviewer_id"] == "wecom-reviewer-001"
     assert payload["manual_review"]["reviewer_username"] == "reviewer"
+    assert payload["reviewer_id"] == "wecom-reviewer-001"
+    assert payload["reviewer_username"] == "reviewer"
+    assert payload["manual_review_decision"] == "approved"
+    assert payload["manual_review_comment"] == "已核对原始营业执照，主体和信用代码可接受。"
+    assert payload["reviewed_at"] is not None
     assert payload["payload"]["status"] == "MANUAL_REVIEWED"
     assert payload["payload"]["needs_manual_review"] is False
     assert payload["payload"]["manual_review"]["status"] == "COMPLETED"
@@ -277,6 +316,11 @@ def test_business_license_manual_review_writes_decision_and_audit_event(
     assert detail_payload["review_status"] == "MANUAL_REVIEWED"
     assert detail_payload["needs_manual_review"] is False
     assert detail_payload["manual_review"]["decision"] == "approved"
+    assert detail_payload["reviewer_id"] == "wecom-reviewer-001"
+    assert detail_payload["reviewer_username"] == "reviewer"
+    assert detail_payload["manual_review_decision"] == "approved"
+    assert detail_payload["manual_review_comment"] == "已核对原始营业执照，主体和信用代码可接受。"
+    assert detail_payload["reviewed_at"] is not None
     detail_manual_review_event = next(
         event
         for event in detail_payload["audit_events"]
@@ -453,6 +497,7 @@ def _save_review(
     attachment_ref_id: str,
     source_url: str,
     extracted_credit_code: str | None = None,
+    extra_source: dict | None = None,
 ):
     pdf_path = tmp_path / task_name
     write_minimal_pdf(pdf_path, "embedded text should not be used")
@@ -488,6 +533,7 @@ def _save_review(
                 "tenant": "8560",
                 "record_id": source_record_id,
                 "attachment_ref_id": attachment_ref_id,
+                **(extra_source or {}),
             },
         ),
         use_case_name="business_license",

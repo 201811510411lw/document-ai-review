@@ -12,10 +12,12 @@ import { navigateTo } from "../navigation";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 const nowProvider = () => new Date();
+const REVIEW_API_TIMEOUT_MS = 20_000;
+const REVIEW_CREATE_TIMEOUT_MS = 120_000;
 
 export const httpReviewClient: ReviewClient = {
   async listReviews(filters: ReviewFilters): Promise<ListReviewsResponse> {
-    const response = await fetch(
+    const response = await reviewApiFetch(
       `${API_BASE_URL}/api/v1/business-license/reviews?${queryString(filters)}`,
       {headers: authHeaders(), credentials: "include"}
     );
@@ -27,7 +29,7 @@ export const httpReviewClient: ReviewClient = {
   },
 
   async listQcReviews(filters: ReviewFilters): Promise<ListReviewsResponse> {
-    const response = await fetch(
+    const response = await reviewApiFetch(
       `${API_BASE_URL}/api/v1/qc/reviews?${queryString(filters)}`,
       {headers: authHeaders(), credentials: "include"}
     );
@@ -39,7 +41,7 @@ export const httpReviewClient: ReviewClient = {
   },
 
   async getReview(taskId: string): Promise<ReviewDetail | null> {
-    const response = await fetch(
+    const response = await reviewApiFetch(
       `${API_BASE_URL}/api/v1/business-license/reviews/${encodeURIComponent(taskId)}`,
       {headers: authHeaders(), credentials: "include"}
     );
@@ -54,7 +56,7 @@ export const httpReviewClient: ReviewClient = {
   },
 
   async getQcReview(taskId: string): Promise<ReviewDetail | null> {
-    const response = await fetch(
+    const response = await reviewApiFetch(
       `${API_BASE_URL}/api/v1/qc/reviews/${encodeURIComponent(taskId)}`,
       {headers: authHeaders(), credentials: "include"}
     );
@@ -69,11 +71,11 @@ export const httpReviewClient: ReviewClient = {
   },
 
   async createReviewFromSrm(): Promise<ReviewDetail> {
-    const response = await fetch(`${API_BASE_URL}/api/v1/business-license/reviews/from-srm`, {
+    const response = await reviewApiFetch(`${API_BASE_URL}/api/v1/business-license/reviews/from-srm`, {
       method: "POST",
       headers: authHeaders(),
       credentials: "include"
-    });
+    }, REVIEW_CREATE_TIMEOUT_MS);
     handleUnauthorized(response);
     if (!response.ok) {
       throw new Error(`Failed to create business license review from SRM: ${response.status}`);
@@ -85,7 +87,7 @@ export const httpReviewClient: ReviewClient = {
     taskId: string,
     request: ManualReviewRequest
   ): Promise<ReviewDetail> {
-    const response = await fetch(
+    const response = await reviewApiFetch(
       `${API_BASE_URL}/api/v1/business-license/reviews/${encodeURIComponent(taskId)}/manual-review`,
       {
         method: "POST",
@@ -108,6 +110,20 @@ export const httpReviewClient: ReviewClient = {
     return mapDetailResponse(await response.json());
   }
 };
+
+async function reviewApiFetch(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = REVIEW_API_TIMEOUT_MS
+) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, {...init, signal: init.signal ?? controller.signal});
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
 
 function handleUnauthorized(response: Response) {
   if (response.status === 401) {

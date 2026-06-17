@@ -74,8 +74,8 @@ def test_local_file_path_alias_uses_llm_file_recognition(tmp_path, monkeypatch):
     )
 
     assert adapter.calls[0].content.startswith(b"%PDF-")
-    assert result.skill_result.document_input.input_type == "pdf"
-    assert result.skill_result.extracted_fields.license_no == "JY15101000000000"
+    assert result.skill_result["document_input"]["input_type"] == "pdf"
+    assert result.skill_result["extracted_fields"]["license_no"] == "JY15101000000000"
 
 
 def test_local_png_file_uses_llm_file_recognition(tmp_path, monkeypatch):
@@ -97,8 +97,8 @@ def test_local_png_file_uses_llm_file_recognition(tmp_path, monkeypatch):
 
     assert adapter.calls[0].content == b"fake-png-bytes"
     assert adapter.calls[0].mime_type == "image/png"
-    assert result.skill_result.document_input.input_type == "image"
-    assert result.skill_result.extracted_fields.license_no == "JY15101000000000"
+    assert result.skill_result["document_input"]["input_type"] == "image"
+    assert result.skill_result["extracted_fields"]["license_no"] == "JY15101000000000"
 
 
 def test_local_jpeg_file_uses_llm_file_recognition(tmp_path, monkeypatch):
@@ -120,8 +120,8 @@ def test_local_jpeg_file_uses_llm_file_recognition(tmp_path, monkeypatch):
 
     assert adapter.calls[0].content == b"fake-jpeg-bytes"
     assert adapter.calls[0].mime_type == "image/jpeg"
-    assert result.skill_result.document_input.input_type == "image"
-    assert result.skill_result.document_input.document_format == "jpeg"
+    assert result.skill_result["document_input"]["input_type"] == "image"
+    assert result.skill_result["document_input"]["document_format"] == "jpeg"
 
 
 def test_remote_pdf_download_uses_llm_file_recognition(monkeypatch):
