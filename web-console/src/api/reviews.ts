@@ -121,4 +121,5 @@ export interface ReviewClient {
   getQcReview(taskId: string): Promise<ReviewDetail | null>;
   createReviewFromSrm(): Promise<ReviewDetail>;
   submitManualReview(taskId: string, request: ManualReviewRequest): Promise<ReviewDetail>;
+  submitQcManualReview(taskId: string, request: ManualReviewRequest): Promise<ReviewDetail>;
 }

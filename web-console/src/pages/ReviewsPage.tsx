@@ -21,12 +21,17 @@ export function ReviewsPage({ qcView = false }: { qcView?: boolean }) {
   const [filters, setFilters] = useState<ReviewFilters>(defaultFilters);
   const [data, setData] = useState<ListReviewsResponse | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "empty" | "error">("loading");
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [srmStatus, setSrmStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
 
   useEffect(() => {
     let mounted = true;
-    setStatus("loading");
+    if (data) {
+      setIsRefreshing(true);
+    } else {
+      setStatus("loading");
+    }
 
     const listReviews = qcView ? reviewClient.listQcReviews : reviewClient.listReviews;
     listReviews(filters)
@@ -36,9 +41,11 @@ export function ReviewsPage({ qcView = false }: { qcView?: boolean }) {
         }
         setData(response);
         setStatus(response.items.length === 0 ? "empty" : "ready");
+        setIsRefreshing(false);
       })
       .catch(() => {
         if (mounted) {
+          setIsRefreshing(false);
           setStatus("error");
         }
       });
@@ -257,6 +264,9 @@ export function ReviewsPage({ qcView = false }: { qcView?: boolean }) {
         </button>
       </section>
 
+      {isRefreshing && (
+        <div className="inline-notice">正在刷新审核结果，列表会自动更新。</div>
+      )}
       {status === "loading" && <LoadingState />}
       {status === "error" && <ErrorState message="审核结果查询失败，请检查 API 服务状态。" />}
       {status === "empty" && (
@@ -312,7 +322,7 @@ function ReviewTable({
             <th>统一社会信用代码</th>
             <th>审核状态</th>
             <th>风险等级</th>
-            <th>人工复核</th>
+            <th>复核状态</th>
             <th>审核时间</th>
             <th>操作</th>
           </tr>
@@ -332,7 +342,7 @@ function ReviewTable({
               <td>
                 <RiskBadge risk={row.riskLevel} label={row.riskLevelLabel} />
               </td>
-              <td>{row.needsManualReview ? "需要" : "不需要"}</td>
+              <td>{manualReviewStateLabel(row)}</td>
               <td>{formatTime(row.reviewedAt)}</td>
               <td>
                 <a className="table-action" href={detailPath(row.taskId)}>
@@ -368,8 +378,8 @@ function ReviewTable({
                 </dd>
               </div>
               <div>
-                <dt>人工复核</dt>
-                <dd>{row.needsManualReview ? "需要" : "不需要"}</dd>
+                <dt>复核状态</dt>
+                <dd>{manualReviewStateLabel(row)}</dd>
               </div>
               <div>
                 <dt>审核时间</dt>
@@ -407,6 +417,16 @@ function ReviewTable({
       </div>
     </section>
   );
+}
+
+function manualReviewStateLabel(row: ReviewRow) {
+  if (row.reviewStatus === "MANUAL_REVIEWED") {
+    return "已复核";
+  }
+  if (row.needsManualReview || row.reviewStatus === "PENDING_MANUAL_REVIEW") {
+    return "待复核";
+  }
+  return "不需要";
 }
 
 function formatTime(value: string) {

@@ -132,11 +132,13 @@ def run_rules(state: BusinessLicenseWorkflowState) -> BusinessLicenseWorkflowSta
         skill_text=load_skill_text(skill_name),
         review_payload=review_payload,
     )
+    rule_results = rules_result.get("rule_results", [])
+    needs_manual_review = rules_result.get("needs_manual_review", True)
     return {
         **state,
-        "rule_results": rules_result.get("rule_results", []),
-        "risk_level": rules_result.get("risk_level", RiskLevel.MEDIUM),
-        "needs_manual_review": rules_result.get("needs_manual_review", True),
+        "rule_results": rule_results,
+        "risk_level": _normalized_risk_level(rule_results, needs_manual_review),
+        "needs_manual_review": needs_manual_review,
         "manual_review_reasons": _manual_review_reasons(
             state,
             rules_result.get("manual_review_reasons", []),
@@ -161,6 +163,37 @@ def summarize_risk(state: BusinessLicenseWorkflowState) -> BusinessLicenseWorkfl
     else:
         summary = "营业执照存在需要人工复核的规则问题"
     return {**state, "summary": summary}
+
+
+def _normalized_risk_level(rule_results, needs_manual_review: bool) -> RiskLevel:
+    failed_rules = [rule for rule in rule_results if not _rule_passed(rule)]
+    if not failed_rules and not needs_manual_review:
+        return RiskLevel.NONE
+    if any(_rule_risk_level_on_failure(rule) == RiskLevel.HIGH for rule in failed_rules):
+        return RiskLevel.HIGH
+    if failed_rules:
+        return RiskLevel.MEDIUM
+    return RiskLevel.MEDIUM if needs_manual_review else RiskLevel.NONE
+
+
+def _rule_passed(rule) -> bool:
+    if isinstance(rule, dict):
+        return bool(rule.get("passed"))
+    return bool(getattr(rule, "passed", False))
+
+
+def _rule_risk_level_on_failure(rule) -> RiskLevel | None:
+    value = (
+        rule.get("risk_level_on_failure")
+        if isinstance(rule, dict)
+        else getattr(rule, "risk_level_on_failure", None)
+    )
+    if isinstance(value, RiskLevel):
+        return value
+    try:
+        return RiskLevel(str(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def manual_review_node(

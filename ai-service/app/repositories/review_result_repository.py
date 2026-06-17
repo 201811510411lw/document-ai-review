@@ -1,5 +1,7 @@
 from datetime import date, datetime
 from json import dumps, loads
+from queue import Empty, LifoQueue
+from threading import Lock
 from typing import Any
 
 import pymysql
@@ -34,12 +36,36 @@ BUSINESS_LICENSE_REVIEW_ROW_COLUMNS = """
 """
 
 _REPOSITORY_CACHE: dict[tuple[Any, ...], "MySQLReviewResultRepository"] = {}
+_repository_cache_lock = Lock()
+
+
+class _PooledConnection:
+    def __init__(self, repository: "MySQLReviewResultRepository", connection) -> None:
+        self._repository = repository
+        self._connection = connection
+
+    def __getattr__(self, name: str):
+        return getattr(self._connection, name)
+
+    def __enter__(self):
+        return self._connection
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type is None:
+            self._repository._release_connection(self._connection)
+        else:
+            self._repository._discard_connection(self._connection)
+        return False
 
 
 class MySQLReviewResultRepository:
-    def __init__(self, settings: MySqlSettings) -> None:
+    def __init__(self, settings: MySqlSettings, *, pool_size: int = 5) -> None:
         self.settings = settings
         self._schema_ready = False
+        self._pool_size = max(1, pool_size)
+        self._pool: LifoQueue = LifoQueue(maxsize=self._pool_size)
+        self._pool_lock = Lock()
+        self._open_connections = 0
 
     def save(self, review_result: ReviewResult) -> None:
         self._ensure_schema_once()
@@ -65,6 +91,16 @@ class MySQLReviewResultRepository:
                 self._save_tobacco_consistency_projection(cursor, review_result)
                 self._save_product_report_projection(cursor, review_result)
             connection.commit()
+
+    def close(self) -> None:
+        with self._pool_lock:
+            while True:
+                try:
+                    connection = self._pool.get_nowait()
+                except Empty:
+                    break
+                _close_connection(connection)
+                self._open_connections = max(0, self._open_connections - 1)
 
     def get_by_task_id(self, task_id: str) -> ReviewResult | None:
         self._ensure_schema_once()
@@ -478,18 +514,6 @@ class MySQLReviewResultRepository:
             with connection.cursor() as cursor:
                 cursor.execute(
                     f"""
-                    SELECT COUNT(*) AS total
-                    FROM business_license_reviews
-                    {where_sql}
-                    """,
-                    tuple(params),
-                )
-                total = int((cursor.fetchone() or {}).get("total") or 0)
-                total_pages = max(1, (total + safe_page_size - 1) // safe_page_size)
-                safe_page = min(max(1, page), total_pages)
-                offset = (safe_page - 1) * safe_page_size
-                cursor.execute(
-                    f"""
                     SELECT
                         COUNT(*) AS total,
                         SUM(CASE WHEN DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) AS today_reviewed,
@@ -502,6 +526,10 @@ class MySQLReviewResultRepository:
                     tuple(params),
                 )
                 metrics_row = cursor.fetchone() or {}
+                total = int(metrics_row.get("total") or 0)
+                total_pages = max(1, (total + safe_page_size - 1) // safe_page_size)
+                safe_page = min(max(1, page), total_pages)
+                offset = (safe_page - 1) * safe_page_size
                 cursor.execute(
                     f"""
                     SELECT {BUSINESS_LICENSE_REVIEW_ROW_COLUMNS}
@@ -1183,6 +1211,36 @@ class MySQLReviewResultRepository:
         self._schema_ready = True
 
     def _connect(self):
+        return _PooledConnection(self, self._acquire_connection())
+
+    def _acquire_connection(self):
+        try:
+            connection = self._pool.get_nowait()
+        except Empty:
+            with self._pool_lock:
+                if self._open_connections < self._pool_size:
+                    self._open_connections += 1
+                    return self._new_connection()
+            connection = self._pool.get()
+        try:
+            connection.ping(reconnect=True)
+        except Exception:
+            self._discard_connection(connection)
+            return self._acquire_connection()
+        return connection
+
+    def _release_connection(self, connection) -> None:
+        try:
+            self._pool.put_nowait(connection)
+        except Exception:
+            self._discard_connection(connection)
+
+    def _discard_connection(self, connection) -> None:
+        _close_connection(connection)
+        with self._pool_lock:
+            self._open_connections = max(0, self._open_connections - 1)
+
+    def _new_connection(self):
         return pymysql.connect(
             host=self.settings.host,
             port=self.settings.port,
@@ -1538,9 +1596,24 @@ def build_review_result_repository_from_env() -> MySQLReviewResultRepository:
         settings.charset,
         settings.connect_timeout,
     )
-    if cache_key not in _REPOSITORY_CACHE:
-        _REPOSITORY_CACHE[cache_key] = MySQLReviewResultRepository(settings)
-    return _REPOSITORY_CACHE[cache_key]
+    with _repository_cache_lock:
+        if cache_key not in _REPOSITORY_CACHE:
+            _REPOSITORY_CACHE[cache_key] = MySQLReviewResultRepository(settings)
+        return _REPOSITORY_CACHE[cache_key]
+
+
+def reset_review_result_repository_cache() -> None:
+    with _repository_cache_lock:
+        for repository in _REPOSITORY_CACHE.values():
+            repository.close()
+        _REPOSITORY_CACHE.clear()
+
+
+def _close_connection(connection) -> None:
+    try:
+        connection.close()
+    except Exception:
+        pass
 
 
 def _business_license_review_filters(

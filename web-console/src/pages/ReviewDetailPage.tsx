@@ -89,11 +89,22 @@ export function ReviewDetailPage({ taskId, qcView = false }: { taskId: string; q
 
         <div className="panel">
           <div className="panel-title">
+            <h2>标准化字段</h2>
+            <span>规则使用值</span>
+          </div>
+          <FieldGrid fields={detail.normalizedFields} />
+        </div>
+      </section>
+
+      <section className="two-column">
+        <div className="panel">
+          <div className="panel-title">
             <h2>规则校验结果</h2>
             <span>{detail.ruleResults.length} 条规则</span>
           </div>
-          <div className="rule-list">
-            {detail.ruleResults.map((rule) => (
+          {detail.ruleResults.length > 0 ? (
+            <div className="rule-list">
+              {detail.ruleResults.map((rule) => (
               <article className="rule-item" key={rule.ruleCode}>
                 <div>
                   <strong>{rule.ruleName}</strong>
@@ -103,45 +114,116 @@ export function ReviewDetailPage({ taskId, qcView = false }: { taskId: string; q
                 <p>{rule.message}</p>
                 {rule.evidence && <blockquote>{rule.evidence}</blockquote>}
               </article>
-            ))}
+              ))}
+            </div>
+          ) : (
+            <p className="muted-text">暂无规则校验结果。</p>
+          )}
+        </div>
+
+        <div className="panel">
+          <div className="panel-title">
+            <h2>审核摘要</h2>
+            <span>{detail.needsManualReview ? "需复核" : "自动审核"}</span>
           </div>
+          <p className="muted-text">{detail.summary || "暂无审核摘要。"}</p>
         </div>
       </section>
 
       <section className="panel">
         <div className="panel-title">
-          <h2>人工复核预留区</h2>
-          <span>后续接入前端表单</span>
+          <h2>人工复核</h2>
+          <span>{detail.manualReview.status}</span>
         </div>
-        {detail.manualReviewReasons.length > 0 ? (
-          <ul className="reason-list">
-            {detail.manualReviewReasons.map((reason) => (
-              <li key={reason}>{reason}</li>
-            ))}
-          </ul>
-        ) : (
-          <p className="muted-text">当前记录没有人工复核原因。</p>
-        )}
-        <p className="muted-text">
-          后端写回接口已预留，前端提交表单后续接入；当前入口仅用于查看复核占位页。
-        </p>
+        <ManualReviewSummary detail={detail} />
         <div className="review-actions">
-          <button disabled type="button">
-            人工通过
-          </button>
-          <button disabled type="button">
-            人工驳回
-          </button>
-          <a className="secondary-button" href={`/reviews/${detail.taskId}/manual-review`}>
-            查看复核预留页
+          <a
+            className="secondary-button"
+            href={qcView ? `/qc/reviews/${detail.taskId}/manual-review` : `/reviews/${detail.taskId}/manual-review`}
+          >
+            进入人工复核
           </a>
         </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-title">
+          <h2>审计事件</h2>
+          <span>{detail.auditEvents.length} 条</span>
+        </div>
+        {detail.auditEvents.length > 0 ? (
+          <div className="audit-list">
+            {detail.auditEvents.map((event) => (
+              <article key={`${event.eventType}-${event.occurredAt}`}>
+                <div>
+                  <strong>{event.message}</strong>
+                  <span>{formatTime(event.occurredAt)}</span>
+                </div>
+                <p>
+                  操作人：{event.actorUsername || event.actorId || textFromDetails(event.details, "reviewer_username") || textFromDetails(event.details, "reviewer_id") || "-"}
+                </p>
+                {textFromDetails(event.details, "comment") && (
+                  <p>备注：{textFromDetails(event.details, "comment")}</p>
+                )}
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="muted-text">暂无审计事件。</p>
+        )}
       </section>
 
       <details className="json-panel">
         <summary>完整 JSON 快照</summary>
         <pre>{JSON.stringify(detail.payload, null, 2)}</pre>
       </details>
+    </div>
+  );
+}
+
+function ManualReviewSummary({ detail }: { detail: ReviewDetail }) {
+  const reasons =
+    detail.manualReview.reasons.length > 0
+      ? detail.manualReview.reasons
+      : detail.manualReviewReasons;
+
+  return (
+    <div className="manual-review-summary">
+      {reasons.length > 0 ? (
+        <div>
+          <h3>复核原因</h3>
+          <ul className="reason-list">
+            {reasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p className="muted-text">当前记录没有人工复核原因。</p>
+      )}
+
+      {detail.manualReview.status === "COMPLETED" ? (
+        <dl className="manual-review-grid">
+          <div>
+            <dt>复核结论</dt>
+            <dd>{manualReviewDecisionLabel(detail.manualReview.decision)}</dd>
+          </div>
+          <div>
+            <dt>复核人</dt>
+            <dd>{detail.manualReview.reviewerUsername || detail.manualReview.reviewerId || "-"}</dd>
+          </div>
+          <div>
+            <dt>复核时间</dt>
+            <dd>{detail.manualReview.reviewedAt ? formatTime(detail.manualReview.reviewedAt) : "-"}</dd>
+          </div>
+          <div className="manual-review-comment">
+            <dt>复核备注</dt>
+            <dd>{detail.manualReview.comment || "-"}</dd>
+          </div>
+        </dl>
+      ) : (
+        <p className="muted-text">还没有人工复核结论。</p>
+      )}
     </div>
   );
 }
@@ -176,6 +258,21 @@ function InfoItem({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function manualReviewDecisionLabel(decision: string | undefined) {
+  if (decision === "approved") {
+    return "通过";
+  }
+  if (decision === "rejected") {
+    return "不通过";
+  }
+  return "-";
+}
+
+function textFromDetails(details: Record<string, unknown>, key: string) {
+  const value = details[key];
+  return typeof value === "string" && value.trim() ? value : "";
 }
 
 function formatTime(value: string) {

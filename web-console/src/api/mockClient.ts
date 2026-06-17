@@ -82,6 +82,50 @@ function metricsFrom(items: ReviewDetail[]) {
   };
 }
 
+function submitMockManualReview(
+  taskId: string,
+  request: ManualReviewRequest
+): ReviewDetail {
+  const index = mockReviews.findIndex((item) => item.taskId === taskId);
+  if (index < 0) {
+    throw new Error("Review not found");
+  }
+  const reviewedAt = new Date().toISOString();
+  const updated = {
+    ...mockReviews[index],
+    reviewStatus: "MANUAL_REVIEWED" as const,
+    reviewStatusLabel: "人工已复核",
+    needsManualReview: false,
+    manualReview: {
+      status: "COMPLETED" as const,
+      decision: request.decision,
+      comment: request.comment,
+      reviewerId: request.reviewerId,
+      reviewerUsername: "reviewer",
+      reviewedAt,
+      reasons: mockReviews[index].manualReviewReasons
+    },
+    auditEvents: [
+      ...mockReviews[index].auditEvents,
+      {
+        eventType: "BUSINESS_LICENSE_MANUAL_REVIEW",
+        message: request.decision === "approved" ? "人工复核确认通过" : "人工复核驳回",
+        occurredAt: reviewedAt,
+        actorId: request.reviewerId,
+        actorUsername: "reviewer",
+        details: {
+          decision: request.decision,
+          comment: request.comment,
+          reviewer_id: request.reviewerId,
+          reviewer_username: "reviewer"
+        }
+      }
+    ]
+  };
+  mockReviews[index] = updated;
+  return updated;
+}
+
 export const mockReviewClient: ReviewClient = {
   async listReviews(filters: ReviewFilters): Promise<ListReviewsResponse> {
     await delay(20);
@@ -203,43 +247,14 @@ export const mockReviewClient: ReviewClient = {
     request: ManualReviewRequest
   ): Promise<ReviewDetail> {
     await delay(20);
-    const index = mockReviews.findIndex((item) => item.taskId === taskId);
-    if (index < 0) {
-      throw new Error("Review not found");
-    }
-    const reviewedAt = new Date().toISOString();
-    const updated = {
-      ...mockReviews[index],
-      reviewStatus: "MANUAL_REVIEWED" as const,
-      reviewStatusLabel: "人工已复核",
-      needsManualReview: false,
-      manualReview: {
-        status: "COMPLETED" as const,
-        decision: request.decision,
-        comment: request.comment,
-        reviewerId: request.reviewerId,
-        reviewerUsername: "reviewer",
-        reviewedAt,
-        reasons: mockReviews[index].manualReviewReasons
-      },
-      auditEvents: [
-        ...mockReviews[index].auditEvents,
-        {
-          eventType: "BUSINESS_LICENSE_MANUAL_REVIEW",
-          message: request.decision === "approved" ? "人工复核确认通过" : "人工复核驳回",
-          occurredAt: reviewedAt,
-          actorId: request.reviewerId,
-          actorUsername: "reviewer",
-          details: {
-            decision: request.decision,
-            comment: request.comment,
-            reviewer_id: request.reviewerId,
-            reviewer_username: "reviewer"
-          }
-        }
-      ]
-    };
-    mockReviews[index] = updated;
-    return updated;
+    return submitMockManualReview(taskId, request);
+  },
+
+  async submitQcManualReview(
+    taskId: string,
+    request: ManualReviewRequest
+  ): Promise<ReviewDetail> {
+    await delay(20);
+    return submitMockManualReview(taskId, request);
   }
 };

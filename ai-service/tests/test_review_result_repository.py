@@ -9,7 +9,11 @@ from app.models import (
     RiskLevel,
 )
 from app.integrations.mysql_client import MySqlSettings
-from app.repositories import MySQLReviewResultRepository
+from app.repositories import (
+    MySQLReviewResultRepository,
+    build_review_result_repository_from_env,
+    reset_review_result_repository_cache,
+)
 from app.services.review_service import ReviewService
 from app.workflows.runtime import ReviewGraphDefinition, ReviewRuntimeEntry
 from tests.mysql_repository_stub import install_mysql_repository_stub
@@ -104,6 +108,32 @@ def test_review_service_without_repository_keeps_existing_no_persistence_behavio
     service = ReviewService()
 
     assert service.repository is None
+
+
+def test_mysql_repository_reuses_connection_between_queries(monkeypatch):
+    storage = install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    result = build_review_result("review-task-reuse")
+
+    repository.save(result)
+    repository.get_by_task_id(result.task_id)
+    repository.get_by_task_id(result.task_id)
+
+    assert len(storage["connections"]) == 1
+
+
+def test_review_result_repository_builder_reuses_cached_repository(monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
+
+    first = build_review_result_repository_from_env()
+    second = build_review_result_repository_from_env()
+
+    assert first is second
+
+    reset_review_result_repository_cache()
+    third = build_review_result_repository_from_env()
+
+    assert third is not first
 
 
 def _repository() -> MySQLReviewResultRepository:
