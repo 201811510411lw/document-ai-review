@@ -1,6 +1,8 @@
 import os
 import base64
 import json
+import re
+import unicodedata
 from io import BytesIO
 from typing import Any, Protocol
 
@@ -77,6 +79,20 @@ def build_business_license_vision_adapter() -> VisionAdapter:
         from app.tools.aliyun_ocr_adapter import AliyunCloudMarketOcrAdapter
 
         return AliyunCloudMarketOcrAdapter()
+    if provider in {"qwen_ocr", "qwen-ocr", "qwen3.5-ocr"}:
+        from app.tools.qwen_ocr_adapter import QwenOcrBusinessLicenseAdapter
+
+        return QwenOcrBusinessLicenseAdapter()
+    if provider in {
+        "qwen_ocr_with_aliyun_fallback",
+        "qwen-ocr-with-aliyun-fallback",
+        "qwen_ocr_fallback",
+    }:
+        from app.tools.business_license_fallback_adapter import (
+            QwenOcrWithAliyunFallbackBusinessLicenseAdapter,
+        )
+
+        return QwenOcrWithAliyunFallbackBusinessLicenseAdapter()
     return FakeVisionAdapter()
 
 
@@ -195,4 +211,5 @@ def _normalize_compare_text(value: Any) -> str:
 
 
 def _normalize_credit_code(value: Any) -> str:
-    return _normalize_compare_text(value).upper()
+    normalized = unicodedata.normalize("NFKC", _normalize_compare_text(value)).upper()
+    return "".join(re.findall(r"[0-9A-Z]", normalized))
