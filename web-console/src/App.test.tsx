@@ -253,7 +253,7 @@ describe("business license review workbench", () => {
     });
 
     expect(screen.getByText("字段抽取结果")).toBeInTheDocument();
-    expect(screen.getByText("标准化字段")).toBeInTheDocument();
+    expect(screen.getByText("校验期望值")).toBeInTheDocument();
     expect(screen.getByText("规则校验结果")).toBeInTheDocument();
     expect(screen.getByText("统一社会信用代码与来源系统不一致，需要人工核对原件。")).toBeInTheDocument();
     expect(screen.getByText("统一社会信用代码不一致")).toBeInTheDocument();

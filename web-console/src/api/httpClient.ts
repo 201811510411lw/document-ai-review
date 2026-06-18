@@ -5,7 +5,8 @@ import type {
   ReviewFilters,
   ReviewRow,
   RuleResult,
-  ManualReviewRequest
+  ManualReviewRequest,
+  ExtractedFieldSet
 } from "./reviews";
 import { authHeaders, clearSession } from "./auth";
 import { navigateTo } from "../navigation";
@@ -262,6 +263,7 @@ function mapDetailResponse(payload: ApiReviewDetail): ReviewDetail {
     summary: payload.summary ?? "",
     extractedFields: mapFields(payload.extracted_fields, payload),
     normalizedFields: mapFields(payload.normalized_fields, payload),
+    comparisonFields: mapComparisonFields(payload),
     ruleResults: (payload.rule_results ?? []).map(mapRule),
     manualReviewReasons: payload.manual_review_reasons ?? [],
     manualReview: mapManualReview(payload.manual_review, payload.manual_review_reasons),
@@ -311,6 +313,71 @@ function mapFields(fields: ApiFieldSet | undefined, detail: ApiReviewDetail) {
     businessAddress: fields?.business_address ?? fields?.production_address ?? detail.production_address ?? detail.business_address ?? "",
     confidence: numericConfidence(fields?.confidence)
   };
+}
+
+function mapComparisonFields(detail: ApiReviewDetail): ExtractedFieldSet {
+  const sourceEvidence = sourceEvidenceOf(detail);
+  const source = objectRecord(sourceEvidence.source);
+  const sourcePayload = objectRecord(source.source_payload);
+  const rules = detail.rule_results ?? [];
+  const creditRule = rules.find((rule) => rule.rule_code.includes("CREDIT_CODE"));
+  const subjectRule = rules.find((rule) =>
+    rule.rule_code.includes("SUBJECT_NAME") || rule.rule_code.includes("PRODUCER_NAME")
+  );
+  const validityRule = rules.find((rule) =>
+    rule.rule_code.includes("VALIDITY") || rule.rule_code.includes("PERIOD")
+  );
+
+  return {
+    subjectName:
+      stringValue(ruleDetail(subjectRule, "expected"))
+      || stringValue(sourceEvidence.supplier_name)
+      || stringValue(sourcePayload.vendorName)
+      || stringValue(sourcePayload.creatorName),
+    creditCode:
+      stringValue(ruleDetail(creditRule, "source_supplier_credit_code"))
+      || stringValue(ruleDetail(creditRule, "expected"))
+      || stringValue(sourceEvidence.supplier_credit_code),
+    licenseNo: stringValue(sourcePayload.certNo) || stringValue(sourcePayload.licenseNo),
+    legalPerson: "",
+    establishedDate: "",
+    validFrom:
+      dateOnly(ruleDetail(validityRule, "valid_from"))
+      || dateOnly(sourcePayload.expiredBegin),
+    validTo:
+      dateOnly(ruleDetail(validityRule, "valid_to"))
+      || dateOnly(sourcePayload.expiredEnd),
+    businessAddress: "",
+    confidence: 0
+  };
+}
+
+function sourceEvidenceOf(detail: ApiReviewDetail): Record<string, unknown> {
+  if (detail.source_evidence) {
+    return detail.source_evidence;
+  }
+  const payload = objectRecord(detail.payload);
+  const skillResult = objectRecord(payload.skill_result);
+  return objectRecord(skillResult.source_evidence);
+}
+
+function ruleDetail(rule: ApiRuleResult | undefined, key: string) {
+  return rule?.details?.[key];
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function dateOnly(value: unknown) {
+  const text = stringValue(value);
+  return text.includes("T") ? text.slice(0, 10) : text;
 }
 
 function documentTypeOf(detail: ApiReviewDetail) {
@@ -410,6 +477,7 @@ interface ApiReviewDetail extends ApiReviewRow {
   rule_results?: ApiRuleResult[];
   extracted_fields?: ApiFieldSet;
   normalized_fields?: ApiFieldSet;
+  source_evidence?: Record<string, unknown>;
   manual_review_reasons?: string[];
   manual_review?: ApiManualReview;
   audit_events?: ApiAuditEvent[];

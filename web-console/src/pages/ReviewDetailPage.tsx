@@ -90,10 +90,14 @@ export function ReviewDetailPage({ taskId, qcView = false }: { taskId: string; q
 
         <div className="panel">
           <div className="panel-title">
-            <h2>标准化字段</h2>
-            <span>规则使用值</span>
+            <h2>校验期望值</h2>
+            <span>来源系统值</span>
           </div>
-          <FieldGrid fields={detail.normalizedFields} documentType={documentTypeOf(detail)} />
+          <FieldGrid
+            fields={detail.comparisonFields ?? detail.normalizedFields}
+            documentType={documentTypeOf(detail)}
+            mode="comparison"
+          />
         </div>
       </section>
 
@@ -231,29 +235,33 @@ function ManualReviewSummary({ detail }: { detail: ReviewDetail }) {
 
 function FieldGrid({
   fields,
-  documentType
+  documentType,
+  mode = "extracted"
 }: {
   fields: ExtractedFieldSet;
   documentType: string;
+  mode?: "extracted" | "comparison";
 }) {
   const isFoodProductionLicense = documentType === "food_production_license";
-  const rows = [
+  const rows: Array<[string, string | undefined]> = [
     [isFoodProductionLicense ? "生产者名称" : "主体名称", fields.subjectName],
     ["统一社会信用代码", fields.creditCode],
     ["许可证编号", fields.licenseNo],
     ["法定代表人", fields.legalPerson],
     ["成立日期", fields.establishedDate],
     [isFoodProductionLicense ? "有效期" : "营业期限", `${fields.validFrom} 至 ${fields.validTo}`],
-    [isFoodProductionLicense ? "生产地址" : "住所", fields.businessAddress],
-    ["置信度", `${Math.round(fields.confidence * 100)}%`]
+    [isFoodProductionLicense ? "生产地址" : "住所", fields.businessAddress]
   ];
+  if (mode === "extracted") {
+    rows.push(["置信度", `${Math.round(fields.confidence * 100)}%`]);
+  }
 
   return (
     <dl className="field-grid">
       {rows.map(([label, value]) => (
         <div key={label}>
           <dt>{label}</dt>
-          <dd>{value}</dd>
+          <dd>{value || "未提供"}</dd>
         </div>
       ))}
     </dl>
