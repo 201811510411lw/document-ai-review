@@ -285,6 +285,7 @@ def manual_review_business_license(
         **row,
         "manual_review": _manual_review(snapshot, payload_dict),
         "audit_events": repository.list_business_license_audit_events(task_id),
+        "payload": payload_dict,
     }
 
 
@@ -302,6 +303,11 @@ def _detail_row(snapshot: dict[str, Any]) -> dict[str, Any]:
         "risk_level": snapshot.get("risk_level"),
         "risk_level_label": _risk_level_label(snapshot.get("risk_level")),
         "needs_manual_review": bool(snapshot.get("needs_manual_review")),
+        "manual_review_decision": snapshot.get("manual_review_decision"),
+        "manual_review_comment": snapshot.get("manual_review_comment"),
+        "reviewer_id": snapshot.get("manual_review_reviewer_id"),
+        "reviewer_username": snapshot.get("manual_review_reviewer_username"),
+        "reviewed_at": snapshot.get("manual_review_reviewed_at"),
         "created_at": snapshot.get("created_at"),
         "updated_at": snapshot.get("updated_at"),
     }

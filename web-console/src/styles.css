@@ -708,17 +708,85 @@ td small {
   white-space: pre-wrap;
 }
 
+.manual-review-summary {
+  display: grid;
+  gap: 18px;
+}
+
+.manual-review-summary h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+.manual-review-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.manual-review-grid div {
+  border: 1px solid #dbe2ec;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.manual-review-grid dt {
+  color: #687386;
+  font-size: 12px;
+}
+
+.manual-review-grid dd {
+  margin: 6px 0 0;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.manual-review-grid .manual-review-comment {
+  grid-column: 1 / -1;
+}
+
+.manual-review-comment dd {
+  white-space: pre-wrap;
+}
+
 .audit-list {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   margin-top: 18px;
 }
 
+.audit-list article {
+  border: 1px solid #dbe2ec;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.audit-list article div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.audit-list strong {
+  color: #111827;
+  font-size: 13px;
+}
+
+.audit-list span,
 .audit-list p {
   margin: 0;
   color: #4b5563;
   font-size: 12px;
   line-height: 1.6;
+}
+
+.audit-list p {
+  margin-top: 6px;
 }
 
 .login-shell {

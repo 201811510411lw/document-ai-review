@@ -2,7 +2,10 @@ from pathlib import Path
 
 
 def test_business_license_prd_documents_single_certificate_extension_boundaries():
-    prd = Path("../docs/prd-business-license-review-v1.md").read_text(encoding="utf-8")
+    repo_root = Path(__file__).resolve().parents[2]
+    prd = (repo_root / "docs/prd-business-license-review-v1.md").read_text(
+        encoding="utf-8"
+    )
 
     assert "## Extension Boundaries for #34" in prd
     assert "business_license capability 只负责营业执照单证" in prd

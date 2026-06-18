@@ -107,10 +107,11 @@ describe("httpReviewClient", () => {
       pageSize: 20
     });
 
-    expect(fetchMock.mock.calls[0][1]).toEqual({
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
       headers: {Authorization: "Bearer review-token"},
       credentials: "include"
     });
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
   });
 
   it("maps list response from the unified QC review query API", async () => {
@@ -169,6 +170,141 @@ describe("httpReviewClient", () => {
       businessName: "成都示例商贸有限公司",
       sourceRecordId: "SRM-CERT-001"
     });
+  });
+
+  it("uses an abortable request for creating a review from SRM", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          task_id: "review-task-srm",
+          business_name: "劲仔食品集团股份有限公司",
+          credit_code: "91430600559532577G",
+          review_status: "REVIEWED",
+          review_status_label: "已审核",
+          risk_level: "LOW",
+          risk_level_label: "低风险",
+          needs_manual_review: false
+        }),
+        { status: 200 }
+      )
+    );
+
+    await httpReviewClient.createReviewFromSrm();
+
+    expect(fetchMock.mock.calls[0][0]).toContain("/api/v1/business-license/reviews/from-srm");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: "POST",
+      credentials: "include"
+    });
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("creates a food license review from the SRM shortcut endpoint", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          task_id: "review-task-food-license-srm",
+          supplier_name: "成都示例食品有限公司",
+          credit_code: "91510100MA00000000",
+          review_status: "REVIEWED",
+          review_status_label: "已审核",
+          risk_level: "NONE",
+          risk_level_label: "无风险",
+          needs_manual_review: false,
+          payload: { document_type: "food_license" }
+        }),
+        { status: 200 }
+      )
+    );
+
+    const detail = await httpReviewClient.createFoodLicenseReviewFromSrm();
+
+    expect(fetchMock.mock.calls[0][0]).toContain("/api/v1/food-license/reviews/from-srm");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: "POST",
+      credentials: "include"
+    });
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
+    expect(detail.businessName).toBe("成都示例食品有限公司");
+  });
+
+  it("creates a food production license review from the QC SRM shortcut endpoint", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          task_id: "review-task-food-production-license-srm",
+          supplier_name: "成都示例食品生产有限公司",
+          credit_code: "91510100MA00000000",
+          review_status: "PENDING_MANUAL_REVIEW",
+          review_status_label: "待人工复核",
+          risk_level: "MEDIUM",
+          risk_level_label: "中风险",
+          needs_manual_review: true,
+          payload: { document_type: "food_production_license" }
+        }),
+        { status: 200 }
+      )
+    );
+
+    const detail = await httpReviewClient.createFoodProductionLicenseReviewFromSrm();
+
+    expect(fetchMock.mock.calls[0][0]).toContain(
+      "/api/v1/qc/food-production-license/reviews/from-srm"
+    );
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: "POST",
+      credentials: "include"
+    });
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
+    expect(detail.businessName).toBe("成都示例食品生产有限公司");
+  });
+
+  it("maps food production license fields without treating SC number as credit code", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          task_id: "review-task-food-production-license-detail",
+          document_type: "food_production_license",
+          supplier_name: "长沙波浪食品有限公司",
+          credit_code: "SC12443010505553",
+          review_status: "PENDING_MANUAL_REVIEW",
+          review_status_label: "待人工复核",
+          risk_level: "MEDIUM",
+          risk_level_label: "中风险",
+          needs_manual_review: true,
+          producer_name: "长沙波浪食品有限公司",
+          license_no: "SC12443010505553",
+          production_address: "长沙市示例区生产路 1 号",
+          extracted_fields: {
+            producer_name: "长沙波浪食品有限公司",
+            credit_code: "SC12443010505553",
+            license_no: "SC12443010505553",
+            production_address: "长沙市示例区生产路 1 号",
+            valid_to: "2028-06-05"
+          },
+          normalized_fields: {
+            producer_name: "长沙波浪食品有限公司",
+            license_no: "SC12443010505553",
+            production_address: "长沙市示例区生产路1号",
+            valid_to: "2028-06-05"
+          },
+          payload: { document_type: "food_production_license" }
+        }),
+        { status: 200 }
+      )
+    );
+
+    const detail = await httpReviewClient.getQcReview(
+      "review-task-food-production-license-detail"
+    );
+
+    expect(detail?.businessName).toBe("长沙波浪食品有限公司");
+    expect(detail?.creditCode).toBe("未识别");
+    expect(detail?.extractedFields.subjectName).toBe("长沙波浪食品有限公司");
+    expect(detail?.extractedFields.creditCode).toBe("");
+    expect(detail?.extractedFields.licenseNo).toBe("SC12443010505553");
+    expect(detail?.extractedFields.businessAddress).toBe("长沙市示例区生产路 1 号");
+    expect(detail?.normalizedFields.businessAddress).toBe("长沙市示例区生产路1号");
   });
 
   it("submits a manual review decision with bearer token and maps the response", async () => {
@@ -239,6 +375,65 @@ describe("httpReviewClient", () => {
     expect(detail.reviewStatus).toBe("MANUAL_REVIEWED");
     expect(detail.manualReview.decision).toBe("approved");
     expect(detail.auditEvents[0].message).toBe("人工复核确认通过");
+  });
+
+  it("submits a QC manual review decision to the unified QC endpoint", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          task_id: "qc-task-1",
+          supplier_name: "成都示例食品有限公司",
+          credit_code: "91510100MA00000000",
+          review_status: "MANUAL_REVIEWED",
+          review_status_label: "人工已复核",
+          risk_level: "MEDIUM",
+          risk_level_label: "中风险",
+          needs_manual_review: false,
+          manual_review: {
+            status: "COMPLETED",
+            decision: "rejected",
+            comment: "经营范围与原件不一致。",
+            reviewer_id: "qc-reviewer-001",
+            reviewer_username: "reviewer",
+            reviewed_at: "2026-06-15T12:30:00+08:00",
+            reasons: ["经营范围需要人工确认"]
+          },
+          audit_events: [
+            {
+              event_type: "QC_MANUAL_REVIEW",
+              message: "人工复核驳回",
+              occurred_at: "2026-06-15T12:30:00+08:00",
+              actor_id: "qc-reviewer-001",
+              actor_username: "reviewer",
+              details: {decision: "rejected"}
+            }
+          ]
+        }),
+        { status: 200 }
+      )
+    );
+
+    const detail = await httpReviewClient.submitQcManualReview("qc-task-1", {
+      decision: "rejected",
+      comment: "经营范围与原件不一致。",
+      reviewerId: "qc-reviewer-001"
+    });
+
+    expect(fetchMock.mock.calls[0][0]).toContain(
+      "/api/v1/qc/reviews/qc-task-1/manual-review"
+    );
+    expect(fetchMock.mock.calls[0][0]).not.toContain("/api/v1/business-license");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({
+        decision: "rejected",
+        comment: "经营范围与原件不一致。",
+        reviewer_id: "qc-reviewer-001"
+      })
+    });
+    expect(detail.businessName).toBe("成都示例食品有限公司");
+    expect(detail.manualReview.decision).toBe("rejected");
+    expect(detail.auditEvents[0].message).toBe("人工复核驳回");
   });
 
   it("maps detail response and treats 404 as empty detail", async () => {

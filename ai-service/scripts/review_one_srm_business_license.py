@@ -1,6 +1,10 @@
 import json
 import os
+import sys
+from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import load_local_env
 from app.integrations.mysql_client import MySqlFetchClient, mysql_settings_from_env
@@ -48,6 +52,12 @@ def _summary_payload(payload: dict[str, Any]) -> dict[str, Any]:
         )
         or {}
     )
+    ocr_metadata = dict(
+        (dict(skill_result.get("extraction_metadata") or {})).get(
+            "llm_file_extractor"
+        )
+        or {}
+    )
     failed_rules = [
         {
             "rule_code": item.get("rule_code"),
@@ -58,7 +68,7 @@ def _summary_payload(payload: dict[str, Any]) -> dict[str, Any]:
         for item in payload.get("rule_results", [])
         if not item.get("passed")
     ]
-    return {
+    summary = {
         "task_id": payload.get("task_id"),
         "document_type": payload.get("document_type"),
         "status": review_metadata.get("status_label")
@@ -83,6 +93,17 @@ def _summary_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "source_url": document_input.get("source_url"),
         },
     }
+    if ocr_metadata:
+        summary["ocr"] = {
+            "provider": ocr_metadata.get("provider"),
+            "implementation_status": ocr_metadata.get("implementation_status"),
+            "pages": ocr_metadata.get("pages"),
+            "selected_pages": ocr_metadata.get("selected_pages"),
+            "ignored_pages": ocr_metadata.get("ignored_pages"),
+            "line_count": ocr_metadata.get("line_count"),
+            "mismatched_fields": ocr_metadata.get("mismatched_fields"),
+        }
+    return summary
 
 
 def _status_label(status: Any) -> str | None:

@@ -2,6 +2,12 @@ from fastapi.testclient import TestClient
 
 from app.api.business_license_reviews import get_srm_sql_client
 from app.main import app
+from app.models import RiskLevel, RuleResult
+from tests.business_license_helpers import (
+    business_license_auth_headers,
+    business_license_fields,
+    business_license_json,
+)
 from tests.pdf_helpers import write_blank_pdf, write_blank_pdf_with_pages, write_minimal_pdf
 from app.tools.remote_document import RemoteDocument
 from app.workflows.business_license import nodes as business_license_nodes
@@ -123,6 +129,105 @@ def test_business_license_review_accepts_structured_fields_from_vision_adapter(
         "source": "llm_file_extractor",
         "schema": "BusinessLicenseExtractedFields",
     }
+
+
+def test_business_license_normalized_fields_drive_rule_review_without_hiding_raw_values(
+    tmp_path,
+    monkeypatch,
+):
+    install_mysql_repository_stub(monkeypatch)
+    image_path = tmp_path / "business-license.png"
+    image_path.write_bytes(b"fake-image-bytes")
+    monkeypatch.setenv(
+        "BUSINESS_LICENSE_FAKE_VISION_JSON",
+        """
+        {
+          "document_type": "营业执照",
+          "subject_name": " 成都（示例）商贸有限公司 ",
+          "credit_code": " 91510100ma0000000x ",
+          "business_address": "成都市高新区天府大道 1 号",
+          "legal_person": "张三",
+          "valid_to": "长期有效"
+        }
+        """,
+    )
+    monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/business-license/reviews",
+        json={
+            "file": {
+                "local_path": str(image_path),
+                "file_name": "business-license.png",
+                "mime_type": "image/png",
+                "document_format": "image",
+            },
+            "supplier_name": "成都示例商贸有限公司",
+            "supplier_credit_code": "91510100MA0000000X",
+            "declared_document_type": "business_license",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "REVIEWED"
+    assert payload["risk_level"] == "NONE"
+    assert (
+        payload["skill_result"]["extracted_fields"]["subject_name"]
+        == " 成都（示例）商贸有限公司 "
+    )
+    assert payload["skill_result"]["extracted_fields"]["credit_code"] == " 91510100ma0000000x "
+    assert payload["skill_result"]["extracted_fields"]["valid_to"] == "长期有效"
+    assert payload["skill_result"]["normalized_fields"]["document_type"] == "business_license"
+    assert payload["skill_result"]["normalized_fields"]["subject_name"] == "成都示例商贸有限公司"
+    assert payload["skill_result"]["normalized_fields"]["credit_code"] == "91510100MA0000000X"
+    assert payload["skill_result"]["normalized_fields"]["valid_to"] == "长期"
+
+
+def test_business_license_non_business_document_is_rejected_before_rule_review(
+    tmp_path,
+    monkeypatch,
+):
+    install_mysql_repository_stub(monkeypatch)
+    image_path = tmp_path / "wrong-license.png"
+    image_path.write_bytes(b"fake-image-bytes")
+    monkeypatch.setenv(
+        "BUSINESS_LICENSE_FAKE_VISION_JSON",
+        """
+        {
+          "document_type": "food_license",
+          "subject_name": "成都示例商贸有限公司",
+          "credit_code": "91510100MA0000000X",
+          "valid_to": "二零三零年十二月三十一日"
+        }
+        """,
+    )
+    monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/business-license/reviews",
+        json={
+            "file": {
+                "local_path": str(image_path),
+                "file_name": "wrong-license.png",
+                "mime_type": "image/png",
+                "document_format": "image",
+            },
+            "supplier_name": "成都示例商贸有限公司",
+            "supplier_credit_code": "91510100MA0000000X",
+            "declared_document_type": "business_license",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "FAILED"
+    assert payload["needs_manual_review"] is False
+    assert payload["manual_review"]["status"] == "NOT_REQUIRED"
+    assert payload["summary"] == "无法确认文件是营业执照"
+    assert payload["skill_result"]["document_classification"]["document_type"] == "food_license"
 
 
 def test_business_license_local_image_passes_file_bytes_to_vision_adapter(
@@ -657,7 +762,7 @@ def test_business_license_review_from_srm_creates_task_and_persists_trace_snapsh
     client = TestClient(app)
     response = client.post(
         "/api/v1/business-license/reviews/from-srm",
-        headers=_auth_headers(client),
+        headers=_auth_headers(client, monkeypatch),
     )
 
     assert response.status_code == 200
@@ -874,6 +979,71 @@ def test_business_license_scanned_local_pdf_passes_pdf_bytes_to_vision_adapter(
     assert seen == {"content_prefix": b"%PDF-", "mime_type": "application/pdf"}
 
 
+def test_business_license_passed_rules_normalize_low_risk_to_none(
+    tmp_path,
+    monkeypatch,
+):
+    install_mysql_repository_stub(monkeypatch)
+    image_path = tmp_path / "business-license.png"
+    image_path.write_bytes(b"fake-image-bytes")
+
+    monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_JSON", _business_license_json())
+    monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
+
+    class LowRiskReviewAdapter:
+        def review(self, *, skill_name, skill_text, review_payload):
+            return {
+                "status": "REVIEWED",
+                "status_label": "已审核",
+                "risk_level": "LOW",
+                "risk_level_label": "低风险",
+                "needs_manual_review": False,
+                "summary": "营业执照规则校验通过",
+                "manual_review_reasons": [],
+                "rule_results": [
+                    RuleResult(
+                        rule_code="BUSINESS_LICENSE_CREDIT_CODE_MATCH",
+                        rule_name="统一社会信用代码匹配",
+                        passed=True,
+                        risk_level_on_failure=RiskLevel.HIGH,
+                        message="统一社会信用代码一致",
+                    )
+                ],
+                "metadata": {"implementation_status": "stub", "skill_name": skill_name},
+            }
+
+    monkeypatch.setattr(
+        business_license_nodes,
+        "business_license_skill_rule_review_adapter",
+        LowRiskReviewAdapter(),
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/business-license/reviews",
+        json={
+            "file": {
+                "local_path": str(image_path),
+                "file_name": "business-license.png",
+                "mime_type": "image/png",
+                "document_format": "image",
+            },
+            "supplier_name": "成都示例商贸有限公司",
+            "supplier_credit_code": "91510100MA0000000X",
+            "declared_document_type": "business_license",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "REVIEWED"
+    assert payload["risk_level"] == "NONE"
+    assert payload["needs_manual_review"] is False
+    assert payload["skill_result"]["source_evidence"]["skill_rule_review_metadata"][
+        "risk_level_label"
+    ] == "低风险"
+
+
 def _business_license_text() -> str:
     return (
         "营业执照\n"
@@ -886,35 +1056,12 @@ def _business_license_text() -> str:
 
 
 def _business_license_json() -> str:
-    return """
-    {
-      "document_type": "business_license",
-      "subject_name": "成都示例商贸有限公司",
-      "credit_code": "91510100MA0000000X",
-      "business_address": "成都市高新区天府大道 1 号",
-      "legal_person": "张三",
-      "valid_from": "2020-01-02",
-      "valid_to": "2030-01-01"
-    }
-    """
+    return business_license_json()
 
 
 def _business_license_fields() -> dict:
-    return {
-        "document_type": "business_license",
-        "subject_name": "成都示例商贸有限公司",
-        "credit_code": "91510100MA0000000X",
-        "business_address": "成都市高新区天府大道 1 号",
-        "legal_person": "张三",
-        "valid_from": "2020-01-02",
-        "valid_to": "2030-01-01",
-    }
+    return business_license_fields()
 
 
-def _auth_headers(client: TestClient) -> dict[str, str]:
-    response = client.post(
-        "/api/v1/auth/login",
-        json={"username": "reviewer", "password": "reviewer123"},
-    )
-    assert response.status_code == 200
-    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+def _auth_headers(client: TestClient, monkeypatch) -> dict[str, str]:
+    return business_license_auth_headers(client, monkeypatch)

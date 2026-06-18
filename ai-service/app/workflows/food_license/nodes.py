@@ -58,7 +58,7 @@ def load_document(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
 def classify_document(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
     structured_fields = state.get("llm_structured_fields") or {}
     if structured_fields.get("document_type"):
-        document_type = structured_fields.get("document_type")
+        document_type = _normalize_document_type(structured_fields.get("document_type"))
         return {
             **state,
             "document_classification": FoodLicenseDocumentClassification(
@@ -116,10 +116,10 @@ def normalize_fields(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowStat
         business_address=extracted_fields.business_address,
         legal_person=extracted_fields.legal_person,
         business_items=list(extracted_fields.business_items),
-        valid_from=extracted_fields.valid_from,
-        valid_to=extracted_fields.valid_to,
+        valid_from=_normalize_date_text(extracted_fields.valid_from),
+        valid_to=_normalize_date_text(extracted_fields.valid_to),
         issue_authority=extracted_fields.issue_authority,
-        issue_date=extracted_fields.issue_date,
+        issue_date=_normalize_date_text(extracted_fields.issue_date),
     )
     return {
         **state,
@@ -215,3 +215,27 @@ def route_review(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
         "needs_manual_review": needs_manual_review,
         "manual_review": manual_review,
     }
+
+
+def _normalize_document_type(value) -> str:
+    text = "" if value is None else str(value).strip()
+    if text in {"food_license", "食品经营许可证"}:
+        return "food_license"
+    return text or "unknown"
+
+
+def _normalize_date_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if "长期" in text:
+        return text
+    import re
+
+    match = re.fullmatch(r"(\d{4})年(\d{1,2})月(\d{1,2})日?", text)
+    if match:
+        year, month, day = match.groups()
+        return f"{year}-{int(month):02d}-{int(day):02d}"
+    return text

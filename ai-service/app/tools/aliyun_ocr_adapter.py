@@ -2,12 +2,12 @@ import base64
 import json
 import os
 import re
+from io import BytesIO
 from typing import Any
 
 import httpx
 
 from app.tools.vision_adapter import (
-    VisionInput,
     convert_pdf_pages_to_png_data_urls,
     parse_business_license_vision_json,
     reject_source_mismatched_fields,
@@ -36,12 +36,19 @@ class AliyunCloudMarketOcrAdapter:
         self.image_field = image_field or os.environ.get("ALIYUN_OCR_IMAGE_FIELD", "img")
         self.timeout = timeout or float(os.environ.get("ALIYUN_OCR_TIMEOUT_SECONDS", "60"))
         self.body_options = body_options or _body_options_from_env()
-        self.llm_model = os.environ.get(
-            "ALIYUN_OCR_LLM_PARSE_MODEL",
-            os.environ.get("BUSINESS_LICENSE_VISION_MODEL", "gpt-4o-mini"),
-        )
+        self.llm_model = os.environ.get("ALIYUN_OCR_LLM_PARSE_MODEL", "")
         self.llm_base_url = os.environ.get("OPENAI_BASE_URL")
         self.llm_max_attempts = int(os.environ.get("OPENAI_MAX_ATTEMPTS", "3"))
+        self.try_rotations = _env_bool("ALIYUN_OCR_TRY_ROTATIONS", default=True)
+        self.stop_after_first_license = _env_bool(
+            "ALIYUN_OCR_STOP_AFTER_FIRST_LICENSE",
+            default=True,
+        )
+        self.rotation_order = _rotation_order_from_env()
+        self.local_prefilter_provider = os.environ.get(
+            "ALIYUN_OCR_LOCAL_PREFILTER_PROVIDER",
+            "",
+        ).strip().lower()
 
     def extract_text(self, source: Any) -> dict[str, Any]:
         if not self.api_url or not self.appcode:
@@ -62,13 +69,29 @@ class AliyunCloudMarketOcrAdapter:
                 error_message=str(error),
             )
 
+        original_page_count = len(pages)
+        pages, local_prefilter_metadata = _prefilter_pdf_pages(
+            pages,
+            provider=self.local_prefilter_provider,
+        )
         page_results: list[dict[str, Any]] = []
         with httpx.Client(timeout=self.timeout) as client:
-            for page_index, page in enumerate(pages, start=1):
-                response_result = self._recognize_page(client, page["base64"])
-                response_result["page"] = page_index
+            for fallback_page_index, page in enumerate(pages, start=1):
+                response_result = self._recognize_page_with_orientation(
+                    client,
+                    page["base64"],
+                    try_rotations=self.try_rotations and page.get("source") == "pdf",
+                    rotation_order=self.rotation_order,
+                )
+                response_result["page"] = page.get("page") or fallback_page_index
                 page_results.append(response_result)
                 if response_result.get("error_code"):
+                    break
+                if (
+                    self.stop_after_first_license
+                    and page.get("source") == "pdf"
+                    and _is_business_license_complete(response_result.get("text", ""))
+                ):
                     break
 
         error_result = next((item for item in page_results if item.get("error_code")), None)
@@ -100,8 +123,21 @@ class AliyunCloudMarketOcrAdapter:
                 "implementation_status": self.implementation_status,
                 "provider": "aliyun_cloud_market_ocr",
                 "api_url": self.api_url,
-                "pages": len(page_results),
+                "pages": original_page_count,
+                "processed_pages": len(page_results),
+                "stopped_after_first_license": (
+                    self.stop_after_first_license
+                    and len(page_results) < original_page_count
+                    and bool(page_results)
+                    and _is_business_license_complete(page_results[-1].get("text", ""))
+                ),
                 "selected_page": selected_page,
+                "ignored_pages": _ignored_pages_after_early_stop(
+                    page_results,
+                    original_page_count,
+                    local_prefilter_metadata,
+                ),
+                "local_prefilter": local_prefilter_metadata or None,
                 "structured_extraction": "aliyun_ocr_llm_parse",
                 "raw_response_suppressed": True,
             },
@@ -113,6 +149,7 @@ class AliyunCloudMarketOcrAdapter:
                 {
                     "page": item.get("page"),
                     "angle": item.get("angle"),
+                    "rotation": item.get("rotation"),
                     "word_count": item.get("word_count"),
                     "text": item.get("text"),
                 }
@@ -156,7 +193,41 @@ class AliyunCloudMarketOcrAdapter:
             "angle": payload.get("angle"),
         }
 
+    def _recognize_page_with_orientation(
+        self,
+        client: httpx.Client,
+        encoded_image: str,
+        *,
+        try_rotations: bool,
+        rotation_order: tuple[int, ...],
+    ) -> dict[str, Any]:
+        candidates = []
+        rotations = rotation_order if try_rotations else (0,)
+        for rotation in rotations:
+            image = (
+                encoded_image
+                if rotation == 0
+                else _rotate_base64_png(encoded_image, rotation)
+            )
+            result = self._recognize_page(client, image)
+            result["rotation"] = rotation
+            candidates.append(result)
+            if result.get("error_code"):
+                return result
+            if _ocr_result_score(result) >= 8:
+                break
+        return max(candidates, key=_ocr_result_score)
+
     def _parse_ocr_text_with_llm(self, document_text: str) -> dict[str, Any]:
+        if not self.llm_model:
+            return {
+                "structured_fields": {},
+                "metadata": {
+                    "implementation_status": "not_configured",
+                    "provider": "openai_compatible_chat_completions",
+                    "error_code": "ALIYUN_OCR_LLM_PARSE_MODEL_NOT_CONFIGURED",
+                },
+            }
         if OpenAI is None:
             return {
                 "structured_fields": {},
@@ -363,6 +434,28 @@ def _debug_enabled() -> bool:
     }
 
 
+def _env_bool(name: str, *, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _rotation_order_from_env() -> tuple[int, ...]:
+    value = os.environ.get("ALIYUN_OCR_ROTATION_ORDER", "0,90,180,270")
+    rotations: list[int] = []
+    for item in value.split(","):
+        try:
+            rotation = int(item.strip()) % 360
+        except ValueError:
+            continue
+        if rotation in {0, 90, 180, 270} and rotation not in rotations:
+            rotations.append(rotation)
+    if 0 not in rotations:
+        rotations.append(0)
+    return tuple(rotations or [0, 90, 180, 270])
+
+
 def _merge_rule_and_llm_fields(
     rule_fields: dict[str, Any],
     llm_fields: dict[str, Any],
@@ -419,10 +512,19 @@ def _create_chat_completion_content(
 def _source_pages(content: bytes, mime_type: str) -> list[dict[str, str]]:
     if mime_type == "application/pdf":
         return [
-            {"base64": data_url.split(",", 1)[1]}
-            for data_url in convert_pdf_pages_to_png_data_urls(content, dpi=200)
+            {"base64": data_url.split(",", 1)[1], "source": "pdf", "page": index}
+            for index, data_url in enumerate(
+                convert_pdf_pages_to_png_data_urls(content, dpi=200),
+                start=1,
+            )
         ]
-    return [{"base64": base64.b64encode(content).decode("ascii")}]
+    return [
+        {
+            "base64": base64.b64encode(content).decode("ascii"),
+            "source": "image",
+            "page": 1,
+        }
+    ]
 
 
 def _selected_business_license_page(page_results: list[dict[str, Any]]) -> int | None:
@@ -430,6 +532,90 @@ def _selected_business_license_page(page_results: list[dict[str, Any]]) -> int |
         if _is_business_license(_normalize_ocr_text(item.get("text", ""))):
             return item.get("page")
     return page_results[0].get("page") if page_results else None
+
+
+def _ignored_pages_after_early_stop(
+    page_results: list[dict[str, Any]],
+    original_page_count: int,
+    local_prefilter_metadata: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    processed_pages = {item.get("page") for item in page_results}
+    ignored_pages = [
+        {
+            "page": page_number,
+            "reason": "skipped_by_local_prefilter",
+        }
+        for page_number in (
+            (local_prefilter_metadata or {}).get("ignored_pages") or []
+        )
+        if page_number not in processed_pages
+    ]
+    if len(page_results) < original_page_count and page_results:
+        last_page = int(page_results[-1].get("page") or len(page_results))
+        for page_number in range(last_page + 1, original_page_count + 1):
+            if page_number not in processed_pages and all(
+                item["page"] != page_number for item in ignored_pages
+            ):
+                ignored_pages.append(
+                    {
+                        "page": page_number,
+                        "reason": "skipped_after_business_license_page",
+                    }
+                )
+    return ignored_pages
+
+
+def _prefilter_pdf_pages(
+    pages: list[dict[str, Any]],
+    *,
+    provider: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    if provider not in {"rapidocr", "rapid_ocr"}:
+        return pages, None
+    if not pages or any(page.get("source") != "pdf" for page in pages):
+        return pages, None
+
+    try:
+        ocr = _rapidocr_engine()
+        candidates = []
+        for page in pages:
+            text = _rapidocr_text(ocr, base64.b64decode(page["base64"]))
+            score = _local_prefilter_score(text)
+            candidates.append(
+                {
+                    "page": page.get("page"),
+                    "score": score,
+                    "text_preview": text[:160],
+                }
+            )
+    except Exception as error:
+        return pages, {
+            "provider": "rapidocr",
+            "status": "failed",
+            "error_type": type(error).__name__,
+            "error_message": str(error),
+        }
+
+    selected = max(candidates, key=lambda item: item["score"], default=None)
+    if not selected or selected["score"] < 8:
+        return pages, {
+            "provider": "rapidocr",
+            "status": "no_candidate",
+            "candidates": candidates,
+        }
+
+    selected_page = selected["page"]
+    return [
+        page for page in pages if page.get("page") == selected_page
+    ], {
+        "provider": "rapidocr",
+        "status": "selected",
+        "selected_page": selected_page,
+        "ignored_pages": [
+            page.get("page") for page in pages if page.get("page") != selected_page
+        ],
+        "candidates": candidates,
+    }
 
 
 def _normalize_ocr_text(text: str) -> str:
@@ -446,6 +632,89 @@ def _normalize_ocr_text(text: str) -> str:
 def _is_business_license(text: str) -> bool:
     compact = "".join(text.split())
     return "营业执照" in compact or "统一社会信用代码" in compact
+
+
+def _is_business_license_complete(text: str) -> bool:
+    normalized_text = _normalize_ocr_text(text)
+    return _is_business_license(normalized_text) and bool(
+        _extract_credit_code(normalized_text)
+    )
+
+
+_RAPIDOCR_ENGINE: Any | None = None
+
+
+def _rapidocr_engine() -> Any:
+    global _RAPIDOCR_ENGINE
+    if _RAPIDOCR_ENGINE is None:
+        from rapidocr import RapidOCR
+
+        _RAPIDOCR_ENGINE = RapidOCR()
+    return _RAPIDOCR_ENGINE
+
+
+def _rapidocr_text(ocr: Any, image_content: bytes) -> str:
+    output = ocr(image_content)
+    texts = getattr(output, "txts", None)
+    if texts is not None:
+        return "".join(str(text) for text in texts if text)
+
+    fallback_texts = []
+    try:
+        for item in output:
+            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                fallback_texts.append(str(item[1]))
+    except TypeError:
+        return ""
+    return "".join(fallback_texts)
+
+
+def _local_prefilter_score(text: str) -> int:
+    normalized_text = _normalize_ocr_text(text)
+    compact = "".join(normalized_text.split())
+    score = 0
+    if "营业执照" in compact:
+        score += 5
+    if "统一社会信用代码" in compact or "社会信用代码" in compact:
+        score += 4
+    if _extract_credit_code(normalized_text):
+        score += 3
+    if "名称" in compact:
+        score += 1
+    if "居民身份证" in compact or "公民身份号码" in compact:
+        score -= 6
+    return score
+
+
+def _ocr_result_score(result: dict[str, Any]) -> int:
+    text = _normalize_ocr_text(result.get("text", ""))
+    compact = "".join(text.split())
+    score = 0
+    if "营业执照" in compact:
+        score += 5
+    if "统一社会信用代码" in compact:
+        score += 4
+    if _extract_credit_code(text):
+        score += 3
+    if "名称" in compact:
+        score += 1
+    score += min(int(result.get("word_count") or 0), 20) // 5
+    if "居民身份证" in compact:
+        score -= 4
+    return score
+
+
+def _rotate_base64_png(encoded_image: str, rotation: int) -> str:
+    try:
+        from PIL import Image
+    except Exception as error:
+        raise RuntimeError("Pillow is required for OCR rotation fallback") from error
+
+    image = Image.open(BytesIO(base64.b64decode(encoded_image)))
+    rotated = image.rotate(rotation, expand=True)
+    buffer = BytesIO()
+    rotated.save(buffer, format="PNG")
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
 def _extract_credit_code(text: str) -> str | None:

@@ -17,16 +17,24 @@ const defaultFilters: ReviewFilters = {
   pageSize: 3
 };
 
+type SrmAction = "business_license" | "food_license" | "food_production_license";
+
 export function ReviewsPage({ qcView = false }: { qcView?: boolean }) {
   const [filters, setFilters] = useState<ReviewFilters>(defaultFilters);
   const [data, setData] = useState<ListReviewsResponse | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "empty" | "error">("loading");
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [srmStatus, setSrmStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
+  const [srmAction, setSrmAction] = useState<SrmAction | null>(null);
 
   useEffect(() => {
     let mounted = true;
-    setStatus("loading");
+    if (data) {
+      setIsRefreshing(true);
+    } else {
+      setStatus("loading");
+    }
 
     const listReviews = qcView ? reviewClient.listQcReviews : reviewClient.listReviews;
     listReviews(filters)
@@ -36,9 +44,11 @@ export function ReviewsPage({ qcView = false }: { qcView?: boolean }) {
         }
         setData(response);
         setStatus(response.items.length === 0 ? "empty" : "ready");
+        setIsRefreshing(false);
       })
       .catch(() => {
         if (mounted) {
+          setIsRefreshing(false);
           setStatus("error");
         }
       });
@@ -59,13 +69,19 @@ export function ReviewsPage({ qcView = false }: { qcView?: boolean }) {
     [data]
   );
 
-  async function createFromSrm() {
+  async function createFromSrm(action: SrmAction) {
     if (srmStatus === "submitting") {
       return;
     }
     setSrmStatus("submitting");
+    setSrmAction(action);
     try {
-      const created = await reviewClient.createReviewFromSrm();
+      const created =
+        action === "business_license"
+          ? await reviewClient.createReviewFromSrm()
+          : action === "food_license"
+            ? await reviewClient.createFoodLicenseReviewFromSrm()
+            : await reviewClient.createFoodProductionLicenseReviewFromSrm();
       setData((current) =>
         current
           ? {
@@ -104,12 +120,49 @@ export function ReviewsPage({ qcView = false }: { qcView?: boolean }) {
             <button
               className="primary-button"
               type="button"
-              onClick={createFromSrm}
+              onClick={() => createFromSrm("business_license")}
               disabled={srmStatus === "submitting"}
             >
               <DatabaseZap size={16} aria-hidden="true" />
               {srmStatus === "submitting" ? "拉取中" : "从 SRM 拉取审核"}
             </button>
+          )}
+          {qcView && (
+            <>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => createFromSrm("business_license")}
+                disabled={srmStatus === "submitting"}
+              >
+                <DatabaseZap size={16} aria-hidden="true" />
+                {srmStatus === "submitting" && srmAction === "business_license"
+                  ? "拉取中"
+                  : "拉取营业执照"}
+              </button>
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => createFromSrm("food_license")}
+                disabled={srmStatus === "submitting"}
+              >
+                <DatabaseZap size={16} aria-hidden="true" />
+                {srmStatus === "submitting" && srmAction === "food_license"
+                  ? "拉取中"
+                  : "拉取食品经营许可证"}
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => createFromSrm("food_production_license")}
+                disabled={srmStatus === "submitting"}
+              >
+                <DatabaseZap size={16} aria-hidden="true" />
+                {srmStatus === "submitting" && srmAction === "food_production_license"
+                  ? "拉取中"
+                  : "拉取食品生产许可证"}
+              </button>
+            </>
           )}
           <button
             className="secondary-button"
@@ -123,10 +176,14 @@ export function ReviewsPage({ qcView = false }: { qcView?: boolean }) {
       </section>
 
       {srmStatus === "success" && (
-        <div className="inline-notice inline-notice-success">已从 SRM 来源记录创建审核任务。</div>
+        <div className="inline-notice inline-notice-success">
+          已从 SRM 来源记录创建{srmActionLabel(srmAction)}审核任务。
+        </div>
       )}
       {srmStatus === "error" && (
-        <div className="inline-notice inline-notice-error">SRM 来源记录审核创建失败，请检查 API 服务状态。</div>
+        <div className="inline-notice inline-notice-error">
+          {srmActionLabel(srmAction)}SRM 来源记录审核创建失败，请检查 API 服务状态。
+        </div>
       )}
 
       <section className="metrics-grid" aria-label="审核统计">
@@ -185,6 +242,7 @@ export function ReviewsPage({ qcView = false }: { qcView?: boolean }) {
               <option value="ALL">全部</option>
               <option value="business_license">营业执照</option>
               <option value="food_license">食品经营许可证</option>
+              <option value="food_production_license">食品生产许可证</option>
               <option value="product_report">产品报告</option>
               <option value="tobacco_license">烟草证</option>
               <option value="business_tobacco_consistency">营业执照与烟草证一致性</option>
@@ -257,6 +315,9 @@ export function ReviewsPage({ qcView = false }: { qcView?: boolean }) {
         </button>
       </section>
 
+      {isRefreshing && (
+        <div className="inline-notice">正在刷新审核结果，列表会自动更新。</div>
+      )}
       {status === "loading" && <LoadingState />}
       {status === "error" && <ErrorState message="审核结果查询失败，请检查 API 服务状态。" />}
       {status === "empty" && (
@@ -312,7 +373,7 @@ function ReviewTable({
             <th>统一社会信用代码</th>
             <th>审核状态</th>
             <th>风险等级</th>
-            <th>人工复核</th>
+            <th>复核状态</th>
             <th>审核时间</th>
             <th>操作</th>
           </tr>
@@ -332,7 +393,7 @@ function ReviewTable({
               <td>
                 <RiskBadge risk={row.riskLevel} label={row.riskLevelLabel} />
               </td>
-              <td>{row.needsManualReview ? "需要" : "不需要"}</td>
+              <td>{manualReviewStateLabel(row)}</td>
               <td>{formatTime(row.reviewedAt)}</td>
               <td>
                 <a className="table-action" href={detailPath(row.taskId)}>
@@ -368,8 +429,8 @@ function ReviewTable({
                 </dd>
               </div>
               <div>
-                <dt>人工复核</dt>
-                <dd>{row.needsManualReview ? "需要" : "不需要"}</dd>
+                <dt>复核状态</dt>
+                <dd>{manualReviewStateLabel(row)}</dd>
               </div>
               <div>
                 <dt>审核时间</dt>
@@ -409,6 +470,29 @@ function ReviewTable({
   );
 }
 
+function manualReviewStateLabel(row: ReviewRow) {
+  if (row.reviewStatus === "MANUAL_REVIEWED") {
+    return "已复核";
+  }
+  if (row.needsManualReview || row.reviewStatus === "PENDING_MANUAL_REVIEW") {
+    return "待复核";
+  }
+  return "不需要";
+}
+
 function formatTime(value: string) {
   return value.replace("T", " ").replace("+08:00", "");
+}
+
+function srmActionLabel(action: SrmAction | null) {
+  if (action === "food_license") {
+    return "食品经营许可证";
+  }
+  if (action === "food_production_license") {
+    return "食品生产许可证";
+  }
+  if (action === "business_license") {
+    return "营业执照";
+  }
+  return "";
 }

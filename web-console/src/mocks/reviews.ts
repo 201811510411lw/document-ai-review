@@ -18,6 +18,7 @@ export const mockReviews: ReviewDetail[] = [
     extractedFields: {
       subjectName: "成都示例商贸有限公司",
       creditCode: "91510100MA0000000X",
+      licenseNo: "",
       legalPerson: "张三",
       establishedDate: "2020-01-02",
       validFrom: "2020-01-02",
@@ -28,6 +29,7 @@ export const mockReviews: ReviewDetail[] = [
     normalizedFields: {
       subjectName: "成都示例商贸有限公司",
       creditCode: "91510100MA0000000X",
+      licenseNo: "",
       legalPerson: "张三",
       establishedDate: "2020-01-02",
       validFrom: "2020-01-02",
@@ -93,6 +95,7 @@ export const mockReviews: ReviewDetail[] = [
     extractedFields: {
       subjectName: "上海云岚供应链管理有限公司",
       creditCode: "91310115MA1K00002R",
+      licenseNo: "",
       legalPerson: "李四",
       establishedDate: "2019-07-11",
       validFrom: "2019-07-11",
@@ -103,6 +106,7 @@ export const mockReviews: ReviewDetail[] = [
     normalizedFields: {
       subjectName: "上海云岚供应链管理有限公司",
       creditCode: "91310115MA1K00002R",
+      licenseNo: "",
       legalPerson: "李四",
       establishedDate: "2019-07-11",
       validFrom: "2019-07-11",
@@ -151,6 +155,79 @@ export const mockReviews: ReviewDetail[] = [
     }
   },
   {
+    taskId: "blr-20260615-0003",
+    businessName: "苏州复核完成商贸有限公司",
+    creditCode: "91320500MA1K00003A",
+    reviewStatus: "MANUAL_REVIEWED",
+    reviewStatusLabel: "人工已复核",
+    riskLevel: "HIGH",
+    riskLevelLabel: "高风险",
+    needsManualReview: false,
+    reviewedAt: "2026-06-15T11:20:00+08:00",
+    sourceRecordId: "SRM-CERT-884266",
+    attachmentId: "ATT-BL-240666",
+    sourceUrl: "https://files.example.test/business-license-0003.png",
+    summary: "人工复核确认原始营业执照信息。",
+    extractedFields: {
+      subjectName: "苏州复核完成商贸有限公司",
+      creditCode: "91320500MA1K00003A",
+      licenseNo: "",
+      legalPerson: "陈七",
+      establishedDate: "2022-05-16",
+      validFrom: "2022-05-16",
+      validTo: "2032-05-15",
+      businessAddress: "苏州市工业园区示例路 18 号",
+      confidence: 0.9
+    },
+    normalizedFields: {
+      subjectName: "苏州复核完成商贸有限公司",
+      creditCode: "91320500MA1K00003A",
+      licenseNo: "",
+      legalPerson: "陈七",
+      establishedDate: "2022-05-16",
+      validFrom: "2022-05-16",
+      validTo: "2032-05-15",
+      businessAddress: "苏州市工业园区示例路18号",
+      confidence: 0.9
+    },
+    ruleResults: [],
+    manualReviewReasons: ["统一社会信用代码不一致"],
+    manualReview: {
+      status: "COMPLETED",
+      decision: "approved",
+      comment: "已核对原件，确认通过。",
+      reviewerId: "wecom-reviewer-001",
+      reviewerUsername: "reviewer",
+      reviewedAt: "2026-06-15T11:20:00+08:00",
+      reasons: ["统一社会信用代码不一致"]
+    },
+    auditEvents: [
+      {
+        eventType: "BUSINESS_LICENSE_MANUAL_REVIEW",
+        message: "人工复核确认通过",
+        occurredAt: "2026-06-15T11:20:00+08:00",
+        actorId: "wecom-reviewer-001",
+        actorUsername: "reviewer",
+        details: {
+          decision: "approved",
+          comment: "已核对原件，确认通过。",
+          reviewer_id: "wecom-reviewer-001",
+          reviewer_username: "reviewer"
+        }
+      }
+    ],
+    payload: {
+      status: "MANUAL_REVIEWED",
+      risk_level: "HIGH",
+      needs_manual_review: false,
+      manual_review: {
+        status: "COMPLETED",
+        decision: "approved",
+        reasons: ["统一社会信用代码不一致"]
+      }
+    }
+  },
+  {
     taskId: "blr-20260614-0018",
     businessName: "杭州简禾食品科技有限公司",
     creditCode: "91330108MA2B00003U",
@@ -167,6 +244,7 @@ export const mockReviews: ReviewDetail[] = [
     extractedFields: {
       subjectName: "杭州简禾食品科技有限公司",
       creditCode: "91330108MA2B00003U",
+      licenseNo: "",
       legalPerson: "王五",
       establishedDate: "2021-03-05",
       validFrom: "2021-03-05",
@@ -177,6 +255,7 @@ export const mockReviews: ReviewDetail[] = [
     normalizedFields: {
       subjectName: "杭州简禾食品科技有限公司",
       creditCode: "91330108MA2B00003U",
+      licenseNo: "",
       legalPerson: "王五",
       establishedDate: "2021-03-05",
       validFrom: "2021-03-05",
@@ -215,8 +294,8 @@ export const mockReviews: ReviewDetail[] = [
     creditCode: "91440300MA5D00004M",
     reviewStatus: "REVIEWED",
     reviewStatusLabel: "已审核",
-    riskLevel: "LOW",
-    riskLevelLabel: "低风险",
+    riskLevel: "NONE",
+    riskLevelLabel: "无风险",
     needsManualReview: false,
     reviewedAt: "2026-06-13T11:05:00+08:00",
     sourceRecordId: "SRM-CERT-883508",
@@ -226,6 +305,7 @@ export const mockReviews: ReviewDetail[] = [
     extractedFields: {
       subjectName: "深圳岭南电子商务有限公司",
       creditCode: "91440300MA5D00004M",
+      licenseNo: "",
       legalPerson: "赵六",
       establishedDate: "2018-12-20",
       validFrom: "2018-12-20",
@@ -236,6 +316,7 @@ export const mockReviews: ReviewDetail[] = [
     normalizedFields: {
       subjectName: "深圳岭南电子商务有限公司",
       creditCode: "91440300MA5D00004M",
+      licenseNo: "",
       legalPerson: "赵六",
       establishedDate: "2018-12-20",
       validFrom: "2018-12-20",
@@ -260,8 +341,114 @@ export const mockReviews: ReviewDetail[] = [
     auditEvents: [],
     payload: {
       status: "REVIEWED",
-      risk_level: "LOW",
+      risk_level: "NONE",
       needs_manual_review: false
+    }
+  },
+  {
+    taskId: "qc-task-1",
+    businessName: "成都示例食品有限公司",
+    creditCode: "91510100MA00000000",
+    reviewStatus: "PENDING_MANUAL_REVIEW",
+    reviewStatusLabel: "待人工复核",
+    riskLevel: "MEDIUM",
+    riskLevelLabel: "中风险",
+    needsManualReview: true,
+    reviewedAt: "2026-06-12T10:00:00+08:00",
+    sourceRecordId: "SRM-FOOD-001",
+    attachmentId: "ATT-FOOD-001",
+    sourceUrl: "https://files.example.test/food-license.pdf",
+    summary: "经营范围需要人工确认。",
+    extractedFields: {
+      subjectName: "成都示例食品有限公司",
+      creditCode: "91510100MA00000000",
+      licenseNo: "JY15101000000000",
+      legalPerson: "李四",
+      establishedDate: "",
+      validFrom: "2024-01-01",
+      validTo: "2029-01-01",
+      businessAddress: "成都市示例区示例路 100 号",
+      confidence: 0.88
+    },
+    normalizedFields: {
+      subjectName: "成都示例食品有限公司",
+      creditCode: "91510100MA00000000",
+      licenseNo: "JY15101000000000",
+      legalPerson: "李四",
+      establishedDate: "",
+      validFrom: "2024-01-01",
+      validTo: "2029-01-01",
+      businessAddress: "成都市示例区示例路100号",
+      confidence: 0.88
+    },
+    ruleResults: [],
+    manualReviewReasons: ["经营范围需要人工确认"],
+    manualReview: {
+      status: "PENDING",
+      reasons: ["经营范围需要人工确认"]
+    },
+    auditEvents: [],
+    payload: {
+      task_id: "qc-task-1",
+      document_type: "food_license",
+      status: "PENDING_MANUAL_REVIEW"
+    }
+  },
+  {
+    taskId: "qc-food-production-1",
+    businessName: "长沙波浪食品有限公司",
+    creditCode: "未识别",
+    reviewStatus: "PENDING_MANUAL_REVIEW",
+    reviewStatusLabel: "待人工复核",
+    riskLevel: "MEDIUM",
+    riskLevelLabel: "中风险",
+    needsManualReview: true,
+    reviewedAt: "2026-06-17T21:18:47+08:00",
+    sourceRecordId: "00a0197d-d146-4abc-a1ea-e4cb77918a9b",
+    attachmentId: "1001010660",
+    sourceUrl: "https://files.example.test/food-production-license.pdf",
+    summary: "统一社会信用代码缺失，需要人工复核。",
+    extractedFields: {
+      subjectName: "长沙波浪食品有限公司",
+      creditCode: "",
+      licenseNo: "SC12443010505553",
+      legalPerson: "",
+      establishedDate: "",
+      validFrom: "",
+      validTo: "",
+      businessAddress: "长沙市示例区生产路 1 号",
+      confidence: 0
+    },
+    normalizedFields: {
+      subjectName: "长沙波浪食品有限公司",
+      creditCode: "",
+      licenseNo: "SC12443010505553",
+      legalPerson: "",
+      establishedDate: "",
+      validFrom: "",
+      validTo: "",
+      businessAddress: "长沙市示例区生产路 1 号",
+      confidence: 0
+    },
+    ruleResults: [
+      {
+        ruleCode: "FOOD_PRODUCTION_LICENSE_CREDIT_CODE_MATCH",
+        ruleName: "统一社会信用代码是否匹配",
+        state: "failed",
+        riskLevelOnFailure: "HIGH",
+        message: "证照统一社会信用代码缺失，需要人工复核。"
+      }
+    ],
+    manualReviewReasons: ["证照统一社会信用代码缺失，需要人工复核。"],
+    manualReview: {
+      status: "PENDING",
+      reasons: ["证照统一社会信用代码缺失，需要人工复核。"]
+    },
+    auditEvents: [],
+    payload: {
+      task_id: "qc-food-production-1",
+      document_type: "food_production_license",
+      status: "PENDING_MANUAL_REVIEW"
     }
   }
 ];

@@ -22,6 +22,7 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
 
     if review_input.declared_document_type != "product_report":
         return {
+            "input_context": input_context,
             "implementation_status": "implemented",
             "status": "PENDING_MANUAL_REVIEW",
             "risk_level": "MEDIUM",
@@ -48,12 +49,15 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
                 "source_evidence": {
                     "supplier_name": review_input.supplier_name,
                     "declared_document_type": review_input.declared_document_type,
+                    "source": review_input.source,
+                    "options": review_input.options,
                 },
             },
         }
 
     if not document_text:
         return {
+            "input_context": input_context,
             "implementation_status": "implemented",
             "status": "PENDING_MANUAL_REVIEW",
             "risk_level": "MEDIUM",
@@ -121,6 +125,7 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
         ),
     )
     return {
+        "input_context": input_context,
         "implementation_status": "implemented",
         "status": status,
         "risk_level": rules_result.get("risk_level", "MEDIUM"),

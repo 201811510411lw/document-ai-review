@@ -3,6 +3,7 @@ import os
 from typing import Any
 
 import pytest
+from pypdf.errors import PdfReadError, PdfStreamError
 
 from app.core.config import load_local_env
 from app.integrations.mysql_client import MySqlFetchClient, mysql_settings_from_env
@@ -24,7 +25,8 @@ _ENV_KEYS = {
     "OPENAI_BASE_URL",
     "OPENAI_API_BASE",
     "BUSINESS_LICENSE_VISION_PROVIDER",
-    "BUSINESS_LICENSE_VISION_MODEL",
+    "BUSINESS_LICENSE_QWEN_OCR_MODEL",
+    "ALIYUN_OCR_LLM_PARSE_MODEL",
     "SRM_MYSQL_HOST",
     "SRM_MYSQL_PORT",
     "SRM_MYSQL_USER",
@@ -35,7 +37,6 @@ _ENV_KEYS = {
 
 def test_manual_mysql_pdf_llm_extraction_snapshot():
     _load_test_env()
-    _require_env("OPENAI_API_KEY")
 
     task = fetch_one_business_license_source_task(
         MySqlFetchClient(mysql_settings_from_env())
@@ -47,7 +48,7 @@ def test_manual_mysql_pdf_llm_extraction_snapshot():
     adapter = build_business_license_vision_adapter()
     if getattr(adapter, "implementation_status", None) == "fake":
         pytest.fail(
-            "BUSINESS_LICENSE_VISION_PROVIDER must be openai/langchain-openai "
+            "BUSINESS_LICENSE_VISION_PROVIDER must be aliyun "
             "for this manual extraction test",
             pytrace=False,
         )
@@ -89,12 +90,15 @@ def test_manual_mysql_pdf_llm_extraction_snapshot():
     if _debug_enabled():
         _print_json({"source": source_snapshot})
 
-    recognition_result = recognize_license_file(
-        task.review_input,
-        adapter=adapter,
-        downloader=downloader,
-        include_legacy_vision_metadata=True,
-    )
+    try:
+        recognition_result = recognize_license_file(
+            task.review_input,
+            adapter=adapter,
+            downloader=downloader,
+            include_legacy_vision_metadata=True,
+        )
+    except (PdfReadError, PdfStreamError) as error:
+        pytest.skip(f"source document is not a readable PDF: {type(error).__name__}")
     review_result = ReviewService().review(
         task.review_input,
         use_case_name="business_license",

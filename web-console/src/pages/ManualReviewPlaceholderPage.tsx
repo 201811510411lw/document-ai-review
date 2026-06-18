@@ -5,17 +5,27 @@ import type { ManualReviewDecision, ReviewDetail } from "../api/reviews";
 import { RiskBadge, StatusBadge } from "../components/Badge";
 import { EmptyState, ErrorState, LoadingState } from "../components/EmptyState";
 
-export function ManualReviewPlaceholderPage({ taskId }: { taskId: string }) {
+export function ManualReviewPlaceholderPage({
+  taskId,
+  qcView = false
+}: {
+  taskId: string;
+  qcView?: boolean;
+}) {
   const [detail, setDetail] = useState<ReviewDetail | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "empty" | "error">("loading");
-  const decision: ManualReviewDecision = "approved";
+  const [decision, setDecision] = useState<ManualReviewDecision>("approved");
+  const [comment, setComment] = useState("");
+  const [reviewerId, setReviewerId] = useState("wecom-reviewer-local");
+  const [submitStatus, setSubmitStatus] = useState<"idle" | "submitting" | "error">("idle");
+  const [submitError, setSubmitError] = useState("");
 
   useEffect(() => {
     let mounted = true;
     setStatus("loading");
 
-    reviewClient
-      .getReview(taskId)
+    const getReview = qcView ? reviewClient.getQcReview : reviewClient.getReview;
+    getReview(taskId)
       .then((response) => {
         if (!mounted) {
           return;
@@ -32,7 +42,7 @@ export function ManualReviewPlaceholderPage({ taskId }: { taskId: string }) {
     return () => {
       mounted = false;
     };
-  }, [taskId]);
+  }, [taskId, qcView]);
 
   if (status === "loading") {
     return <LoadingState />;
@@ -47,14 +57,49 @@ export function ManualReviewPlaceholderPage({ taskId }: { taskId: string }) {
   }
 
   const isCompleted = detail.manualReview.status === "COMPLETED";
+  const canSubmit = !isCompleted && submitStatus !== "submitting";
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canSubmit || !detail) {
+      return;
+    }
+    const taskIdForSubmit = detail.taskId;
+
+    const trimmedComment = comment.trim();
+    const trimmedReviewerId = reviewerId.trim();
+    if (!trimmedComment || !trimmedReviewerId) {
+      setSubmitError("请填写复核备注和复核人 ID。");
+      setSubmitStatus("error");
+      return;
+    }
+
+    setSubmitStatus("submitting");
+    setSubmitError("");
+    try {
+      const submitManualReview = qcView
+        ? reviewClient.submitQcManualReview
+        : reviewClient.submitManualReview;
+      const updated = await submitManualReview(taskIdForSubmit, {
+        decision,
+        comment: trimmedComment,
+        reviewerId: trimmedReviewerId
+      });
+      setDetail(updated);
+      setSubmitStatus("idle");
+    } catch {
+      setSubmitStatus("error");
+      setSubmitError("人工复核提交失败，请稍后重试。");
+    }
+  }
 
   return (
     <div className="page-stack manual-page">
-      <a className="back-link" href={`/reviews/${detail.taskId}`}>
+      <a className="back-link" href={qcView ? `/qc/reviews/${detail.taskId}` : `/reviews/${detail.taskId}`}>
         <ArrowLeft size={16} aria-hidden="true" />
         返回详情
       </a>
-      <a className="mobile-back-link" href={`/reviews/${detail.taskId}`}>
+      <a className="mobile-back-link" href={qcView ? `/qc/reviews/${detail.taskId}` : `/reviews/${detail.taskId}`}>
         <ArrowLeft size={16} aria-hidden="true" />
         复核预留
       </a>
@@ -62,7 +107,7 @@ export function ManualReviewPlaceholderPage({ taskId }: { taskId: string }) {
       <section className="page-heading">
         <div>
           <h1>人工复核</h1>
-          <p>后端写回接口已预留，前端提交表单后续接入</p>
+          <p>提交复核结论后将写回审核记录并生成审计事件</p>
         </div>
       </section>
 
@@ -84,16 +129,14 @@ export function ManualReviewPlaceholderPage({ taskId }: { taskId: string }) {
         </div>
 
         <div className="manual-workspace">
-          <form className="manual-form">
+          <form className="manual-form" onSubmit={handleSubmit}>
             <h3>复核操作区</h3>
-            <p className="muted-text">
-              当前页面仅展示复核占位内容，不会提交写回；完整提交表单将在后续版本接入。
-            </p>
             <label>
               <span>复核结论</span>
               <select
                 value={decision}
-                disabled
+                disabled={!canSubmit}
+                onChange={(event) => setDecision(event.target.value as ManualReviewDecision)}
               >
                 <option value="approved">确认通过</option>
                 <option value="rejected">驳回</option>
@@ -104,26 +147,29 @@ export function ManualReviewPlaceholderPage({ taskId }: { taskId: string }) {
               <textarea
                 placeholder="请输入人工判断依据"
                 rows={4}
-                disabled
+                value={comment}
+                disabled={!canSubmit}
+                onChange={(event) => setComment(event.target.value)}
               />
             </label>
             <label>
               <span>复核人 ID</span>
               <input
-                value="wecom-reviewer-local"
+                value={reviewerId}
                 placeholder="企业微信用户 ID"
-                disabled
-                readOnly
+                disabled={!canSubmit}
+                onChange={(event) => setReviewerId(event.target.value)}
               />
             </label>
+            {submitError ? <p className="form-error">{submitError}</p> : null}
             <div className="review-actions">
-              <button disabled type="button">
-                提交复核结论
+              <button disabled={!canSubmit} type="submit">
+                {submitStatus === "submitting" ? "提交中" : "提交复核结论"}
               </button>
               <span>
                 {isCompleted
                   ? "该记录已有人工复核结果"
-                  : "后端写回接口已预留，前端提交表单后续接入"}
+                  : "提交后将更新审核状态并写入审计事件"}
               </span>
             </div>
           </form>

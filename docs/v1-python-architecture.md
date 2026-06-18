@@ -1,16 +1,16 @@
 # V1 Python Architecture
 
-本文档说明 `document-ai-review` 在 V1 阶段采用的纯 Python 架构。当前 `main` 已经完成第一轮 runtime 收口，主线语义为：
-
-- Agent Skills 描述层
-- runtime use_cases
-- runtime capabilities
+本文档说明 `document-ai-review` 当前 V1 Python 服务的目标架构。架构决策以
+[ADR 0001](adr/0001-langgraph-langchain-terminal-architecture.md) 为准：后续按
+LangGraph + LangChain 驱动的 AI Workflow / Agent Platform 演进，不再把旧
+`UseCase + Workflow + Capability` 形态作为兼容目标。
 
 ---
 
-## 1. V1 总体链路
+## 1. 总体链路
 
-V1 不引入 Java / Spring Boot，不拆分为多服务。当前只有一个 Python 服务：`ai-service`。
+V1 不引入 Java / Spring Boot，不拆分为多服务。当前只有一个 Python 服务：
+`ai-service`。
 
 ```text
 业务系统 / 管理后台 / 测试脚本
@@ -19,279 +19,113 @@ FastAPI HTTP API
     ↓
 Review Service
     ↓
-use_case_registry
+UseCase Thin Entry
     ↓
-use_case.review(input_context)
+Workflow Registry / Graph Runtime
     ↓
-workflow
+LangGraph StateGraph
     ↓
-capabilities + tools + rules
+LangChain Tools + Domain Rules
     ↓
 ReviewResult
     ↓
 Repository
 ```
 
-当前内置 use_case：
-
-- `food_license`
-- `qc_document_review`
-- `tobacco_license_consistency_review`
-- `contract_review`
-
-其中 `food_license` 是当前唯一较完整的兼容样板。
-
 ---
 
 ## 2. 职责边界
 
-### 2.1 FastAPI
+### FastAPI
 
-FastAPI 是 HTTP 边界，负责：
+FastAPI 是 HTTP 边界，负责接收请求、做基础校验、把审核请求交给
+`ReviewService`。FastAPI 不承载规则执行，不直接调用 graph 节点或 tool。
 
-- 健康检查；
-- 接收审核请求；
-- 基础校验；
-- 把请求转交给 Review Service。
+### Review Service
 
-FastAPI 不直接承载规则执行，也不直接调用 workflow 或 capability 节点。
+Review Service 负责创建审核任务 ID、构造 `ReviewInputContext`、调用
+`ReviewGraphRegistry` runtime entry，并在配置了 repository 时保存
+`ReviewResult`。服务层不再保留旧 registry fallback。
 
-### 2.2 Review Service
+### UseCase Thin Entry
 
-Review Service 负责：
+UseCase 只作为薄入口：
 
-- 创建审核任务 ID；
-- 构造 `ReviewInputContext`；
-- 调用 `use_case_registry` 获取或选择 use_case；
-- 调用 `use_case.review(input_context)`；
-- 接收并返回 `ReviewResult`。
+- 声明 `name`、`version`、`ruleset_version`、`supported_document_types`；
+- 接收 `ReviewInputContext`；
+- 调用对应 workflow / graph；
+- 通过 runtime projection 返回 `ReviewResult`。
 
-### 2.3 use_case_registry
+UseCase 不再手写流程编排、规则判断或 capability result 组装。
 
-`use_case_registry` 位于：
+### Workflow / Graph Runtime
 
-```text
-ai-service/app/use_cases/registry.py
-```
+`app/workflows/` 是 LangGraph workflow runtime。每个证照或文档场景应提供独立
+StateGraph，显式表达节点、边、条件路由和人工复核节点。
 
-职责：
+当前已按该方向迁移的 workflow：
 
-- 显式注册多个内置 use_case；
-- 提供 `get(use_case_name)`；
-- 提供 `list()`；
-- 根据 `supports(input_context)` 选择 use_case。
+- `business_license`
+- `tobacco_license`
+- `food_license`
 
-当前不做：
+### LangChain Tools
 
-- 目录扫描；
-- 外部 use_case 加载；
-- 插件市场；
-- 热加载；
-- 租户级覆盖。
+`app/capabilities/<domain>/tools.py` 承接可复用、无状态、结构化输入输出的工具能力，
+例如文档分类、字段抽取、字段标准化。Capability 在终态语义中不是流程层，也不负责
+最终合规判断。
 
-### 2.4 Agent Skill 描述层
+### Domain Rules
 
-Agent Skill 描述层位于：
+Domain Rules 负责最终合规判断、风险等级、人工复核需求和 `RuleResult`。LLM 可以
+辅助抽取、分类和解释，但不能直接做最终审核决策。
 
-```text
-.agents/skills/<skill>/SKILL.md
-```
+### Agent Skill / Prompt / Policy
 
-它只描述：
+`.agents/skills/<skill>/SKILL.md` 是 Prompt / Policy Layer，只描述能力边界、规则
+口径、guardrail 和 schema constraint。它不控制 workflow，不直接调用 OCR / LLM /
+OA / ERP。
 
-- 能力边界；
-- 输入输出摘要；
-- 规则摘要；
-- 人工复核边界；
-- 与 runtime 的关系。
+### Repository
 
-它不是规则引擎，也不是 runtime 入口。
-
-### 2.5 runtime use_case
-
-runtime use_case 位于：
-
-```text
-ai-service/app/use_cases/
-```
-
-职责：
-
-- 作为平台业务入口；
-- 调用 workflow；
-- 将 workflow 结果映射为平台 `ReviewResult`。
-
-### 2.6 runtime capability
-
-runtime capability 位于：
-
-```text
-ai-service/app/capabilities/
-```
-
-职责：
-
-- 定义 capability 自身 schema；
-- 组织提示词；
-- 承接字段抽取逻辑；
-- 挂载 capability 自身规则；
-- 构造 capability 结果 payload。
-
-当前首个 capability 样板是：
-
-```text
-ai-service/app/capabilities/food_license/
-```
-
-### 2.7 workflow
-
-`app/workflows/` 是 LangGraph 编排层，负责：
-
-- 文档加载；
-- 字段抽取；
-- 字段规范化；
-- 规则执行；
-- 风险汇总；
-- 人工复核路由。
-
-workflow 负责编排，不承接平台入口职责。
-
-### 2.8 tools / adapter
-
-`app/tools/` 封装外部能力 Stub，包括：
-
-- OCR
-- LLM
-- 文档加载
-- 文件读取
-- PDF 解析
-- 图片解析
-- ERP
-- OA
-- IM
-
-当前主线不接真实外部服务。
-
-### 2.9 Skill 规则审核
-
-业务规则口径位于：
-
-```text
-.agents/skills/<skill>/SKILL.md
-```
-
-运行时通过 `ai-service/app/tools/skill_rule_review.py` 读取 Skill、调用 LLM、解析结构化审核结果。workflow 只负责编排，不内嵌业务规则实现。
-
-### 2.10 Repository
-
-Repository 层负责数据访问。当前已具备审核结果持久化基础，后续人工复核和审计日志应继续沿用平台级结构。
+Repository 层负责结果保存、查询、人工复核和审计留痕。完整 `ReviewResult` 快照仍是
+审计和回放的基础。
 
 ---
 
-## 3. 推荐目录结构
+## 3. 结果模型
 
-```text
-ai-service/
-└── app/
-    ├── api/
-    ├── capabilities/
-    ├── core/
-    ├── models/
-    ├── repositories/
-    ├── services/
-    ├── tools/
-    ├── use_cases/
-    └── workflows/
-```
-
-Agent Skill 描述层独立位于：
-
-```text
-.agents/skills/
-└── business-license-review/SKILL.md
-```
-
----
-
-## 4. 当前兼容链路
-
-食品安全证照快捷入口继续保留：
-
-```text
-POST /api/v1/food-license/reviews
-```
-
-执行链路：
-
-```text
-FastAPI
-    ↓
-ReviewService.review_food_license()
-    ↓
-ReviewService.review(use_case_name="food_license")
-    ↓
-use_case_registry.get("food_license")
-    ↓
-food_license use_case.review(input_context)
-    ↓
-food_license workflow
-    ↓
-food_license capability
-    ↓
-ReviewResult
-```
-
-这条兼容链路必须继续保留。
-
----
-
-## 5. 当前结果模型语义
-
-当前 `ReviewResult` 已新增：
+`ReviewResult` 仍是平台级输出契约。新代码应优先使用：
 
 - `use_case_name`
 - `use_case_version`
+- `ruleset_version`
 - `capability_names`
-
-同时继续保留：
-
-- `skill_name`
-- `skill_version`
+- `rule_results`
+- `manual_review`
 - `skill_result`
 
-当前约定：
-
-- `use_case_*` 是主入口字段；
-- `capability_names` 表示执行能力；
-- `skill_*` 和 `skill_result` 仍是兼容字段。
+`skill_name` / `skill_version` 仍存在于模型中，但不再作为架构主语义扩展点。
 
 ---
 
-## 6. 当前 V1 已具备能力
+## 4. 当前迁移状态
 
-当前代码已经具备：
+已完成的架构迁移切片：
 
-- FastAPI 服务骨架；
-- ReviewService 审核入口；
-- `use_case_registry` 显式注册骨架；
-- `food_license` Python use_case facade；
-- `food_license` runtime capability 样板；
-- `food_license` LangGraph 工作流；
-- `ReviewResult` 平台级返回契约；
-- `skill_result` 承载 capability 专属 payload 的兼容边界；
-- 食品安全证照 OCR 文本、本地 PDF、文件输入边界的测试闭环。
+- 终态架构 ADR；
+- 统一 `ReviewState` / `ReviewGraphDefinition` / runtime projection；
+- `business_license` LangChain tools；
+- `business_license` conditional StateGraph routing；
+- `business_license` Thin Entry；
+- `ReviewGraphRegistry` 基础契约；
+- `tobacco_license` 标准 StateGraph 和 Thin Entry；
+- `food_license` Thin Entry 和 runtime projection；
+- `contract_review` 占位 runtime entry；
+- runtime trace/replay 稳定摘要契约。
 
----
+后续仍需迁移的旧形态：
 
-## 7. 当前不做事项
-
-本轮不做：
-
-- 完整 QC 证照及批次报告规则；
-- 完整营业执照与烟草证一致性规则；
-- 完整法务合同风险条款规则；
-- 真实 OCR 接入；
-- 真实 LLM 接入；
-- 真实 ERP / OA / 飞书 / 企微调用；
-- 规则热加载或租户级规则覆盖；
-- 删除 `food_license` 兼容入口。
+- `qc_document_review`、`tobacco_license_consistency_review` 仍需按同一 graph runtime 契约收口；
+- `contract_review` 仍需从占位 runtime entry 替换为标准业务 graph；
+- `ReviewService` 对 `qc_document_review` 和 `tobacco_license_consistency_review` 的旧 registry fallback 仍需删除。

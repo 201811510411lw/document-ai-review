@@ -3,6 +3,7 @@ from datetime import datetime
 from app.tools.skill_rule_review import (
     FakeSkillRuleReviewAdapter,
     OpenAiSkillRuleReviewAdapter,
+    build_food_license_skill_rule_review_adapter,
     build_skill_rule_review_prompt,
     load_skill_text,
     parse_json_object,
@@ -78,28 +79,39 @@ def test_fake_skill_rule_review_adapter_returns_configured_result():
     assert result["needs_manual_review"] is False
 
 
-def test_openai_skill_rule_review_adapter_reuses_vision_model_when_unset(monkeypatch):
+def test_openai_skill_rule_review_adapter_requires_skill_review_model(monkeypatch):
     monkeypatch.delenv("BUSINESS_LICENSE_SKILL_REVIEW_MODEL", raising=False)
-    monkeypatch.setenv("BUSINESS_LICENSE_VISION_MODEL", "gpt-5.4")
 
     adapter = OpenAiSkillRuleReviewAdapter(
         model_env_key="BUSINESS_LICENSE_SKILL_REVIEW_MODEL",
-        fallback_model_env_key="BUSINESS_LICENSE_VISION_MODEL",
+    )
+    result = adapter.review(
+        skill_name="business-license-review",
+        skill_text="## 审核规则",
+        review_payload={},
     )
 
-    assert adapter.model == "gpt-5.4"
+    assert result["metadata"]["error_code"] == "SKILL_RULE_REVIEW_MODEL_NOT_CONFIGURED"
 
 
 def test_openai_skill_rule_review_adapter_prefers_skill_review_model(monkeypatch):
     monkeypatch.setenv("BUSINESS_LICENSE_SKILL_REVIEW_MODEL", "review-model")
-    monkeypatch.setenv("BUSINESS_LICENSE_VISION_MODEL", "vision-model")
 
     adapter = OpenAiSkillRuleReviewAdapter(
         model_env_key="BUSINESS_LICENSE_SKILL_REVIEW_MODEL",
-        fallback_model_env_key="BUSINESS_LICENSE_VISION_MODEL",
     )
 
     assert adapter.model == "review-model"
+
+
+def test_food_license_skill_rule_adapter_reuses_business_license_model(monkeypatch):
+    monkeypatch.delenv("FOOD_LICENSE_SKILL_REVIEW_MODEL", raising=False)
+    monkeypatch.setenv("BUSINESS_LICENSE_SKILL_REVIEW_MODEL", "qwen-flash")
+
+    adapter = build_food_license_skill_rule_review_adapter()
+
+    assert isinstance(adapter, OpenAiSkillRuleReviewAdapter)
+    assert adapter.model == "qwen-flash"
 
 
 def test_openai_skill_rule_review_adapter_retries_connection_errors(monkeypatch):

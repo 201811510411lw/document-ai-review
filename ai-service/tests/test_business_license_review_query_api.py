@@ -1,11 +1,16 @@
+from datetime import datetime
+
 from fastapi.testclient import TestClient
 
 from app.api.business_license_reviews import get_review_read_repository
 from app.main import app
 from app.models import ReviewDocumentInput, ReviewInput
 from app.services.review_service import ReviewService
-from app.integrations.mysql_client import MySqlSettings
 from app.repositories.review_result_repository import MySQLReviewResultRepository
+from tests.business_license_helpers import (
+    business_license_auth_headers,
+    business_license_repository,
+)
 from tests.mysql_repository_stub import install_mysql_repository_stub
 from tests.pdf_helpers import write_minimal_pdf
 
@@ -59,7 +64,7 @@ def test_business_license_review_list_supports_filters_pagination_and_metrics(
             "page": 1,
             "page_size": 10,
         },
-        headers=_auth_headers(client),
+        headers=_auth_headers(client, monkeypatch),
     )
 
     assert response.status_code == 200
@@ -159,7 +164,7 @@ def test_business_license_review_list_date_filter_covers_local_business_day(
             "page": 1,
             "page_size": 10,
         },
-        headers=_auth_headers(client),
+        headers=_auth_headers(client, monkeypatch),
     )
 
     assert response.status_code == 200
@@ -195,7 +200,7 @@ def test_business_license_review_detail_returns_projection_and_full_payload(
 
     response = client.get(
         f"/api/v1/business-license/reviews/{result.task_id}",
-        headers=_auth_headers(client),
+        headers=_auth_headers(client, monkeypatch),
     )
 
     assert response.status_code == 200
@@ -210,6 +215,38 @@ def test_business_license_review_detail_returns_projection_and_full_payload(
     assert payload["extracted_fields"]["credit_code"] == "91310115MA1K00002R"
     assert payload["rule_results"][0]["rule_code"] == "BUSINESS_LICENSE_TYPE_MATCH"
     assert payload["payload"]["task_id"] == result.task_id
+
+
+def test_business_license_review_persistence_accepts_srm_datetime_source_payload(
+    tmp_path,
+    monkeypatch,
+):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    result = _save_review(
+        tmp_path,
+        monkeypatch,
+        repository,
+        task_name="business-srm-datetime.pdf",
+        supplier_name="重庆示例科技有限公司",
+        supplier_credit_code="91500000MA00000000",
+        source_record_id="SRM-CERT-DATETIME",
+        attachment_ref_id="ATT-DATETIME",
+        source_url="https://files.example.test/business-srm-datetime.pdf",
+        extra_source={
+            "source_payload": {
+                "created": datetime(2026, 4, 10, 10, 15, 31),
+                "expiredEnd": datetime(2099, 12, 31, 23, 59, 59),
+            }
+        },
+    )
+
+    snapshot = repository.get_business_license_snapshot(result.task_id)
+
+    assert snapshot is not None
+    source_payload = snapshot["source_evidence"]["source"]["source_payload"]
+    assert source_payload["created"] == "2026-04-10T10:15:31"
+    assert source_payload["expiredEnd"] == "2099-12-31T23:59:59"
 
 
 def test_business_license_manual_review_writes_decision_and_audit_event(
@@ -241,7 +278,7 @@ def test_business_license_manual_review_writes_decision_and_audit_event(
             "comment": "已核对原始营业执照，主体和信用代码可接受。",
             "reviewer_id": "wecom-reviewer-001",
         },
-        headers=_auth_headers(client),
+        headers=_auth_headers(client, monkeypatch),
     )
 
     assert response.status_code == 200
@@ -254,6 +291,14 @@ def test_business_license_manual_review_writes_decision_and_audit_event(
     assert payload["manual_review"]["comment"] == "已核对原始营业执照，主体和信用代码可接受。"
     assert payload["manual_review"]["reviewer_id"] == "wecom-reviewer-001"
     assert payload["manual_review"]["reviewer_username"] == "reviewer"
+    assert payload["reviewer_id"] == "wecom-reviewer-001"
+    assert payload["reviewer_username"] == "reviewer"
+    assert payload["manual_review_decision"] == "approved"
+    assert payload["manual_review_comment"] == "已核对原始营业执照，主体和信用代码可接受。"
+    assert payload["reviewed_at"] is not None
+    assert payload["payload"]["status"] == "MANUAL_REVIEWED"
+    assert payload["payload"]["needs_manual_review"] is False
+    assert payload["payload"]["manual_review"]["status"] == "COMPLETED"
     manual_review_event = next(
         event
         for event in payload["audit_events"]
@@ -263,7 +308,7 @@ def test_business_license_manual_review_writes_decision_and_audit_event(
 
     detail_response = client.get(
         f"/api/v1/business-license/reviews/{result.task_id}",
-        headers=_auth_headers(client),
+        headers=_auth_headers(client, monkeypatch),
     )
 
     assert detail_response.status_code == 200
@@ -271,6 +316,11 @@ def test_business_license_manual_review_writes_decision_and_audit_event(
     assert detail_payload["review_status"] == "MANUAL_REVIEWED"
     assert detail_payload["needs_manual_review"] is False
     assert detail_payload["manual_review"]["decision"] == "approved"
+    assert detail_payload["reviewer_id"] == "wecom-reviewer-001"
+    assert detail_payload["reviewer_username"] == "reviewer"
+    assert detail_payload["manual_review_decision"] == "approved"
+    assert detail_payload["manual_review_comment"] == "已核对原始营业执照，主体和信用代码可接受。"
+    assert detail_payload["reviewed_at"] is not None
     detail_manual_review_event = next(
         event
         for event in detail_payload["audit_events"]
@@ -321,7 +371,7 @@ def test_business_license_manual_review_returns_404_for_missing_task(monkeypatch
             "comment": "无法确认原始证照真实性。",
             "reviewer_id": "wecom-reviewer-001",
         },
-        headers=_auth_headers(client),
+        headers=_auth_headers(client, monkeypatch),
     )
 
     assert response.status_code == 404
@@ -360,7 +410,7 @@ def test_business_license_manual_review_rejects_unknown_decision(
             "comment": "非法结论。",
             "reviewer_id": "wecom-reviewer-001",
         },
-        headers=_auth_headers(client),
+        headers=_auth_headers(client, monkeypatch),
     )
 
     assert response.status_code == 422
@@ -395,7 +445,7 @@ def test_business_license_manual_review_rejects_blank_comment(
             "comment": "   ",
             "reviewer_id": "wecom-reviewer-001",
         },
-        headers=_auth_headers(client),
+        headers=_auth_headers(client, monkeypatch),
     )
 
     assert response.status_code == 422
@@ -410,7 +460,7 @@ def test_business_license_review_detail_returns_404(monkeypatch):
 
     response = client.get(
         "/api/v1/business-license/reviews/missing-task",
-        headers=_auth_headers(client),
+        headers=_auth_headers(client, monkeypatch),
     )
 
     assert response.status_code == 404
@@ -447,6 +497,7 @@ def _save_review(
     attachment_ref_id: str,
     source_url: str,
     extracted_credit_code: str | None = None,
+    extra_source: dict | None = None,
 ):
     pdf_path = tmp_path / task_name
     write_minimal_pdf(pdf_path, "embedded text should not be used")
@@ -482,6 +533,7 @@ def _save_review(
                 "tenant": "8560",
                 "record_id": source_record_id,
                 "attachment_ref_id": attachment_ref_id,
+                **(extra_source or {}),
             },
         ),
         use_case_name="business_license",
@@ -489,21 +541,8 @@ def _save_review(
 
 
 def _repository() -> MySQLReviewResultRepository:
-    return MySQLReviewResultRepository(
-        MySqlSettings(
-            host="127.0.0.1",
-            port=3306,
-            user="review",
-            password="secret",
-            database="document_ai_review",
-        )
-    )
+    return business_license_repository()
 
 
-def _auth_headers(client: TestClient) -> dict[str, str]:
-    response = client.post(
-        "/api/v1/auth/login",
-        json={"username": "reviewer", "password": "reviewer123"},
-    )
-    assert response.status_code == 200
-    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+def _auth_headers(client: TestClient, monkeypatch) -> dict[str, str]:
+    return business_license_auth_headers(client, monkeypatch)

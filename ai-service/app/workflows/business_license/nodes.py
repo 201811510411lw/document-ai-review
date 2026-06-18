@@ -3,6 +3,12 @@ from app.capabilities.business_license.schemas import (
     BusinessLicenseDocumentInputResult,
     BusinessLicenseExtractedFields,
     BusinessLicenseNormalizedFields,
+    normalize_business_license_source_fields,
+)
+from app.capabilities.business_license.tools import (
+    business_license_classify_document,
+    business_license_extract_fields,
+    business_license_normalize_fields,
 )
 from app.models import ManualReview, ManualReviewStatus, ReviewStatus, RiskLevel
 from app.tools import build_business_license_vision_adapter
@@ -48,68 +54,51 @@ def load_document(state: BusinessLicenseWorkflowState) -> BusinessLicenseWorkflo
 
 def classify_document(state: BusinessLicenseWorkflowState) -> BusinessLicenseWorkflowState:
     structured_fields = state.get("vision_structured_fields") or {}
-    if structured_fields.get("document_type"):
-        document_type = structured_fields.get("document_type")
-        return {
-            **state,
-            "document_classification": BusinessLicenseDocumentClassification(
-                document_type=document_type,
-                confidence=1.0 if document_type == "business_license" else 0.0,
-                reasons=["视觉模型返回结构化证照类型"],
-            ),
-        }
-    if state.get("extraction_metadata", {}).get("llm_file_extractor") is not None:
-        return {
-            **state,
-            "document_classification": BusinessLicenseDocumentClassification(
-                document_type="unknown",
-                confidence=0.0,
-                reasons=["大模型文件识别未返回结构化证照类型"],
-            ),
-        }
+    classification = BusinessLicenseDocumentClassification.model_validate(
+        business_license_classify_document.invoke(
+            {"structured_fields": structured_fields}
+        )
+    )
+    if (
+        not structured_fields
+        and state.get("extraction_metadata", {}).get("llm_file_extractor") is not None
+    ):
+        classification = BusinessLicenseDocumentClassification(
+            document_type=classification.document_type,
+            confidence=classification.confidence,
+            reasons=["大模型文件识别未返回结构化证照类型"],
+        )
     return {
         **state,
-        "document_classification": BusinessLicenseDocumentClassification(
-            document_type="unknown",
-            confidence=0.0,
-            reasons=["未检测到结构化营业执照字段"],
-        ),
+        "document_classification": classification,
     }
 
 
 def extract_fields(state: BusinessLicenseWorkflowState) -> BusinessLicenseWorkflowState:
     structured_fields = state.get("vision_structured_fields") or {}
-    if structured_fields:
-        extracted_fields = BusinessLicenseExtractedFields.model_validate(structured_fields)
-        return {
-            **state,
-            "extracted_fields": extracted_fields,
-            "extraction_metadata": {
-                **state.get("extraction_metadata", {}),
-                "structured_extraction": {
-                    "source": "llm_file_extractor",
-                    "schema": "BusinessLicenseExtractedFields",
-                },
-            },
-        }
+    extraction_result = business_license_extract_fields.invoke(
+        {"structured_fields": structured_fields}
+    )
+    extracted_fields = BusinessLicenseExtractedFields.model_validate(
+        extraction_result["fields"]
+    )
     return {
         **state,
-        "extracted_fields": BusinessLicenseExtractedFields(),
+        "extracted_fields": extracted_fields,
         "extraction_metadata": {
             **state.get("extraction_metadata", {}),
-            "structured_extraction": {
-                "source": "llm_file_extractor",
-                "schema": "BusinessLicenseExtractedFields",
-                "status": "missing_structured_fields",
-            },
+            **extraction_result.get("metadata", {}),
         },
     }
 
 
 def normalize_fields(state: BusinessLicenseWorkflowState) -> BusinessLicenseWorkflowState:
     extracted = state.get("extracted_fields")
+    extracted_payload = extracted.model_dump(mode="json") if extracted else {}
     normalized = BusinessLicenseNormalizedFields.model_validate(
-        extracted.model_dump() if extracted is not None else {}
+        business_license_normalize_fields.invoke(
+            {"extracted_fields": extracted_payload}
+        )
     )
     return {**state, "normalized_fields": normalized}
 
@@ -118,19 +107,23 @@ def run_rules(state: BusinessLicenseWorkflowState) -> BusinessLicenseWorkflowSta
     input_context = state["input_context"]
     classification = state.get("document_classification")
     normalized_fields = state.get("normalized_fields")
+    normalized_payload = (
+        normalized_fields.model_dump(mode="json") if normalized_fields else {}
+    )
     skill_name = "business-license-review"
     review_payload = {
         "task_id": input_context.task_id,
         "declared_document_type": input_context.input.declared_document_type,
-        "document_type": classification.document_type if classification else None,
-        "source_fields": {
-            "supplier_name": input_context.input.supplier_name,
-            "supplier_credit_code": input_context.input.supplier_credit_code,
-            "supplier_address": input_context.input.supplier_address,
-        },
-        "extracted_fields": (
-            normalized_fields.model_dump(mode="json") if normalized_fields else {}
+        "document_type": normalized_payload.get("document_type")
+        or (classification.document_type if classification else None),
+        "source_fields": normalize_business_license_source_fields(
+            {
+                "supplier_name": input_context.input.supplier_name,
+                "supplier_credit_code": input_context.input.supplier_credit_code,
+                "supplier_address": input_context.input.supplier_address,
+            }
         ),
+        "extracted_fields": normalized_payload,
         "source_evidence": state.get("source_evidence", {}),
         "extraction_metadata": state.get("extraction_metadata", {}),
     }
@@ -139,11 +132,13 @@ def run_rules(state: BusinessLicenseWorkflowState) -> BusinessLicenseWorkflowSta
         skill_text=load_skill_text(skill_name),
         review_payload=review_payload,
     )
+    rule_results = rules_result.get("rule_results", [])
+    needs_manual_review = rules_result.get("needs_manual_review", True)
     return {
         **state,
-        "rule_results": rules_result.get("rule_results", []),
-        "risk_level": rules_result.get("risk_level", RiskLevel.MEDIUM),
-        "needs_manual_review": rules_result.get("needs_manual_review", True),
+        "rule_results": rule_results,
+        "risk_level": _normalized_risk_level(rule_results, needs_manual_review),
+        "needs_manual_review": needs_manual_review,
         "manual_review_reasons": _manual_review_reasons(
             state,
             rules_result.get("manual_review_reasons", []),
@@ -170,26 +165,89 @@ def summarize_risk(state: BusinessLicenseWorkflowState) -> BusinessLicenseWorkfl
     return {**state, "summary": summary}
 
 
-def route_review(state: BusinessLicenseWorkflowState) -> BusinessLicenseWorkflowState:
-    needs_manual_review = state.get("needs_manual_review", True)
+def _normalized_risk_level(rule_results, needs_manual_review: bool) -> RiskLevel:
+    failed_rules = [rule for rule in rule_results if not _rule_passed(rule)]
+    if not failed_rules and not needs_manual_review:
+        return RiskLevel.NONE
+    if any(_rule_risk_level_on_failure(rule) == RiskLevel.HIGH for rule in failed_rules):
+        return RiskLevel.HIGH
+    if failed_rules:
+        return RiskLevel.MEDIUM
+    return RiskLevel.MEDIUM if needs_manual_review else RiskLevel.NONE
+
+
+def _rule_passed(rule) -> bool:
+    if isinstance(rule, dict):
+        return bool(rule.get("passed"))
+    return bool(getattr(rule, "passed", False))
+
+
+def _rule_risk_level_on_failure(rule) -> RiskLevel | None:
+    value = (
+        rule.get("risk_level_on_failure")
+        if isinstance(rule, dict)
+        else getattr(rule, "risk_level_on_failure", None)
+    )
+    if isinstance(value, RiskLevel):
+        return value
+    try:
+        return RiskLevel(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def manual_review_node(
+    state: BusinessLicenseWorkflowState,
+) -> BusinessLicenseWorkflowState:
     reasons = list(state.get("manual_review_reasons", []))
     manual_review = ManualReview(
-        status=(
-            ManualReviewStatus.PENDING
-            if needs_manual_review
-            else ManualReviewStatus.NOT_REQUIRED
-        ),
-        reasons=reasons if needs_manual_review else [],
+        status=ManualReviewStatus.PENDING,
+        reasons=reasons,
     )
     return {
         **state,
+        "needs_manual_review": True,
         "manual_review": manual_review,
-        "status": (
-            ReviewStatus.PENDING_MANUAL_REVIEW
-            if needs_manual_review
-            else ReviewStatus.REVIEWED
-        ),
+        "status": ReviewStatus.PENDING_MANUAL_REVIEW,
     }
+
+
+def reviewed_node(state: BusinessLicenseWorkflowState) -> BusinessLicenseWorkflowState:
+    return {
+        **state,
+        "needs_manual_review": False,
+        "manual_review": ManualReview(
+            status=ManualReviewStatus.NOT_REQUIRED,
+            reasons=[],
+        ),
+        "status": ReviewStatus.REVIEWED,
+    }
+
+
+def reject_node(state: BusinessLicenseWorkflowState) -> BusinessLicenseWorkflowState:
+    reasons = list(state.get("manual_review_reasons", []))
+    if not reasons:
+        reasons = ["无法确认文件是营业执照"]
+    return {
+        **state,
+        "risk_level": state.get("risk_level", RiskLevel.HIGH),
+        "needs_manual_review": False,
+        "manual_review": ManualReview(
+            status=ManualReviewStatus.NOT_REQUIRED,
+            reasons=[],
+        ),
+        "manual_review_reasons": reasons,
+        "status": ReviewStatus.FAILED,
+        "summary": state.get("summary") or reasons[0],
+    }
+
+
+def route_review(state: BusinessLicenseWorkflowState) -> BusinessLicenseWorkflowState:
+    if state.get("status") == ReviewStatus.FAILED:
+        return reject_node(state)
+    if state.get("needs_manual_review", True):
+        return manual_review_node(state)
+    return reviewed_node(state)
 
 
 def _source_evidence(review_input) -> dict:

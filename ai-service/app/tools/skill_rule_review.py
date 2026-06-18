@@ -23,18 +23,11 @@ class OpenAiSkillRuleReviewAdapter:
         *,
         model: str | None = None,
         model_env_key: str = "BUSINESS_LICENSE_SKILL_REVIEW_MODEL",
-        fallback_model_env_key: str = "BUSINESS_LICENSE_VISION_MODEL",
         base_url: str | None = None,
         timeout: int = 60,
         max_attempts: int | None = None,
     ) -> None:
-        self.model = model or os.environ.get(
-            model_env_key,
-            os.environ.get(
-                fallback_model_env_key,
-                os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
-            ),
-        )
+        self.model = model or os.environ.get(model_env_key, "")
         self.base_url = base_url or os.environ.get("OPENAI_BASE_URL")
         self.timeout = timeout
         self.max_attempts = max_attempts or int(os.environ.get("OPENAI_MAX_ATTEMPTS", "3"))
@@ -46,6 +39,9 @@ class OpenAiSkillRuleReviewAdapter:
         skill_text: str,
         review_payload: dict[str, Any],
     ) -> dict[str, Any]:
+        if not self.model:
+            return _error_result("SKILL_RULE_REVIEW_MODEL_NOT_CONFIGURED", self.model)
+
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             return _error_result("SKILL_RULE_REVIEW_NOT_CONFIGURED", self.model)
@@ -127,6 +123,10 @@ def build_food_license_skill_rule_review_adapter() -> SkillRuleReviewAdapter:
     return build_skill_rule_review_adapter("FOOD_LICENSE")
 
 
+def build_food_production_license_skill_rule_review_adapter() -> SkillRuleReviewAdapter:
+    return build_skill_rule_review_adapter("FOOD_PRODUCTION_LICENSE")
+
+
 def build_qc_document_skill_rule_review_adapter() -> SkillRuleReviewAdapter:
     return build_skill_rule_review_adapter("QC_DOCUMENT")
 
@@ -136,10 +136,12 @@ def build_skill_rule_review_adapter(env_prefix: str) -> SkillRuleReviewAdapter:
     if provider in {"fake", "stub"}:
         fake_json = os.environ.get(f"{env_prefix}_SKILL_REVIEW_FAKE_JSON", "").strip()
         return FakeSkillRuleReviewAdapter(parse_json_object(fake_json) if fake_json else None)
+    model = os.environ.get(f"{env_prefix}_SKILL_REVIEW_MODEL")
+    if not model and env_prefix != "BUSINESS_LICENSE":
+        model = os.environ.get("BUSINESS_LICENSE_SKILL_REVIEW_MODEL")
     return OpenAiSkillRuleReviewAdapter(
-        model=os.environ.get(f"{env_prefix}_SKILL_REVIEW_MODEL"),
+        model=model,
         model_env_key=f"{env_prefix}_SKILL_REVIEW_MODEL",
-        fallback_model_env_key=f"{env_prefix}_VISION_MODEL",
     )
 
 

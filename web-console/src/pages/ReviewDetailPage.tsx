@@ -44,6 +44,7 @@ export function ReviewDetailPage({ taskId, qcView = false }: { taskId: string; q
   if (status === "empty" || !detail) {
     return <EmptyState title="未找到审核详情" message="该任务 ID 不存在或已被清理。" />;
   }
+  const documentTypeLabel = reviewDocumentTypeLabel(detail);
 
   return (
     <div className="page-stack detail-page">
@@ -58,7 +59,7 @@ export function ReviewDetailPage({ taskId, qcView = false }: { taskId: string; q
 
       <section className="detail-hero">
         <div>
-          <p>营业执照审核详情</p>
+          <p>{documentTypeLabel}审核详情</p>
           <h1>{detail.businessName}</h1>
           <div className="hero-badges">
             <StatusBadge status={detail.reviewStatus} label={detail.reviewStatusLabel} />
@@ -84,16 +85,27 @@ export function ReviewDetailPage({ taskId, qcView = false }: { taskId: string; q
             <h2>字段抽取结果</h2>
             <span>置信度 {Math.round(detail.extractedFields.confidence * 100)}%</span>
           </div>
-          <FieldGrid fields={detail.extractedFields} />
+          <FieldGrid fields={detail.extractedFields} documentType={documentTypeOf(detail)} />
         </div>
 
+        <div className="panel">
+          <div className="panel-title">
+            <h2>标准化字段</h2>
+            <span>规则使用值</span>
+          </div>
+          <FieldGrid fields={detail.normalizedFields} documentType={documentTypeOf(detail)} />
+        </div>
+      </section>
+
+      <section className="two-column">
         <div className="panel">
           <div className="panel-title">
             <h2>规则校验结果</h2>
             <span>{detail.ruleResults.length} 条规则</span>
           </div>
-          <div className="rule-list">
-            {detail.ruleResults.map((rule) => (
+          {detail.ruleResults.length > 0 ? (
+            <div className="rule-list">
+              {detail.ruleResults.map((rule) => (
               <article className="rule-item" key={rule.ruleCode}>
                 <div>
                   <strong>{rule.ruleName}</strong>
@@ -103,39 +115,63 @@ export function ReviewDetailPage({ taskId, qcView = false }: { taskId: string; q
                 <p>{rule.message}</p>
                 {rule.evidence && <blockquote>{rule.evidence}</blockquote>}
               </article>
-            ))}
+              ))}
+            </div>
+          ) : (
+            <p className="muted-text">暂无规则校验结果。</p>
+          )}
+        </div>
+
+        <div className="panel">
+          <div className="panel-title">
+            <h2>审核摘要</h2>
+            <span>{detail.needsManualReview ? "需复核" : "自动审核"}</span>
           </div>
+          <p className="muted-text">{detail.summary || "暂无审核摘要。"}</p>
         </div>
       </section>
 
       <section className="panel">
         <div className="panel-title">
-          <h2>人工复核预留区</h2>
-          <span>后续接入前端表单</span>
+          <h2>人工复核</h2>
+          <span>{detail.manualReview.status}</span>
         </div>
-        {detail.manualReviewReasons.length > 0 ? (
-          <ul className="reason-list">
-            {detail.manualReviewReasons.map((reason) => (
-              <li key={reason}>{reason}</li>
-            ))}
-          </ul>
-        ) : (
-          <p className="muted-text">当前记录没有人工复核原因。</p>
-        )}
-        <p className="muted-text">
-          后端写回接口已预留，前端提交表单后续接入；当前入口仅用于查看复核占位页。
-        </p>
+        <ManualReviewSummary detail={detail} />
         <div className="review-actions">
-          <button disabled type="button">
-            人工通过
-          </button>
-          <button disabled type="button">
-            人工驳回
-          </button>
-          <a className="secondary-button" href={`/reviews/${detail.taskId}/manual-review`}>
-            查看复核预留页
+          <a
+            className="secondary-button"
+            href={qcView ? `/qc/reviews/${detail.taskId}/manual-review` : `/reviews/${detail.taskId}/manual-review`}
+          >
+            进入人工复核
           </a>
         </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-title">
+          <h2>审计事件</h2>
+          <span>{detail.auditEvents.length} 条</span>
+        </div>
+        {detail.auditEvents.length > 0 ? (
+          <div className="audit-list">
+            {detail.auditEvents.map((event) => (
+              <article key={`${event.eventType}-${event.occurredAt}`}>
+                <div>
+                  <strong>{event.message}</strong>
+                  <span>{formatTime(event.occurredAt)}</span>
+                </div>
+                <p>
+                  操作人：{event.actorUsername || event.actorId || textFromDetails(event.details, "reviewer_username") || textFromDetails(event.details, "reviewer_id") || "-"}
+                </p>
+                {textFromDetails(event.details, "comment") && (
+                  <p>备注：{textFromDetails(event.details, "comment")}</p>
+                )}
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="muted-text">暂无审计事件。</p>
+        )}
       </section>
 
       <details className="json-panel">
@@ -146,14 +182,69 @@ export function ReviewDetailPage({ taskId, qcView = false }: { taskId: string; q
   );
 }
 
-function FieldGrid({ fields }: { fields: ExtractedFieldSet }) {
+function ManualReviewSummary({ detail }: { detail: ReviewDetail }) {
+  const reasons =
+    detail.manualReview.reasons.length > 0
+      ? detail.manualReview.reasons
+      : detail.manualReviewReasons;
+
+  return (
+    <div className="manual-review-summary">
+      {reasons.length > 0 ? (
+        <div>
+          <h3>复核原因</h3>
+          <ul className="reason-list">
+            {reasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p className="muted-text">当前记录没有人工复核原因。</p>
+      )}
+
+      {detail.manualReview.status === "COMPLETED" ? (
+        <dl className="manual-review-grid">
+          <div>
+            <dt>复核结论</dt>
+            <dd>{manualReviewDecisionLabel(detail.manualReview.decision)}</dd>
+          </div>
+          <div>
+            <dt>复核人</dt>
+            <dd>{detail.manualReview.reviewerUsername || detail.manualReview.reviewerId || "-"}</dd>
+          </div>
+          <div>
+            <dt>复核时间</dt>
+            <dd>{detail.manualReview.reviewedAt ? formatTime(detail.manualReview.reviewedAt) : "-"}</dd>
+          </div>
+          <div className="manual-review-comment">
+            <dt>复核备注</dt>
+            <dd>{detail.manualReview.comment || "-"}</dd>
+          </div>
+        </dl>
+      ) : (
+        <p className="muted-text">还没有人工复核结论。</p>
+      )}
+    </div>
+  );
+}
+
+function FieldGrid({
+  fields,
+  documentType
+}: {
+  fields: ExtractedFieldSet;
+  documentType: string;
+}) {
+  const isFoodProductionLicense = documentType === "food_production_license";
   const rows = [
-    ["主体名称", fields.subjectName],
+    [isFoodProductionLicense ? "生产者名称" : "主体名称", fields.subjectName],
     ["统一社会信用代码", fields.creditCode],
+    ["许可证编号", fields.licenseNo],
     ["法定代表人", fields.legalPerson],
     ["成立日期", fields.establishedDate],
-    ["营业期限", `${fields.validFrom} 至 ${fields.validTo}`],
-    ["住所", fields.businessAddress],
+    [isFoodProductionLicense ? "有效期" : "营业期限", `${fields.validFrom} 至 ${fields.validTo}`],
+    [isFoodProductionLicense ? "生产地址" : "住所", fields.businessAddress],
     ["置信度", `${Math.round(fields.confidence * 100)}%`]
   ];
 
@@ -169,6 +260,14 @@ function FieldGrid({ fields }: { fields: ExtractedFieldSet }) {
   );
 }
 
+function documentTypeOf(detail: ReviewDetail) {
+  return typeof detail.payload.document_type === "string"
+    ? detail.payload.document_type
+    : typeof detail.payload.documentType === "string"
+      ? detail.payload.documentType
+      : "";
+}
+
 function InfoItem({ label, value }: { label: string; value: string }) {
   return (
     <div>
@@ -176,6 +275,41 @@ function InfoItem({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function manualReviewDecisionLabel(decision: string | undefined) {
+  if (decision === "approved") {
+    return "通过";
+  }
+  if (decision === "rejected") {
+    return "不通过";
+  }
+  return "-";
+}
+
+function textFromDetails(details: Record<string, unknown>, key: string) {
+  const value = details[key];
+  return typeof value === "string" && value.trim() ? value : "";
+}
+
+function reviewDocumentTypeLabel(detail: ReviewDetail) {
+  const documentType = documentTypeOf(detail);
+  if (documentType === "food_license") {
+    return "食品经营许可证";
+  }
+  if (documentType === "food_production_license") {
+    return "食品生产许可证";
+  }
+  if (documentType === "product_report") {
+    return "产品报告";
+  }
+  if (documentType === "tobacco_license") {
+    return "烟草专卖零售许可证";
+  }
+  if (documentType === "business_tobacco_consistency") {
+    return "营业执照与烟草证一致性";
+  }
+  return "营业执照";
 }
 
 function formatTime(value: string) {

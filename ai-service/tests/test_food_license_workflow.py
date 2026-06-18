@@ -129,6 +129,34 @@ def test_unknown_file_recognition_document_type_requires_manual_review(
     assert payload["rule_results"][1]["passed"] is False
 
 
+def test_food_license_workflow_normalizes_chinese_document_type_and_dates(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        food_license_nodes,
+        "food_license_file_adapter",
+        StubFileAdapter(
+            {
+                **FIELDS,
+                "document_type": "食品经营许可证",
+                "valid_from": "2020年10月19日",
+                "valid_to": "2025年10月18日",
+                "issue_date": "2020年10月19日",
+            }
+        ),
+    )
+
+    state = run_food_license_workflow(_input_context(tmp_path))
+
+    assert state["document_classification"].document_type == "food_license"
+    assert state["document_classification"].confidence == 1.0
+    assert state["normalized_fields"].valid_from == "2020-10-19"
+    assert state["normalized_fields"].valid_to == "2025-10-18"
+    assert state["normalized_fields"].issue_date == "2020-10-19"
+    assert state["manual_review"].reasons != ["文档类型无法识别，需要人工复核"]
+
+
 def _input_context(tmp_path):
     pdf_path = tmp_path / "food-license.pdf"
     write_minimal_pdf(pdf_path, "embedded text should not be used")

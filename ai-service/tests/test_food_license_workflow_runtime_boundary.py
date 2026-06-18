@@ -51,6 +51,7 @@ def test_food_license_use_case_facade_calls_workflow_entrypoint(tmp_path, monkey
     def stub_workflow(input_context):
         calls.append(input_context)
         return {
+            "input_context": input_context,
             "document_classification": None,
             "extracted_fields": None,
             "normalized_fields": None,
@@ -80,7 +81,7 @@ def test_platform_layer_does_not_import_food_license_workflow_nodes():
     platform_files = [
         *app_root.joinpath("api").glob("*.py"),
         *app_root.joinpath("services").glob("*.py"),
-        app_root / "use_cases" / "registry.py",
+        app_root / "workflows" / "registry.py",
     ]
 
     for source_file in platform_files:

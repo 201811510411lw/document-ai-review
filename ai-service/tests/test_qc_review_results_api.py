@@ -7,7 +7,9 @@ from app.models import ReviewDocumentInput, ReviewInput
 from app.repositories.review_result_repository import MySQLReviewResultRepository
 from app.services.review_service import ReviewService
 from app.workflows.food_license import nodes as food_license_nodes
+from app.workflows.food_production_license import nodes as food_production_license_nodes
 from app.workflows.tobacco_license import workflow as tobacco_license_workflow
+from tests.business_license_helpers import business_license_auth_headers
 from tests.mysql_repository_stub import install_mysql_repository_stub
 from tests.pdf_helpers import write_minimal_pdf
 
@@ -264,6 +266,156 @@ def test_qc_manual_review_writes_food_license_decision(
     assert payload["manual_review"]["status"] == "COMPLETED"
     assert payload["manual_review"]["decision"] == "approved"
     assert payload["payload"]["status"] == "MANUAL_REVIEWED"
+
+
+def test_qc_review_list_and_detail_include_food_production_license_results(
+    tmp_path,
+    monkeypatch,
+):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+
+    class StubFoodProductionLicenseFileAdapter:
+        def extract_text(self, source):
+            return {
+                "text": "",
+                "structured_fields": {
+                    "document_type": "food_production_license",
+                    "producer_name": "成都示例食品生产有限公司",
+                    "credit_code": "91510100MA00000000",
+                    "license_no": "SC10151010000000",
+                    "production_address": "成都市示例区生产路 200 号",
+                    "legal_person": "王五",
+                    "food_categories": ["糕点", "速冻食品"],
+                    "valid_to": "2028-06-05",
+                },
+                "metadata": {"implementation_status": "stub"},
+            }
+
+    pdf_path = tmp_path / "food-production-license.pdf"
+    write_minimal_pdf(pdf_path, "embedded text should not be used")
+    monkeypatch.setattr(
+        food_production_license_nodes,
+        "food_production_license_file_adapter",
+        StubFoodProductionLicenseFileAdapter(),
+    )
+
+    result = ReviewService(repository=repository).review(
+        ReviewInput(
+            file=ReviewDocumentInput(
+                local_path=str(pdf_path),
+                file_name="food-production-license.pdf",
+                mime_type="application/pdf",
+                document_format="pdf",
+                file_uri="https://files.example.test/food-production-license.pdf",
+            ),
+            supplier_name="成都示例食品生产有限公司",
+            supplier_credit_code="91510100MA00000000",
+            declared_document_type="food_production_license",
+            source={
+                "record_id": "SRM-FOOD-PRODUCTION-001",
+                "attachment_ref_id": "ATT-FOOD-PRODUCTION-001",
+                "tenant": "8560",
+            },
+        ),
+        use_case_name="food_production_license",
+    )
+
+    app.dependency_overrides[get_qc_review_repository] = lambda: repository
+    client = TestClient(app)
+    list_response = client.get(
+        "/api/v1/qc/reviews",
+        params={"document_type": "food_production_license"},
+        headers=_auth_headers(client),
+    )
+    detail_response = client.get(
+        f"/api/v1/qc/reviews/{result.task_id}",
+        headers=_auth_headers(client),
+    )
+
+    assert list_response.status_code == 200
+    row = list_response.json()["items"][0]
+    assert row["use_case_name"] == "food_production_license"
+    assert row["document_type"] == "food_production_license"
+    assert row["document_type_label"] == "食品生产许可证"
+    assert row["supplier_name"] == "成都示例食品生产有限公司"
+    assert row["source_record_id"] == "SRM-FOOD-PRODUCTION-001"
+
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["document_type"] == "food_production_license"
+    assert detail["source_url"] == "https://files.example.test/food-production-license.pdf"
+    assert detail["producer_name"] == "成都示例食品生产有限公司"
+    assert detail["license_no"] == "SC10151010000000"
+    assert detail["food_categories"] == ["糕点", "速冻食品"]
+    assert detail["extracted_fields"]["producer_name"] == "成都示例食品生产有限公司"
+    assert detail["normalized_fields"]["production_address"] == "成都市示例区生产路 200 号"
+    assert detail["rule_results"][0]["rule_code"] == "FOOD_PRODUCTION_LICENSE_TYPE_MATCH"
+    assert detail["manual_review"]["status"] == "NOT_REQUIRED"
+
+
+def test_qc_food_production_license_does_not_display_license_no_as_credit_code(
+    tmp_path,
+    monkeypatch,
+):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+
+    class StubFoodProductionLicenseFileAdapter:
+        def extract_text(self, source):
+            return {
+                "text": "",
+                "structured_fields": {
+                    "document_type": "food_production_license",
+                    "producer_name": "长沙波浪食品有限公司",
+                    "credit_code": "SC12443010505553",
+                    "license_no": "SC12443010505553",
+                    "valid_to": "2028-06-05",
+                },
+                "metadata": {"implementation_status": "stub"},
+            }
+
+    pdf_path = tmp_path / "food-production-license.pdf"
+    write_minimal_pdf(pdf_path, "embedded text should not be used")
+    monkeypatch.setattr(
+        food_production_license_nodes,
+        "food_production_license_file_adapter",
+        StubFoodProductionLicenseFileAdapter(),
+    )
+
+    result = ReviewService(repository=repository).review(
+        ReviewInput(
+            file=ReviewDocumentInput(
+                local_path=str(pdf_path),
+                file_name="food-production-license.pdf",
+                mime_type="application/pdf",
+                document_format="pdf",
+                file_uri="https://files.example.test/food-production-license.pdf",
+            ),
+            supplier_name="长沙波浪食品有限公司",
+            supplier_credit_code="",
+            declared_document_type="food_production_license",
+            source={
+                "record_id": "SRM-FOOD-PRODUCTION-ONLY-SC",
+                "attachment_ref_id": "ATT-FOOD-PRODUCTION-ONLY-SC",
+                "source_payload": {"number": "SC12443010505553"},
+            },
+        ),
+        use_case_name="food_production_license",
+    )
+
+    app.dependency_overrides[get_qc_review_repository] = lambda: repository
+    client = TestClient(app)
+    detail_response = client.get(
+        f"/api/v1/qc/reviews/{result.task_id}",
+        headers=_auth_headers(client),
+    )
+
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["credit_code"] is None
+    assert detail["license_no"] == "SC12443010505553"
+    assert detail["extracted_fields"]["credit_code"] == "SC12443010505553"
 
 
 def test_qc_review_list_and_detail_include_product_report_results(monkeypatch):
@@ -524,9 +676,4 @@ def _repository() -> MySQLReviewResultRepository:
 
 
 def _auth_headers(client: TestClient) -> dict[str, str]:
-    response = client.post(
-        "/api/v1/auth/login",
-        json={"username": "reviewer", "password": "reviewer123"},
-    )
-    assert response.status_code == 200
-    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+    return business_license_auth_headers(client)
