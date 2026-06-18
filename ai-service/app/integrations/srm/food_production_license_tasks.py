@@ -40,6 +40,7 @@ where
 	and t2.url is not null
 	and t2.url <> ''
 	and t1.typeName = '食品生产许可证'
+	order by rand()
 	limit 1
 """.strip()
 
