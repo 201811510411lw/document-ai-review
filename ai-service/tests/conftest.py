@@ -14,7 +14,6 @@ def pytest_configure():
 
 
 from app.models import RiskLevel, RuleResult
-from app.tools.skill_rule_review import FakeSkillRuleReviewAdapter
 from app.tools.vision_adapter import FakeVisionAdapter
 from app.workflows.business_license import nodes as business_license_nodes
 from app.workflows.food_license import nodes as food_license_nodes
@@ -52,7 +51,7 @@ def use_fake_review_adapters(monkeypatch):
     )
 
 
-class DynamicSkillRuleReviewAdapter(FakeSkillRuleReviewAdapter):
+class DynamicSkillRuleReviewAdapter:
     def review(self, *, skill_name, skill_text, review_payload):
         if skill_name == "business-license-review":
             return _review_business(skill_name, review_payload)
@@ -62,11 +61,7 @@ class DynamicSkillRuleReviewAdapter(FakeSkillRuleReviewAdapter):
             return _review_food_production(skill_name, review_payload)
         if skill_name == "qc-document-review":
             return _review_product_report(skill_name, review_payload)
-        return super().review(
-            skill_name=skill_name,
-            skill_text=skill_text,
-            review_payload=review_payload,
-        )
+        raise AssertionError(f"unexpected skill rule review call: {skill_name}")
 
 
 def _review_business(skill_name, payload):
