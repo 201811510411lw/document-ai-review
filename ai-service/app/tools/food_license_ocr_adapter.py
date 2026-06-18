@@ -337,7 +337,7 @@ def validate_food_license_ocr_result(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def food_license_qwen_ocr_prompt() -> str:
-    skill_text = _load_skill_text("food-license-review")
+    skill_text = _load_skill_extraction_text("food-license-review")
     return (
         "你是证照 OCR 字段抽取器。请严格根据下面 Skill 的字段抽取要求处理当前图片/PDF 页面，"
         "只依据页面可见文字，不要执行合规审核。\n"
@@ -348,7 +348,7 @@ def food_license_qwen_ocr_prompt() -> str:
 
 
 def food_license_ocr_text_parse_prompt(document_text: str) -> str:
-    skill_text = _load_skill_text("food-license-review")
+    skill_text = _load_skill_extraction_text("food-license-review")
     return (
         "你是证照 OCR 文本字段解析器。请严格根据下面 Skill 的字段抽取要求解析 OCR 文本，"
         "不要使用文件名、来源系统字段、上下文、常识或猜测补全；不要执行合规审核。\n"
@@ -365,6 +365,15 @@ def _load_skill_text(skill_name: str) -> str:
         return load_skill_text(skill_name)
     except Exception:
         return ""
+
+
+def _load_skill_extraction_text(skill_name: str) -> str:
+    skill_text = _load_skill_text(skill_name)
+    start = skill_text.find("## 字段抽取要求")
+    if start == -1:
+        return skill_text
+    end = skill_text.find("## 审核规则", start)
+    return skill_text[start:end].strip() if end != -1 else skill_text[start:].strip()
 
 
 def _with_fallback_metadata(
