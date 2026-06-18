@@ -2,6 +2,7 @@ from app.models import ReviewInputContext, ReviewResult
 from app.use_cases.business_license import business_license_use_case
 from app.use_cases.contract_review import contract_review_use_case
 from app.use_cases.food_license import food_license_use_case
+from app.use_cases.food_production_license import food_production_license_use_case
 from app.use_cases.qc_document_review import qc_document_review_use_case
 from app.use_cases.tobacco_license import tobacco_license_use_case
 from app.use_cases.tobacco_license_consistency_review import (
@@ -34,6 +35,7 @@ review_graph_registry = ReviewGraphRegistry()
 review_graph_registry.register_entry(_entry_from_use_case(business_license_use_case))
 review_graph_registry.register_entry(_entry_from_use_case(contract_review_use_case))
 review_graph_registry.register_entry(_entry_from_use_case(food_license_use_case))
+review_graph_registry.register_entry(_entry_from_use_case(food_production_license_use_case))
 review_graph_registry.register_entry(_entry_from_use_case(qc_document_review_use_case))
 review_graph_registry.register_entry(_entry_from_use_case(tobacco_license_use_case))
 review_graph_registry.register_entry(

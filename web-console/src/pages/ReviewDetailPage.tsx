@@ -44,6 +44,7 @@ export function ReviewDetailPage({ taskId, qcView = false }: { taskId: string; q
   if (status === "empty" || !detail) {
     return <EmptyState title="未找到审核详情" message="该任务 ID 不存在或已被清理。" />;
   }
+  const documentTypeLabel = reviewDocumentTypeLabel(detail);
 
   return (
     <div className="page-stack detail-page">
@@ -58,7 +59,7 @@ export function ReviewDetailPage({ taskId, qcView = false }: { taskId: string; q
 
       <section className="detail-hero">
         <div>
-          <p>营业执照审核详情</p>
+          <p>{documentTypeLabel}审核详情</p>
           <h1>{detail.businessName}</h1>
           <div className="hero-badges">
             <StatusBadge status={detail.reviewStatus} label={detail.reviewStatusLabel} />
@@ -84,7 +85,7 @@ export function ReviewDetailPage({ taskId, qcView = false }: { taskId: string; q
             <h2>字段抽取结果</h2>
             <span>置信度 {Math.round(detail.extractedFields.confidence * 100)}%</span>
           </div>
-          <FieldGrid fields={detail.extractedFields} />
+          <FieldGrid fields={detail.extractedFields} documentType={documentTypeOf(detail)} />
         </div>
 
         <div className="panel">
@@ -92,7 +93,7 @@ export function ReviewDetailPage({ taskId, qcView = false }: { taskId: string; q
             <h2>标准化字段</h2>
             <span>规则使用值</span>
           </div>
-          <FieldGrid fields={detail.normalizedFields} />
+          <FieldGrid fields={detail.normalizedFields} documentType={documentTypeOf(detail)} />
         </div>
       </section>
 
@@ -228,14 +229,22 @@ function ManualReviewSummary({ detail }: { detail: ReviewDetail }) {
   );
 }
 
-function FieldGrid({ fields }: { fields: ExtractedFieldSet }) {
+function FieldGrid({
+  fields,
+  documentType
+}: {
+  fields: ExtractedFieldSet;
+  documentType: string;
+}) {
+  const isFoodProductionLicense = documentType === "food_production_license";
   const rows = [
-    ["主体名称", fields.subjectName],
+    [isFoodProductionLicense ? "生产者名称" : "主体名称", fields.subjectName],
     ["统一社会信用代码", fields.creditCode],
+    ["许可证编号", fields.licenseNo],
     ["法定代表人", fields.legalPerson],
     ["成立日期", fields.establishedDate],
-    ["营业期限", `${fields.validFrom} 至 ${fields.validTo}`],
-    ["住所", fields.businessAddress],
+    [isFoodProductionLicense ? "有效期" : "营业期限", `${fields.validFrom} 至 ${fields.validTo}`],
+    [isFoodProductionLicense ? "生产地址" : "住所", fields.businessAddress],
     ["置信度", `${Math.round(fields.confidence * 100)}%`]
   ];
 
@@ -249,6 +258,14 @@ function FieldGrid({ fields }: { fields: ExtractedFieldSet }) {
       ))}
     </dl>
   );
+}
+
+function documentTypeOf(detail: ReviewDetail) {
+  return typeof detail.payload.document_type === "string"
+    ? detail.payload.document_type
+    : typeof detail.payload.documentType === "string"
+      ? detail.payload.documentType
+      : "";
 }
 
 function InfoItem({ label, value }: { label: string; value: string }) {
@@ -273,6 +290,26 @@ function manualReviewDecisionLabel(decision: string | undefined) {
 function textFromDetails(details: Record<string, unknown>, key: string) {
   const value = details[key];
   return typeof value === "string" && value.trim() ? value : "";
+}
+
+function reviewDocumentTypeLabel(detail: ReviewDetail) {
+  const documentType = documentTypeOf(detail);
+  if (documentType === "food_license") {
+    return "食品经营许可证";
+  }
+  if (documentType === "food_production_license") {
+    return "食品生产许可证";
+  }
+  if (documentType === "product_report") {
+    return "产品报告";
+  }
+  if (documentType === "tobacco_license") {
+    return "烟草专卖零售许可证";
+  }
+  if (documentType === "business_tobacco_consistency") {
+    return "营业执照与烟草证一致性";
+  }
+  return "营业执照";
 }
 
 function formatTime(value: string) {

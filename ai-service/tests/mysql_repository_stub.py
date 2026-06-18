@@ -88,6 +88,30 @@ class StubMySQLCursor:
             ]
             self.storage["food_license_reviews"][params[0]] = dict(zip(keys, params))
             return
+        if compact.startswith("insert into food_production_license_reviews"):
+            keys = [
+                "task_id",
+                "source_record_id",
+                "source_attachment_ref_id",
+                "source_url",
+                "tenant",
+                "document_type",
+                "supplier_name",
+                "credit_code",
+                "review_status",
+                "risk_level",
+                "needs_manual_review",
+                "summary",
+                "rule_results_json",
+                "extracted_fields_json",
+                "normalized_fields_json",
+                "extraction_metadata_json",
+                "source_evidence_json",
+                "created_at",
+                "updated_at",
+            ]
+            self.storage["food_production_license_reviews"][params[0]] = dict(zip(keys, params))
+            return
         if compact.startswith("insert into tobacco_license_reviews"):
             keys = [
                 "task_id",
@@ -145,6 +169,9 @@ class StubMySQLCursor:
         if compact.startswith("select * from food_license_reviews"):
             self.result = self.storage["food_license_reviews"].get(params[0])
             return
+        if compact.startswith("select * from food_production_license_reviews"):
+            self.result = self.storage["food_production_license_reviews"].get(params[0])
+            return
         if compact.startswith("select * from tobacco_license_reviews"):
             self.result = self.storage["tobacco_license_reviews"].get(params[0])
             return
@@ -157,6 +184,10 @@ class StubMySQLCursor:
             return
         if compact.startswith("select task_id from food_license_reviews"):
             row = self.storage["food_license_reviews"].get(params[0])
+            self.result = {"task_id": params[0]} if row is not None else None
+            return
+        if compact.startswith("select task_id from food_production_license_reviews"):
+            row = self.storage["food_production_license_reviews"].get(params[0])
             self.result = {"task_id": params[0]} if row is not None else None
             return
         if compact.startswith("select task_id from tobacco_license_reviews"):
@@ -190,6 +221,23 @@ class StubMySQLCursor:
             return
         if compact.startswith("update food_license_reviews set review_status"):
             row = self.storage["food_license_reviews"].get(params[-1])
+            if row is not None:
+                row.update(
+                    {
+                        "review_status": params[0],
+                        "needs_manual_review": params[1],
+                        "manual_review_status": params[2],
+                        "manual_review_decision": params[3],
+                        "manual_review_comment": params[4],
+                        "manual_review_reviewer_id": params[5],
+                        "manual_review_reviewer_username": params[6],
+                        "manual_review_reviewed_at": params[7],
+                        "updated_at": params[8],
+                    }
+                )
+            return
+        if compact.startswith("update food_production_license_reviews set review_status"):
+            row = self.storage["food_production_license_reviews"].get(params[-1])
             if row is not None:
                 row.update(
                     {
@@ -330,6 +378,13 @@ class StubMySQLCursor:
             and "limit %s offset %s" not in compact
         ):
             self.result = list(self.storage["food_license_reviews"].values())
+            return
+        if (
+            compact.startswith("select task_id, source_record_id")
+            and "from food_production_license_reviews" in compact
+            and "limit %s offset %s" not in compact
+        ):
+            self.result = list(self.storage["food_production_license_reviews"].values())
             return
         if (
             compact.startswith("select task_id, source_record_id")
@@ -474,6 +529,7 @@ def install_mysql_repository_stub(monkeypatch):
         "business_license_review_audit_events": [],
         "wecom_notification_queue": [],
         "food_license_reviews": {},
+        "food_production_license_reviews": {},
         "tobacco_license_reviews": {},
         "tobacco_consistency_reviews": {},
         "product_report_reviews": {},

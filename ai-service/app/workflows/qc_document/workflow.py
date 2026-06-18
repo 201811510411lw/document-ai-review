@@ -49,6 +49,8 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
                 "source_evidence": {
                     "supplier_name": review_input.supplier_name,
                     "declared_document_type": review_input.declared_document_type,
+                    "source": review_input.source,
+                    "options": review_input.options,
                 },
             },
         }

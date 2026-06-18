@@ -83,6 +83,32 @@ export const httpReviewClient: ReviewClient = {
     return mapDetailResponse(await response.json());
   },
 
+  async createFoodLicenseReviewFromSrm(): Promise<ReviewDetail> {
+    const response = await reviewApiFetch(`${API_BASE_URL}/api/v1/food-license/reviews/from-srm`, {
+      method: "POST",
+      headers: authHeaders(),
+      credentials: "include"
+    }, REVIEW_CREATE_TIMEOUT_MS);
+    handleUnauthorized(response);
+    if (!response.ok) {
+      throw new Error(`Failed to create food license review from SRM: ${response.status}`);
+    }
+    return mapDetailResponse(await response.json());
+  },
+
+  async createFoodProductionLicenseReviewFromSrm(): Promise<ReviewDetail> {
+    const response = await reviewApiFetch(`${API_BASE_URL}/api/v1/qc/food-production-license/reviews/from-srm`, {
+      method: "POST",
+      headers: authHeaders(),
+      credentials: "include"
+    }, REVIEW_CREATE_TIMEOUT_MS);
+    handleUnauthorized(response);
+    if (!response.ok) {
+      throw new Error(`Failed to create food production license review from SRM: ${response.status}`);
+    }
+    return mapDetailResponse(await response.json());
+  },
+
   async submitManualReview(
     taskId: string,
     request: ManualReviewRequest
@@ -245,10 +271,15 @@ function mapDetailResponse(payload: ApiReviewDetail): ReviewDetail {
 }
 
 function mapRow(payload: ApiReviewRow): ReviewRow {
+  const documentType = documentTypeOf(payload);
+  const rawCreditCode = payload.credit_code ?? "";
   return {
     taskId: payload.task_id,
     businessName: payload.supplier_name ?? payload.business_name ?? "未识别主体名称",
-    creditCode: payload.credit_code ?? "未识别",
+    creditCode:
+      documentType === "food_production_license" && looksLikeFoodProductionLicenseNo(rawCreditCode)
+        ? "未识别"
+        : rawCreditCode || "未识别",
     reviewStatus: payload.review_status,
     reviewStatusLabel: payload.review_status_label,
     riskLevel: payload.risk_level,
@@ -261,16 +292,37 @@ function mapRow(payload: ApiReviewRow): ReviewRow {
 }
 
 function mapFields(fields: ApiFieldSet | undefined, detail: ApiReviewDetail) {
+  const foodProductionLicense = documentTypeOf(detail) === "food_production_license";
+  const rawCreditCode = fields?.credit_code ?? detail.credit_code ?? "";
+  const creditCode = foodProductionLicense && looksLikeFoodProductionLicenseNo(rawCreditCode)
+    ? ""
+    : rawCreditCode;
+  const licenseNo = fields?.license_no
+    ?? detail.license_no
+    ?? (foodProductionLicense && looksLikeFoodProductionLicenseNo(rawCreditCode) ? rawCreditCode : "");
   return {
-    subjectName: fields?.subject_name ?? detail.business_name ?? "",
-    creditCode: fields?.credit_code ?? detail.credit_code ?? "",
+    subjectName: fields?.subject_name ?? fields?.producer_name ?? detail.producer_name ?? detail.business_name ?? "",
+    creditCode,
+    licenseNo,
     legalPerson: fields?.legal_person ?? detail.legal_person ?? "",
     establishedDate: fields?.established_date ?? fields?.valid_from ?? detail.valid_from ?? "",
     validFrom: fields?.valid_from ?? detail.valid_from ?? "",
     validTo: fields?.valid_to ?? detail.valid_to ?? "",
-    businessAddress: fields?.business_address ?? detail.business_address ?? "",
+    businessAddress: fields?.business_address ?? fields?.production_address ?? detail.production_address ?? detail.business_address ?? "",
     confidence: numericConfidence(fields?.confidence)
   };
+}
+
+function documentTypeOf(detail: ApiReviewDetail) {
+  if (typeof detail.document_type === "string") {
+    return detail.document_type;
+  }
+  const payload = detail.payload ?? {};
+  return typeof payload.document_type === "string" ? payload.document_type : "";
+}
+
+function looksLikeFoodProductionLicenseNo(value: unknown) {
+  return typeof value === "string" && /^SC[A-Z0-9]+$/i.test(value.trim());
 }
 
 function mapRule(rule: ApiRuleResult): RuleResult {
@@ -334,6 +386,7 @@ interface ApiReviewRow {
   source_attachment_ref_id?: string | null;
   supplier_name?: string | null;
   business_name?: string | null;
+  document_type?: string | null;
   credit_code?: string | null;
   review_status: ReviewRow["reviewStatus"];
   review_status_label: string;
@@ -348,6 +401,9 @@ interface ApiReviewDetail extends ApiReviewRow {
   source_url?: string | null;
   summary?: string | null;
   business_address?: string | null;
+  production_address?: string | null;
+  producer_name?: string | null;
+  license_no?: string | null;
   legal_person?: string | null;
   valid_from?: string | null;
   valid_to?: string | null;
@@ -381,12 +437,15 @@ interface ApiAuditEvent {
 
 interface ApiFieldSet {
   subject_name?: string;
+  producer_name?: string;
   credit_code?: string;
+  license_no?: string;
   legal_person?: string;
   established_date?: string;
   valid_from?: string;
   valid_to?: string;
   business_address?: string;
+  production_address?: string;
   confidence?: unknown;
 }
 

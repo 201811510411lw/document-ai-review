@@ -199,6 +199,114 @@ describe("httpReviewClient", () => {
     expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
   });
 
+  it("creates a food license review from the SRM shortcut endpoint", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          task_id: "review-task-food-license-srm",
+          supplier_name: "成都示例食品有限公司",
+          credit_code: "91510100MA00000000",
+          review_status: "REVIEWED",
+          review_status_label: "已审核",
+          risk_level: "NONE",
+          risk_level_label: "无风险",
+          needs_manual_review: false,
+          payload: { document_type: "food_license" }
+        }),
+        { status: 200 }
+      )
+    );
+
+    const detail = await httpReviewClient.createFoodLicenseReviewFromSrm();
+
+    expect(fetchMock.mock.calls[0][0]).toContain("/api/v1/food-license/reviews/from-srm");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: "POST",
+      credentials: "include"
+    });
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
+    expect(detail.businessName).toBe("成都示例食品有限公司");
+  });
+
+  it("creates a food production license review from the QC SRM shortcut endpoint", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          task_id: "review-task-food-production-license-srm",
+          supplier_name: "成都示例食品生产有限公司",
+          credit_code: "91510100MA00000000",
+          review_status: "PENDING_MANUAL_REVIEW",
+          review_status_label: "待人工复核",
+          risk_level: "MEDIUM",
+          risk_level_label: "中风险",
+          needs_manual_review: true,
+          payload: { document_type: "food_production_license" }
+        }),
+        { status: 200 }
+      )
+    );
+
+    const detail = await httpReviewClient.createFoodProductionLicenseReviewFromSrm();
+
+    expect(fetchMock.mock.calls[0][0]).toContain(
+      "/api/v1/qc/food-production-license/reviews/from-srm"
+    );
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: "POST",
+      credentials: "include"
+    });
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
+    expect(detail.businessName).toBe("成都示例食品生产有限公司");
+  });
+
+  it("maps food production license fields without treating SC number as credit code", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          task_id: "review-task-food-production-license-detail",
+          document_type: "food_production_license",
+          supplier_name: "长沙波浪食品有限公司",
+          credit_code: "SC12443010505553",
+          review_status: "PENDING_MANUAL_REVIEW",
+          review_status_label: "待人工复核",
+          risk_level: "MEDIUM",
+          risk_level_label: "中风险",
+          needs_manual_review: true,
+          producer_name: "长沙波浪食品有限公司",
+          license_no: "SC12443010505553",
+          production_address: "长沙市示例区生产路 1 号",
+          extracted_fields: {
+            producer_name: "长沙波浪食品有限公司",
+            credit_code: "SC12443010505553",
+            license_no: "SC12443010505553",
+            production_address: "长沙市示例区生产路 1 号",
+            valid_to: "2028-06-05"
+          },
+          normalized_fields: {
+            producer_name: "长沙波浪食品有限公司",
+            license_no: "SC12443010505553",
+            production_address: "长沙市示例区生产路1号",
+            valid_to: "2028-06-05"
+          },
+          payload: { document_type: "food_production_license" }
+        }),
+        { status: 200 }
+      )
+    );
+
+    const detail = await httpReviewClient.getQcReview(
+      "review-task-food-production-license-detail"
+    );
+
+    expect(detail?.businessName).toBe("长沙波浪食品有限公司");
+    expect(detail?.creditCode).toBe("未识别");
+    expect(detail?.extractedFields.subjectName).toBe("长沙波浪食品有限公司");
+    expect(detail?.extractedFields.creditCode).toBe("");
+    expect(detail?.extractedFields.licenseNo).toBe("SC12443010505553");
+    expect(detail?.extractedFields.businessAddress).toBe("长沙市示例区生产路 1 号");
+    expect(detail?.normalizedFields.businessAddress).toBe("长沙市示例区生产路1号");
+  });
+
   it("submits a manual review decision with bearer token and maps the response", async () => {
     window.localStorage.setItem(
       "document-ai-review.web-console.session",

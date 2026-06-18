@@ -123,6 +123,10 @@ def build_food_license_skill_rule_review_adapter() -> SkillRuleReviewAdapter:
     return build_skill_rule_review_adapter("FOOD_LICENSE")
 
 
+def build_food_production_license_skill_rule_review_adapter() -> SkillRuleReviewAdapter:
+    return build_skill_rule_review_adapter("FOOD_PRODUCTION_LICENSE")
+
+
 def build_qc_document_skill_rule_review_adapter() -> SkillRuleReviewAdapter:
     return build_skill_rule_review_adapter("QC_DOCUMENT")
 
@@ -132,8 +136,11 @@ def build_skill_rule_review_adapter(env_prefix: str) -> SkillRuleReviewAdapter:
     if provider in {"fake", "stub"}:
         fake_json = os.environ.get(f"{env_prefix}_SKILL_REVIEW_FAKE_JSON", "").strip()
         return FakeSkillRuleReviewAdapter(parse_json_object(fake_json) if fake_json else None)
+    model = os.environ.get(f"{env_prefix}_SKILL_REVIEW_MODEL")
+    if not model and env_prefix != "BUSINESS_LICENSE":
+        model = os.environ.get("BUSINESS_LICENSE_SKILL_REVIEW_MODEL")
     return OpenAiSkillRuleReviewAdapter(
-        model=os.environ.get(f"{env_prefix}_SKILL_REVIEW_MODEL"),
+        model=model,
         model_env_key=f"{env_prefix}_SKILL_REVIEW_MODEL",
     )
 
