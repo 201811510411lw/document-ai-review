@@ -242,6 +242,160 @@ export const mockReviewClient: ReviewClient = {
     return created;
   },
 
+  async createFoodLicenseReviewFromSrm(): Promise<ReviewDetail> {
+    await delay(20);
+    const createdAt = "2026-06-15T12:10:00+08:00";
+    const taskId = `fl-srm-${mockReviews.length + 1}`;
+    const created: ReviewDetail = {
+      taskId,
+      businessName: "成都示例食品有限公司",
+      creditCode: "91510100MA00000000",
+      reviewStatus: "REVIEWED",
+      reviewStatusLabel: "已审核",
+      riskLevel: "NONE",
+      riskLevelLabel: "无风险",
+      needsManualReview: false,
+      reviewedAt: createdAt,
+      sourceRecordId: "SRM-FOOD-LICENSE-NEW",
+      attachmentId: "ATT-FL-NEW",
+      sourceUrl: "https://files.example.test/food-license-new.png",
+      summary: "从 SRM 来源记录创建审核任务，食品经营许可证规则校验通过。",
+      extractedFields: {
+        subjectName: "成都示例食品有限公司",
+        creditCode: "91510100MA00000000",
+        licenseNo: "JY15101000000000",
+        legalPerson: "李四",
+        establishedDate: "",
+        validFrom: "2023-06-01",
+        validTo: "2028-06-01",
+        businessAddress: "成都市示例区示例路 100 号",
+        confidence: 0.94
+      },
+      normalizedFields: {
+        subjectName: "成都示例食品有限公司",
+        creditCode: "91510100MA00000000",
+        licenseNo: "JY15101000000000",
+        legalPerson: "李四",
+        establishedDate: "",
+        validFrom: "2023-06-01",
+        validTo: "2028-06-01",
+        businessAddress: "成都市示例区示例路100号",
+        confidence: 0.94
+      },
+      ruleResults: [
+        {
+          ruleCode: "FOOD_LICENSE_TYPE_MATCH",
+          ruleName: "证照类型是否为食品经营许可证",
+          state: "passed",
+          riskLevelOnFailure: "HIGH",
+          message: "材料已识别为食品经营许可证"
+        }
+      ],
+      manualReviewReasons: [],
+      manualReview: {
+        status: "NOT_REQUIRED",
+        reasons: []
+      },
+      auditEvents: [],
+      payload: {
+        task_id: taskId,
+        document_type: "food_license",
+        status: "REVIEWED",
+        risk_level: "NONE"
+      }
+    };
+    mockReviews.unshift(created);
+    return created;
+  },
+
+  async createFoodProductionLicenseReviewFromSrm(): Promise<ReviewDetail> {
+    await delay(20);
+    const createdAt = "2026-06-15T12:20:00+08:00";
+    const taskId = `fpl-srm-${mockReviews.length + 1}`;
+    const created: ReviewDetail = {
+      taskId,
+      businessName: "成都示例食品生产有限公司",
+      creditCode: "91510100MA00000000",
+      reviewStatus: "REVIEWED",
+      reviewStatusLabel: "已审核",
+      riskLevel: "NONE",
+      riskLevelLabel: "无风险",
+      needsManualReview: false,
+      reviewedAt: createdAt,
+      sourceRecordId: "SRM-FOOD-PRODUCTION-LICENSE-NEW",
+      attachmentId: "ATT-FPL-NEW",
+      sourceUrl: "https://files.example.test/food-production-license-new.png",
+      summary: "食品生产许可证规则校验通过",
+      extractedFields: {
+        subjectName: "成都示例食品生产有限公司",
+        creditCode: "91510100MA00000000",
+        licenseNo: "SC10151010000000",
+        legalPerson: "王五",
+        establishedDate: "",
+        validFrom: "",
+        validTo: "2028-06-05",
+        businessAddress: "成都市示例区生产路 200 号",
+        confidence: 0.98
+      },
+      normalizedFields: {
+        subjectName: "成都示例食品生产有限公司",
+        creditCode: "91510100MA00000000",
+        licenseNo: "SC10151010000000",
+        legalPerson: "王五",
+        establishedDate: "",
+        validFrom: "",
+        validTo: "2028-06-05",
+        businessAddress: "成都市示例区生产路 200 号",
+        confidence: 0.98
+      },
+      ruleResults: [
+        {
+          ruleCode: "FOOD_PRODUCTION_LICENSE_TYPE_MATCH",
+          ruleName: "证照类型是否为食品生产许可证",
+          state: "passed",
+          riskLevelOnFailure: "HIGH",
+          message: "证照类型匹配"
+        },
+        {
+          ruleCode: "FOOD_PRODUCTION_LICENSE_PRODUCER_NAME_MATCH",
+          ruleName: "生产者名称是否匹配供应商名称",
+          state: "passed",
+          riskLevelOnFailure: "MEDIUM",
+          message: "生产者名称匹配"
+        },
+        {
+          ruleCode: "FOOD_PRODUCTION_LICENSE_CREDIT_CODE_MATCH",
+          ruleName: "统一社会信用代码是否匹配",
+          state: "passed",
+          riskLevelOnFailure: "HIGH",
+          message: "统一社会信用代码匹配"
+        },
+        {
+          ruleCode: "FOOD_PRODUCTION_LICENSE_VALIDITY_PERIOD",
+          ruleName: "有效期是否过期或三十天内临期",
+          state: "passed",
+          riskLevelOnFailure: "HIGH",
+          message: "有效期未过期"
+        }
+      ],
+      manualReviewReasons: [],
+      manualReview: {
+        status: "NOT_REQUIRED",
+        reasons: []
+      },
+      auditEvents: [],
+      payload: {
+        task_id: taskId,
+        use_case_name: "food_production_license",
+        document_type: "food_production_license",
+        status: "REVIEWED",
+        risk_level: "NONE"
+      }
+    };
+    mockReviews.unshift(created);
+    return created;
+  },
+
   async submitManualReview(
     taskId: string,
     request: ManualReviewRequest

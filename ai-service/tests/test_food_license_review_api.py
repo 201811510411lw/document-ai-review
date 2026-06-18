@@ -3,10 +3,11 @@ from datetime import datetime
 from fastapi.testclient import TestClient
 from uuid import UUID
 
-from app.api.food_license_reviews import get_review_service
+from app.api.food_license_reviews import get_review_service, get_srm_sql_client
 from app.main import app
 from app.models import ReviewResult
 from app.workflows.food_license import nodes as food_license_nodes
+from tests.business_license_helpers import business_license_auth_headers
 from tests.mysql_repository_stub import install_mysql_repository_stub
 from tests.pdf_helpers import write_minimal_pdf
 
@@ -238,6 +239,131 @@ def test_food_license_review_route_calls_review_service_boundary():
     assert calls[0].supplier_name == "成都示例食品有限公司"
 
 
+def test_food_license_review_from_srm_runs_review_with_source_evidence(monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
+
+    class StubSrmSqlClient:
+        def fetch_all(self, sql):
+            return [
+                {
+                    "uuid": "cert-food-001",
+                    "refId": "attach-food-001",
+                    "tenant": "8560",
+                    "category": "vendor",
+                    "typeName": "食品经营许可证",
+                    "vendorName": "成都示例食品有限公司",
+                    "number": "JY15101000000000",
+                    "num": "91510100MA00000000",
+                    "url": "https://files.example.test/food-license.png",
+                    "attachmentName": "food-license.png",
+                    "storeId": "oss-key-food-license",
+                }
+            ]
+
+    class StubFileAdapter:
+        def extract_text(self, source):
+            return {
+                "text": "",
+                "structured_fields": {
+                    "document_type": "food_license",
+                    "subject_name": "成都示例食品有限公司",
+                    "credit_code": "91510100MA00000000",
+                    "license_no": "JY15101000000000",
+                    "business_items": ["预包装食品销售"],
+                    "valid_to": "2028-06-05",
+                },
+                "metadata": {"implementation_status": "fake"},
+            }
+
+    class StubDownloader:
+        def download(self, file_url):
+            from app.tools.remote_document import RemoteDocument
+
+            return RemoteDocument(
+                source_url=file_url,
+                content=b"fake-remote-png",
+                file_type="png",
+                mime_type="image/png",
+                status_code=200,
+                headers={"content-type": "image/png"},
+            )
+
+    app.dependency_overrides[get_srm_sql_client] = lambda: StubSrmSqlClient()
+    monkeypatch.setattr(food_license_nodes, "food_license_file_adapter", StubFileAdapter())
+    monkeypatch.setattr(
+        food_license_nodes,
+        "food_license_remote_downloader",
+        StubDownloader(),
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/food-license/reviews/from-srm",
+        headers=_auth_headers(client, monkeypatch),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["use_case_name"] == "food_license"
+    assert payload["document_type"] == "food_license"
+    assert payload["status"] == "REVIEWED"
+    assert payload["needs_manual_review"] is False
+    source = payload["skill_result"]["source_evidence"]["source"]
+    assert source["record_id"] == "cert-food-001"
+    assert source["attachment_ref_id"] == "attach-food-001"
+    assert source["file_store_key"] == "oss-key-food-license"
+    assert source["source_payload"]["typeName"] == "食品经营许可证"
+
+
+def test_food_license_review_from_srm_returns_not_found(monkeypatch):
+    class StubSrmSqlClient:
+        def fetch_all(self, sql):
+            return []
+
+    app.dependency_overrides[get_srm_sql_client] = lambda: StubSrmSqlClient()
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/food-license/reviews/from-srm",
+        headers=_auth_headers(client, monkeypatch),
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == {
+        "code": "FOOD_LICENSE_SOURCE_RECORD_NOT_FOUND",
+        "message": "未找到可审核的食品经营许可证来源记录",
+    }
+
+
+def test_food_license_review_from_srm_rejects_missing_url(monkeypatch):
+    class StubSrmSqlClient:
+        def fetch_all(self, sql):
+            return [
+                {
+                    "uuid": "cert-food-001",
+                    "typeName": "食品经营许可证",
+                    "vendorName": "成都示例食品有限公司",
+                    "number": "JY15101000000000",
+                    "num": "91510100MA00000000",
+                }
+            ]
+
+    app.dependency_overrides[get_srm_sql_client] = lambda: StubSrmSqlClient()
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/food-license/reviews/from-srm",
+        headers=_auth_headers(client, monkeypatch),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == {
+        "code": "FOOD_LICENSE_SOURCE_URL_MISSING",
+        "message": "食品经营许可证来源记录缺少文件 URL",
+        "record_id": "cert-food-001",
+    }
+
+
 def _is_review_task_uuid(task_id: str) -> bool:
     prefix = "review-task-"
     if not task_id.startswith(prefix):
@@ -247,3 +373,7 @@ def _is_review_task_uuid(task_id: str) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _auth_headers(client, monkeypatch):
+    return business_license_auth_headers(client, monkeypatch)

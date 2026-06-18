@@ -3,6 +3,7 @@ from datetime import datetime
 from app.tools.skill_rule_review import (
     FakeSkillRuleReviewAdapter,
     OpenAiSkillRuleReviewAdapter,
+    build_food_license_skill_rule_review_adapter,
     build_skill_rule_review_prompt,
     load_skill_text,
     parse_json_object,
@@ -101,6 +102,16 @@ def test_openai_skill_rule_review_adapter_prefers_skill_review_model(monkeypatch
     )
 
     assert adapter.model == "review-model"
+
+
+def test_food_license_skill_rule_adapter_reuses_business_license_model(monkeypatch):
+    monkeypatch.delenv("FOOD_LICENSE_SKILL_REVIEW_MODEL", raising=False)
+    monkeypatch.setenv("BUSINESS_LICENSE_SKILL_REVIEW_MODEL", "qwen-flash")
+
+    adapter = build_food_license_skill_rule_review_adapter()
+
+    assert isinstance(adapter, OpenAiSkillRuleReviewAdapter)
+    assert adapter.model == "qwen-flash"
 
 
 def test_openai_skill_rule_review_adapter_retries_connection_errors(monkeypatch):

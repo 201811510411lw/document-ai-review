@@ -25,6 +25,7 @@ export interface ReviewRow {
 export interface ExtractedFieldSet {
   subjectName: string;
   creditCode: string;
+  licenseNo?: string;
   legalPerson: string;
   establishedDate: string;
   validFrom: string;
@@ -88,6 +89,7 @@ export interface ReviewFilters {
     | "ALL"
     | "business_license"
     | "food_license"
+    | "food_production_license"
     | "product_report"
     | "tobacco_license"
     | "business_tobacco_consistency";
@@ -120,6 +122,8 @@ export interface ReviewClient {
   getReview(taskId: string): Promise<ReviewDetail | null>;
   getQcReview(taskId: string): Promise<ReviewDetail | null>;
   createReviewFromSrm(): Promise<ReviewDetail>;
+  createFoodLicenseReviewFromSrm(): Promise<ReviewDetail>;
+  createFoodProductionLicenseReviewFromSrm(): Promise<ReviewDetail>;
   submitManualReview(taskId: string, request: ManualReviewRequest): Promise<ReviewDetail>;
   submitQcManualReview(taskId: string, request: ManualReviewRequest): Promise<ReviewDetail>;
 }

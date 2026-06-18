@@ -72,6 +72,10 @@ class VisionInput:
         self.expected_credit_code = expected_credit_code
 
 
+class UnsupportedVisionProviderError(ValueError):
+    pass
+
+
 def build_business_license_vision_adapter() -> VisionAdapter:
     _load_project_env()
     provider = os.environ.get("BUSINESS_LICENSE_VISION_PROVIDER", "aliyun").strip().lower()
@@ -93,24 +97,49 @@ def build_business_license_vision_adapter() -> VisionAdapter:
         )
 
         return QwenOcrWithAliyunFallbackBusinessLicenseAdapter()
-    return FakeVisionAdapter()
+    raise UnsupportedVisionProviderError(
+        f"Unsupported BUSINESS_LICENSE_VISION_PROVIDER: {provider}"
+    )
 
 
 def build_food_license_file_adapter() -> VisionAdapter:
     _load_project_env()
-    provider = os.environ.get("FOOD_LICENSE_FILE_RECOGNITION_PROVIDER", "fake").strip().lower()
-    if provider in {"openai", "langchain-openai"}:
-        from app.tools.openai_file_adapter import OpenAiFileAdapter
-
-        return OpenAiFileAdapter(
-            provider="openai",
-            model=os.environ.get("FOOD_LICENSE_FILE_RECOGNITION_MODEL", "gpt-4o-mini"),
-            base_url=os.environ.get("OPENAI_BASE_URL"),
+    provider = os.environ.get("FOOD_LICENSE_FILE_RECOGNITION_PROVIDER", "").strip().lower()
+    if provider in {"", "qwen_ocr_with_aliyun_fallback", "qwen-ocr-with-aliyun-fallback"}:
+        from app.tools.food_license_ocr_adapter import (
+            QwenOcrWithAliyunFallbackFoodLicenseAdapter,
         )
-    return FakeVisionAdapter(
-        structured_json_env="FOOD_LICENSE_FAKE_LLM_FILE_JSON",
-        text_env="FOOD_LICENSE_FAKE_LLM_FILE_TEXT",
-        model="fake-food-license-file-recognition",
+
+        return QwenOcrWithAliyunFallbackFoodLicenseAdapter()
+    if provider in {"qwen_ocr", "qwen-ocr", "qwen3.5-ocr"}:
+        from app.tools.food_license_ocr_adapter import QwenOcrFoodLicenseAdapter
+
+        return QwenOcrFoodLicenseAdapter()
+    raise UnsupportedVisionProviderError(
+        f"Unsupported FOOD_LICENSE_FILE_RECOGNITION_PROVIDER: {provider}"
+    )
+
+
+def build_food_production_license_file_adapter() -> VisionAdapter:
+    _load_project_env()
+    provider = os.environ.get(
+        "FOOD_PRODUCTION_LICENSE_FILE_RECOGNITION_PROVIDER", ""
+    ).strip().lower()
+    if provider in {"", "qwen_ocr_with_aliyun_fallback", "qwen-ocr-with-aliyun-fallback"}:
+        from app.tools.food_production_license_ocr_adapter import (
+            QwenOcrWithAliyunFallbackFoodProductionLicenseAdapter,
+        )
+
+        return QwenOcrWithAliyunFallbackFoodProductionLicenseAdapter()
+    if provider in {"qwen_ocr", "qwen-ocr", "qwen3.5-ocr"}:
+        from app.tools.food_production_license_ocr_adapter import (
+            QwenOcrFoodProductionLicenseAdapter,
+        )
+
+        return QwenOcrFoodProductionLicenseAdapter()
+    raise UnsupportedVisionProviderError(
+        "Unsupported FOOD_PRODUCTION_LICENSE_FILE_RECOGNITION_PROVIDER: "
+        f"{provider}"
     )
 
 

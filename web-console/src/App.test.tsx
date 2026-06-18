@@ -172,7 +172,7 @@ describe("business license review workbench", () => {
     await user.click(screen.getByRole("button", { name: "从 SRM 拉取审核" }));
 
     await waitFor(() => {
-      expect(screen.getByText("已从 SRM 来源记录创建审核任务。")).toBeInTheDocument();
+      expect(screen.getByText("已从 SRM 来源记录创建营业执照审核任务。")).toBeInTheDocument();
     });
     await waitFor(() => {
       expect(screen.getAllByText("SRM-CERT-NEW").length).toBeGreaterThan(0);
@@ -190,6 +190,9 @@ describe("business license review workbench", () => {
       expect(screen.getAllByText("上海云岚供应链管理有限公司").length).toBeGreaterThan(0);
     });
     expect(screen.queryByRole("button", { name: "从 SRM 拉取审核" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "拉取营业执照" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "拉取食品经营许可证" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "拉取食品生产许可证" })).toBeInTheDocument();
     expect(screen.getAllByText("详情")[0].closest("a")?.getAttribute("href")).toMatch(
       /^\/qc\/reviews\//
     );
@@ -203,6 +206,41 @@ describe("business license review workbench", () => {
       expect(screen.getByLabelText("证照类型")).toHaveValue("business_license");
       expect(screen.getAllByText("上海云岚供应链管理有限公司").length).toBeGreaterThan(0);
     });
+
+    await user.selectOptions(screen.getByLabelText("证照类型"), "food_production_license");
+    expect(screen.getByLabelText("证照类型")).toHaveValue("food_production_license");
+  });
+
+  it("creates food license and food production license reviews from SRM on the QC page", async () => {
+    const user = userEvent.setup();
+    setSession();
+    setPath("/qc/reviews");
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("QC 审核结果列表")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "拉取营业执照" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("已从 SRM 来源记录创建营业执照审核任务。")).toBeInTheDocument();
+    });
+    expect(screen.getAllByText("SRM-CERT-NEW").length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "拉取食品经营许可证" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("已从 SRM 来源记录创建食品经营许可证审核任务。")).toBeInTheDocument();
+    });
+    expect(screen.getAllByText("SRM-FOOD-LICENSE-NEW").length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "拉取食品生产许可证" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("已从 SRM 来源记录创建食品生产许可证审核任务。")).toBeInTheDocument();
+    });
+    expect(screen.getAllByText("SRM-FOOD-PRODUCTION-LICENSE-NEW").length).toBeGreaterThan(0);
   });
 
   it("renders the detail page with extracted fields and failed rules", async () => {
@@ -230,6 +268,23 @@ describe("business license review workbench", () => {
       "href",
       "/reviews/blr-20260615-0002/manual-review"
     );
+  });
+
+  it("renders food production license detail with production-specific fields", async () => {
+    setSession();
+    setPath("/qc/reviews/qc-food-production-1");
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("长沙波浪食品有限公司").length).toBeGreaterThan(0);
+    });
+
+    expect(screen.getByText("食品生产许可证审核详情")).toBeInTheDocument();
+    expect(screen.getAllByText("生产者名称").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("许可证编号").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("SC12443010505553").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("生产地址").length).toBeGreaterThan(0);
+    expect(screen.queryByText("营业期限")).not.toBeInTheDocument();
   });
 
   it("renders manual review decision, comment, reviewer and audit details", async () => {

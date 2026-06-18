@@ -11,7 +11,6 @@ class QcDocumentReviewUseCase:
     supported_document_types = (
         "qc_document_review",
         "qc_document",
-        "food_production_license",
         "batch_report",
         "third_party_inspection_report",
         "product_report",

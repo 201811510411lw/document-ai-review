@@ -5,8 +5,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
 from app.api.auth import require_web_console_user
+from app.integrations.mysql_client import MySqlFetchClient, mysql_settings_from_env
+from app.integrations.srm.food_production_license_tasks import (
+    FoodProductionLicenseSourceTaskError,
+    SqlFetchClient,
+    fetch_one_food_production_license_source_task,
+)
 from app.models import ReviewResult
 from app.repositories import build_review_result_repository_from_env
+from app.services.review_service import ReviewService, review_service
 
 
 router = APIRouter(prefix="/api/v1/qc", tags=["qc-reviews"])
@@ -64,6 +71,45 @@ class ManualReviewRequest(BaseModel):
 
 def get_qc_review_repository() -> QcReviewRepository:
     return build_review_result_repository_from_env()
+
+
+def get_review_service() -> ReviewService:
+    return review_service
+
+
+def get_food_production_license_srm_sql_client() -> SqlFetchClient:
+    return MySqlFetchClient(mysql_settings_from_env("SRM_MYSQL"))
+
+
+@router.post("/food-production-license/reviews/from-srm")
+def create_food_production_license_review_from_srm(
+    _current_user: dict[str, Any] = Depends(require_web_console_user),
+    sql_client: SqlFetchClient = Depends(get_food_production_license_srm_sql_client),
+    service: ReviewService = Depends(get_review_service),
+) -> dict[str, Any]:
+    try:
+        task = fetch_one_food_production_license_source_task(sql_client)
+    except FoodProductionLicenseSourceTaskError as error:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": error.code,
+                "message": str(error),
+                "record_id": error.record_id,
+            },
+        ) from error
+
+    if task is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "FOOD_PRODUCTION_LICENSE_SOURCE_RECORD_NOT_FOUND",
+                "message": "未找到可审核的食品生产许可证来源记录",
+            },
+        )
+
+    result = service.review(task.review_input, use_case_name="food_production_license")
+    return result.model_dump(mode="json")
 
 
 @router.get("/reviews")

@@ -86,6 +86,64 @@ def test_srm_business_license_row_maps_to_document_record():
     assert record.source_payload == row
 
 
+def test_srm_food_license_row_maps_to_document_record():
+    row = {
+        "tenant": "8560",
+        "uuid": "cert-food-001",
+        "refId": "attach-food-001",
+        "category": "vendor",
+        "typeCode": "FOOD_LICENSE",
+        "typeName": "食品经营许可证",
+        "number": "JY15101000000000",
+        "num": "91510100MA00000000",
+        "vendorId": "VENDOR-001",
+        "vendorName": "成都示例食品有限公司",
+        "attachmentName": "food-license.pdf",
+        "storeId": "srm/cert/food-license.pdf",
+        "url": "https://files.example.test/food-license.pdf",
+    }
+
+    record = map_srm_certification_row(row)
+
+    assert record.declared_document_type == "food_license"
+    assert record.record_id == "cert-food-001"
+    assert record.attachment_ref_id == "attach-food-001"
+    assert record.business_number == "JY15101000000000"
+    assert record.business_num == "91510100MA00000000"
+    assert record.vendor_name == "成都示例食品有限公司"
+    assert record.file_name == "food-license.pdf"
+    assert record.file_url == "https://files.example.test/food-license.pdf"
+
+
+def test_srm_food_production_license_row_maps_to_document_record():
+    row = {
+        "tenant": "8560",
+        "uuid": "cert-food-production-001",
+        "refId": "attach-food-production-001",
+        "category": "vendor",
+        "typeCode": "FOOD_PRODUCTION_LICENSE",
+        "typeName": "食品生产许可证",
+        "number": "SC10151010000000",
+        "num": "91510100MA00000000",
+        "vendorId": "VENDOR-001",
+        "vendorName": "成都示例食品生产有限公司",
+        "attachmentName": "food-production-license.pdf",
+        "storeId": "srm/cert/food-production-license.pdf",
+        "url": "https://files.example.test/food-production-license.pdf",
+    }
+
+    record = map_srm_certification_row(row)
+
+    assert record.declared_document_type == "food_production_license"
+    assert record.record_id == "cert-food-production-001"
+    assert record.attachment_ref_id == "attach-food-production-001"
+    assert record.business_number == "SC10151010000000"
+    assert record.business_num == "91510100MA00000000"
+    assert record.vendor_name == "成都示例食品生产有限公司"
+    assert record.file_name == "food-production-license.pdf"
+    assert record.file_url == "https://files.example.test/food-production-license.pdf"
+
+
 def test_srm_product_report_row_allows_missing_optional_fields():
     record = map_srm_certification_row(
         {

@@ -2,6 +2,13 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.api.auth import require_web_console_user
+from app.integrations.mysql_client import MySqlFetchClient, mysql_settings_from_env
+from app.integrations.srm.food_license_tasks import (
+    FoodLicenseSourceTaskError,
+    SqlFetchClient,
+    fetch_one_food_license_source_task,
+)
 from app.models import ReviewInput
 from app.services.review_service import ReviewService, review_service
 from app.tools.document_constraints import DocumentInputLimitError
@@ -12,6 +19,10 @@ router = APIRouter(prefix="/api/v1/food-license", tags=["food-license"])
 
 def get_review_service() -> ReviewService:
     return review_service
+
+
+def get_srm_sql_client() -> SqlFetchClient:
+    return MySqlFetchClient(mysql_settings_from_env("SRM_MYSQL"))
 
 
 @router.post("/reviews")
@@ -47,6 +58,54 @@ def create_food_license_review(
 
     try:
         result = service.review_food_license(review_input)
+    except DocumentInputLimitError as error:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": error.code,
+                "message": error.message,
+            },
+        ) from error
+    except LocalPdfDocumentLoadError as error:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": error.code,
+                "message": error.message,
+            },
+        ) from error
+    return result.model_dump(mode="json")
+
+
+@router.post("/reviews/from-srm")
+def create_food_license_review_from_srm(
+    _current_user: dict[str, Any] = Depends(require_web_console_user),
+    sql_client: SqlFetchClient = Depends(get_srm_sql_client),
+    service: ReviewService = Depends(get_review_service),
+) -> dict[str, Any]:
+    try:
+        task = fetch_one_food_license_source_task(sql_client)
+    except FoodLicenseSourceTaskError as error:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": error.code,
+                "message": str(error),
+                "record_id": error.record_id,
+            },
+        ) from error
+
+    if task is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "FOOD_LICENSE_SOURCE_RECORD_NOT_FOUND",
+                "message": "未找到可审核的食品经营许可证来源记录",
+            },
+        )
+
+    try:
+        result = service.review(task.review_input, use_case_name="food_license")
     except DocumentInputLimitError as error:
         raise HTTPException(
             status_code=400,
