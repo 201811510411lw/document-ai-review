@@ -174,6 +174,8 @@ def test_food_license_ocr_text_parser_uses_license_prompt(monkeypatch):
     assert "# Skill: food-license-review" in prompt
     assert "字段抽取要求" in prompt
     assert "不要把许可证编号" in prompt
+    assert "输出要求" not in prompt
+    assert "rule_results" not in prompt
 
 
 def test_qwen_food_license_adapter_calls_openai_compatible_multimodal_api(monkeypatch):
@@ -229,3 +231,5 @@ def test_qwen_food_license_adapter_calls_openai_compatible_multimodal_api(monkey
     prompt = calls["messages"][0]["content"][0]["text"]
     assert "# Skill: food-license-review" in prompt
     assert "食品经营许可证" in prompt
+    assert "输出要求" not in prompt
+    assert "rule_results" not in prompt

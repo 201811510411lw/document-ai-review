@@ -337,7 +337,7 @@ def validate_food_license_ocr_result(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def food_license_qwen_ocr_prompt() -> str:
-    skill_text = _load_skill_text("food-license-review")
+    skill_text = _load_skill_extraction_text("food-license-review")
     return (
         "你是证照 OCR 字段抽取器。请严格根据下面 Skill 的字段抽取要求处理当前图片/PDF 页面，"
         "只依据页面可见文字，不要执行合规审核。\n"
@@ -348,7 +348,7 @@ def food_license_qwen_ocr_prompt() -> str:
 
 
 def food_license_ocr_text_parse_prompt(document_text: str) -> str:
-    skill_text = _load_skill_text("food-license-review")
+    skill_text = _load_skill_extraction_text("food-license-review")
     return (
         "你是证照 OCR 文本字段解析器。请严格根据下面 Skill 的字段抽取要求解析 OCR 文本，"
         "不要使用文件名、来源系统字段、上下文、常识或猜测补全；不要执行合规审核。\n"
@@ -365,6 +365,15 @@ def _load_skill_text(skill_name: str) -> str:
         return load_skill_text(skill_name)
     except Exception:
         return ""
+
+
+def _load_skill_extraction_text(skill_name: str) -> str:
+    skill_text = _load_skill_text(skill_name)
+    start = skill_text.find("## 字段抽取要求")
+    if start == -1:
+        return skill_text
+    end = skill_text.find("## 审核规则", start)
+    return skill_text[start:end].strip() if end != -1 else skill_text[start:].strip()
 
 
 def _with_fallback_metadata(
@@ -423,10 +432,64 @@ def _sanitize_food_license_fields(fields: dict[str, Any]) -> dict[str, Any]:
             sanitized[key] = None
     if sanitized.get("document_type") == "食品经营许可证":
         sanitized["document_type"] = "food_license"
-    if not isinstance(sanitized.get("business_items"), list):
-        value = sanitized.get("business_items")
-        sanitized["business_items"] = [value] if value else []
+    sanitized["business_items"] = _string_list(sanitized.get("business_items"))
+    for key in (
+        "subject_name",
+        "credit_code",
+        "license_no",
+        "business_address",
+        "legal_person",
+        "valid_from",
+        "valid_to",
+        "issue_authority",
+        "issue_date",
+    ):
+        sanitized[key] = _optional_text(sanitized.get(key))
     return sanitized
+
+
+def _string_list(value: Any) -> list[str]:
+    values = value if isinstance(value, list) else [value]
+    items: list[str] = []
+    for item in values:
+        text = _item_to_text(item)
+        if text:
+            items.append(text)
+    return items
+
+
+def _item_to_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        preferred_keys = (
+            "经营项目",
+            "项目",
+            "名称",
+            "内容",
+            "business_item",
+            "item",
+            "name",
+            "text",
+            "value",
+        )
+        for key in preferred_keys:
+            text = _item_to_text(value.get(key))
+            if text:
+                return text
+        return " ".join(
+            text for text in (_item_to_text(item) for item in value.values()) if text
+        ).strip()
+    if isinstance(value, list):
+        return " ".join(text for text in (_item_to_text(item) for item in value) if text).strip()
+    return str(value).strip()
+
+
+def _optional_text(value: Any) -> str | None:
+    text = _item_to_text(value)
+    return text or None
 
 
 def _select_food_license_page(page_results: list[dict[str, Any]]) -> dict[str, Any] | None:

@@ -89,7 +89,7 @@ def extract_fields(
     structured_fields = state.get("llm_structured_fields") or {}
     if structured_fields:
         extracted_fields = FoodProductionLicenseExtractedFields.model_validate(
-            structured_fields
+            _sanitize_structured_fields(structured_fields)
         )
         return {
             **state,
@@ -262,3 +262,53 @@ def _normalize_date_text(value: str | None) -> str | None:
         year, month, day = match.groups()
         return f"{year}-{int(month):02d}-{int(day):02d}"
     return text
+
+
+def _sanitize_structured_fields(fields: dict) -> dict:
+    sanitized = dict(fields)
+    sanitized["food_categories"] = _string_list(sanitized.get("food_categories"))
+    for key in (
+        "document_type",
+        "producer_name",
+        "credit_code",
+        "license_no",
+        "production_address",
+        "legal_person",
+        "valid_from",
+        "valid_to",
+        "issue_authority",
+        "issue_date",
+    ):
+        sanitized[key] = _optional_text(sanitized.get(key))
+    return sanitized
+
+
+def _string_list(value) -> list[str]:
+    values = value if isinstance(value, list) else [value]
+    items: list[str] = []
+    for item in values:
+        text = _item_to_text(item)
+        if text:
+            items.append(text)
+    return items
+
+
+def _item_to_text(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key in ("食品类别", "类别", "品种明细", "生产范围", "名称", "内容", "food_category", "category", "name", "text", "value"):
+            text = _item_to_text(value.get(key))
+            if text:
+                return text
+        return " ".join(text for text in (_item_to_text(item) for item in value.values()) if text).strip()
+    if isinstance(value, list):
+        return " ".join(text for text in (_item_to_text(item) for item in value) if text).strip()
+    return str(value).strip()
+
+
+def _optional_text(value) -> str | None:
+    text = _item_to_text(value)
+    return text or None

@@ -1,7 +1,6 @@
 from datetime import datetime
 
 from app.tools.skill_rule_review import (
-    FakeSkillRuleReviewAdapter,
     OpenAiSkillRuleReviewAdapter,
     build_food_license_skill_rule_review_adapter,
     build_skill_rule_review_prompt,
@@ -57,28 +56,6 @@ def test_build_skill_rule_review_prompt_serializes_datetime_values():
     assert '"created": "2026-04-01 10:07:12"' in prompt
 
 
-def test_fake_skill_rule_review_adapter_returns_configured_result():
-    adapter = FakeSkillRuleReviewAdapter(
-        {
-            "status": "REVIEWED",
-            "risk_level": "NONE",
-            "needs_manual_review": False,
-            "summary": "通过",
-            "manual_review_reasons": [],
-            "rule_results": [],
-        }
-    )
-
-    result = adapter.review(
-        skill_name="business-license-review",
-        skill_text="skill",
-        review_payload={},
-    )
-
-    assert result["status"] == "REVIEWED"
-    assert result["needs_manual_review"] is False
-
-
 def test_openai_skill_rule_review_adapter_requires_skill_review_model(monkeypatch):
     monkeypatch.delenv("BUSINESS_LICENSE_SKILL_REVIEW_MODEL", raising=False)
 
@@ -105,6 +82,17 @@ def test_openai_skill_rule_review_adapter_prefers_skill_review_model(monkeypatch
 
 
 def test_food_license_skill_rule_adapter_reuses_business_license_model(monkeypatch):
+    monkeypatch.delenv("FOOD_LICENSE_SKILL_REVIEW_MODEL", raising=False)
+    monkeypatch.setenv("BUSINESS_LICENSE_SKILL_REVIEW_MODEL", "qwen-flash")
+
+    adapter = build_food_license_skill_rule_review_adapter()
+
+    assert isinstance(adapter, OpenAiSkillRuleReviewAdapter)
+    assert adapter.model == "qwen-flash"
+
+
+def test_skill_rule_adapter_ignores_removed_fake_provider_setting(monkeypatch):
+    monkeypatch.setenv("FOOD_LICENSE_SKILL_REVIEW_PROVIDER", "fake")
     monkeypatch.delenv("FOOD_LICENSE_SKILL_REVIEW_MODEL", raising=False)
     monkeypatch.setenv("BUSINESS_LICENSE_SKILL_REVIEW_MODEL", "qwen-flash")
 

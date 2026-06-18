@@ -142,6 +142,7 @@ def test_fetch_one_food_production_license_source_task_uses_default_srm_sql():
     assert "t1.typeName = '食品生产许可证'" in normalized_sql
     assert "t2.url is not null" in DEFAULT_FOOD_PRODUCTION_LICENSE_SOURCE_SQL.lower()
     assert "t2.url <> ''" in DEFAULT_FOOD_PRODUCTION_LICENSE_SOURCE_SQL.lower()
+    assert "order by rand()" in DEFAULT_FOOD_PRODUCTION_LICENSE_SOURCE_SQL.lower()
     assert "limit 1" in DEFAULT_FOOD_PRODUCTION_LICENSE_SOURCE_SQL.lower()
 
 

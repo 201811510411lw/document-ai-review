@@ -48,6 +48,7 @@ export interface ReviewDetail extends ReviewRow {
   summary: string;
   extractedFields: ExtractedFieldSet;
   normalizedFields: ExtractedFieldSet;
+  comparisonFields?: ExtractedFieldSet;
   ruleResults: RuleResult[];
   manualReviewReasons: string[];
   manualReview: ManualReviewState;

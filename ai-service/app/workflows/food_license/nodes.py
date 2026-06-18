@@ -80,7 +80,9 @@ def classify_document(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowSta
 def extract_fields(state: FoodLicenseWorkflowState) -> FoodLicenseWorkflowState:
     structured_fields = state.get("llm_structured_fields") or {}
     if structured_fields:
-        extracted_fields = FoodLicenseExtractedFields.model_validate(structured_fields)
+        extracted_fields = FoodLicenseExtractedFields.model_validate(
+            _sanitize_structured_fields(structured_fields)
+        )
         return {
             **state,
             "extracted_fields": extracted_fields,
@@ -239,3 +241,52 @@ def _normalize_date_text(value: str | None) -> str | None:
         year, month, day = match.groups()
         return f"{year}-{int(month):02d}-{int(day):02d}"
     return text
+
+
+def _sanitize_structured_fields(fields: dict) -> dict:
+    sanitized = dict(fields)
+    sanitized["business_items"] = _string_list(sanitized.get("business_items"))
+    for key in (
+        "subject_name",
+        "credit_code",
+        "license_no",
+        "business_address",
+        "legal_person",
+        "valid_from",
+        "valid_to",
+        "issue_authority",
+        "issue_date",
+    ):
+        sanitized[key] = _optional_text(sanitized.get(key))
+    return sanitized
+
+
+def _string_list(value) -> list[str]:
+    values = value if isinstance(value, list) else [value]
+    items: list[str] = []
+    for item in values:
+        text = _item_to_text(item)
+        if text:
+            items.append(text)
+    return items
+
+
+def _item_to_text(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key in ("经营项目", "项目", "名称", "内容", "business_item", "item", "name", "text", "value"):
+            text = _item_to_text(value.get(key))
+            if text:
+                return text
+        return " ".join(text for text in (_item_to_text(item) for item in value.values()) if text).strip()
+    if isinstance(value, list):
+        return " ".join(text for text in (_item_to_text(item) for item in value) if text).strip()
+    return str(value).strip()
+
+
+def _optional_text(value) -> str | None:
+    text = _item_to_text(value)
+    return text or None

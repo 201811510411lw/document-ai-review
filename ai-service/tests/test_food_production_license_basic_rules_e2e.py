@@ -103,6 +103,67 @@ def test_food_production_license_chinese_document_type_and_dates_are_normalized(
     assert payload["risk_level"] == "NONE"
 
 
+def test_food_production_license_workflow_sanitizes_object_food_categories(
+    tmp_path,
+    monkeypatch,
+):
+    pdf_path = _write_pdf(tmp_path)
+    adapter = StubFileAdapter(
+        {
+            **BASE_FIELDS,
+            "food_categories": [
+                {"食品类别": "糕点"},
+                {"货物或应税劳务名称": "", "规格型号": ""},
+            ],
+        }
+    )
+    monkeypatch.setattr(
+        food_production_license_nodes,
+        "food_production_license_file_adapter",
+        adapter,
+    )
+
+    result = ReviewService().review(
+        _review_input(pdf_path),
+        use_case_name="food_production_license",
+    )
+    payload = result.model_dump(mode="json")
+
+    assert payload["skill_result"]["extracted_fields"]["food_categories"] == ["糕点"]
+
+
+def test_food_production_license_workflow_sanitizes_list_scalar_fields(
+    tmp_path,
+    monkeypatch,
+):
+    pdf_path = _write_pdf(tmp_path)
+    adapter = StubFileAdapter(
+        {
+            **BASE_FIELDS,
+            "legal_person": ["王波"],
+            "producer_name": ["成都示例食品生产有限公司"],
+            "valid_to": ["2028-06-05"],
+        }
+    )
+    monkeypatch.setattr(
+        food_production_license_nodes,
+        "food_production_license_file_adapter",
+        adapter,
+    )
+
+    result = ReviewService().review(
+        _review_input(pdf_path),
+        use_case_name="food_production_license",
+    )
+    payload = result.model_dump(mode="json")
+
+    assert payload["skill_result"]["extracted_fields"]["legal_person"] == "王波"
+    assert payload["skill_result"]["extracted_fields"]["producer_name"] == (
+        "成都示例食品生产有限公司"
+    )
+    assert payload["skill_result"]["extracted_fields"]["valid_to"] == "2028-06-05"
+
+
 def test_food_production_license_producer_name_mismatch_requires_review(
     tmp_path,
     monkeypatch,

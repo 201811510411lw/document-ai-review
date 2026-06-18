@@ -76,8 +76,59 @@ def test_food_license_use_case_review_extracts_fields_from_file_and_returns_revi
     assert extracted_fields["license_no"] == "JY15101000000000"
     assert extracted_fields["business_items"] == ["预包装食品销售", "散装食品销售"]
     assert extracted_fields["valid_to"] == "2028-06-05"
-    assert normalized_fields["license_no"] == "JY15101000000000"
-    assert payload["rule_results"][0]["rule_code"] == "FOOD_LICENSE_RULE_ENGINE_STUB"
+
+
+def test_food_license_workflow_sanitizes_object_business_items(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        food_license_nodes,
+        "food_license_file_adapter",
+        StubFileAdapter(
+            {
+                **FIELDS,
+                "business_items": [
+                    {"经营项目": "预包装食品销售"},
+                    {"货物或应税劳务名称": "", "规格型号": "", "单位": "", "数量": ""},
+                ],
+            }
+        ),
+    )
+
+    result = food_license_use_case.review(_input_context(tmp_path))
+    payload = result.model_dump(mode="json")
+
+    assert payload["skill_result"]["extracted_fields"]["business_items"] == [
+        "预包装食品销售"
+    ]
+
+
+def test_food_license_workflow_sanitizes_list_scalar_fields(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        food_license_nodes,
+        "food_license_file_adapter",
+        StubFileAdapter(
+            {
+                **FIELDS,
+                "legal_person": ["王五"],
+                "subject_name": ["成都示例食品有限公司"],
+                "valid_to": ["2028-06-05"],
+            }
+        ),
+    )
+
+    result = food_license_use_case.review(_input_context(tmp_path))
+    payload = result.model_dump(mode="json")
+
+    assert payload["skill_result"]["extracted_fields"]["legal_person"] == "王五"
+    assert payload["skill_result"]["extracted_fields"]["subject_name"] == (
+        "成都示例食品有限公司"
+    )
+    assert payload["skill_result"]["extracted_fields"]["valid_to"] == "2028-06-05"
 
 
 def test_food_license_workflow_public_entrypoint_runs_rules_after_file_recognition(
