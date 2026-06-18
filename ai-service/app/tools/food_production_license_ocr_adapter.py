@@ -448,10 +448,49 @@ def _sanitize_food_production_license_fields(fields: dict[str, Any]) -> dict[str
             sanitized[key] = None
     if sanitized.get("document_type") == "食品生产许可证":
         sanitized["document_type"] = "food_production_license"
-    if not isinstance(sanitized.get("food_categories"), list):
-        value = sanitized.get("food_categories")
-        sanitized["food_categories"] = [value] if value else []
+    sanitized["food_categories"] = _string_list(sanitized.get("food_categories"))
     return sanitized
+
+
+def _string_list(value: Any) -> list[str]:
+    values = value if isinstance(value, list) else [value]
+    items: list[str] = []
+    for item in values:
+        text = _item_to_text(item)
+        if text:
+            items.append(text)
+    return items
+
+
+def _item_to_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        preferred_keys = (
+            "食品类别",
+            "类别",
+            "品种明细",
+            "生产范围",
+            "名称",
+            "内容",
+            "food_category",
+            "category",
+            "name",
+            "text",
+            "value",
+        )
+        for key in preferred_keys:
+            text = _item_to_text(value.get(key))
+            if text:
+                return text
+        return " ".join(
+            text for text in (_item_to_text(item) for item in value.values()) if text
+        ).strip()
+    if isinstance(value, list):
+        return " ".join(text for text in (_item_to_text(item) for item in value) if text).strip()
+    return str(value).strip()
 
 
 def _select_food_production_license_page(
