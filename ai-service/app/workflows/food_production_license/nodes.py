@@ -267,6 +267,19 @@ def _normalize_date_text(value: str | None) -> str | None:
 def _sanitize_structured_fields(fields: dict) -> dict:
     sanitized = dict(fields)
     sanitized["food_categories"] = _string_list(sanitized.get("food_categories"))
+    for key in (
+        "document_type",
+        "producer_name",
+        "credit_code",
+        "license_no",
+        "production_address",
+        "legal_person",
+        "valid_from",
+        "valid_to",
+        "issue_authority",
+        "issue_date",
+    ):
+        sanitized[key] = _optional_text(sanitized.get(key))
     return sanitized
 
 
@@ -294,3 +307,8 @@ def _item_to_text(value) -> str:
     if isinstance(value, list):
         return " ".join(text for text in (_item_to_text(item) for item in value) if text).strip()
     return str(value).strip()
+
+
+def _optional_text(value) -> str | None:
+    text = _item_to_text(value)
+    return text or None

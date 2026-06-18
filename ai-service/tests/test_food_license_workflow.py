@@ -104,6 +104,33 @@ def test_food_license_workflow_sanitizes_object_business_items(
     ]
 
 
+def test_food_license_workflow_sanitizes_list_scalar_fields(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        food_license_nodes,
+        "food_license_file_adapter",
+        StubFileAdapter(
+            {
+                **FIELDS,
+                "legal_person": ["王五"],
+                "subject_name": ["成都示例食品有限公司"],
+                "valid_to": ["2028-06-05"],
+            }
+        ),
+    )
+
+    result = food_license_use_case.review(_input_context(tmp_path))
+    payload = result.model_dump(mode="json")
+
+    assert payload["skill_result"]["extracted_fields"]["legal_person"] == "王五"
+    assert payload["skill_result"]["extracted_fields"]["subject_name"] == (
+        "成都示例食品有限公司"
+    )
+    assert payload["skill_result"]["extracted_fields"]["valid_to"] == "2028-06-05"
+
+
 def test_food_license_workflow_public_entrypoint_runs_rules_after_file_recognition(
     tmp_path,
     monkeypatch,

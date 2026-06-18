@@ -433,6 +433,18 @@ def _sanitize_food_license_fields(fields: dict[str, Any]) -> dict[str, Any]:
     if sanitized.get("document_type") == "食品经营许可证":
         sanitized["document_type"] = "food_license"
     sanitized["business_items"] = _string_list(sanitized.get("business_items"))
+    for key in (
+        "subject_name",
+        "credit_code",
+        "license_no",
+        "business_address",
+        "legal_person",
+        "valid_from",
+        "valid_to",
+        "issue_authority",
+        "issue_date",
+    ):
+        sanitized[key] = _optional_text(sanitized.get(key))
     return sanitized
 
 
@@ -473,6 +485,11 @@ def _item_to_text(value: Any) -> str:
     if isinstance(value, list):
         return " ".join(text for text in (_item_to_text(item) for item in value) if text).strip()
     return str(value).strip()
+
+
+def _optional_text(value: Any) -> str | None:
+    text = _item_to_text(value)
+    return text or None
 
 
 def _select_food_license_page(page_results: list[dict[str, Any]]) -> dict[str, Any] | None:
