@@ -32,7 +32,8 @@ BUSINESS_LICENSE_REVIEW_ROW_COLUMNS = """
     needs_manual_review,
     summary,
     created_at,
-    updated_at
+    updated_at,
+    manual_review_decision
 """
 
 _REPOSITORY_CACHE: dict[tuple[Any, ...], "MySQLReviewResultRepository"] = {}

@@ -116,14 +116,27 @@ def review_list(
     _current_user: dict[str, Any] = Depends(get_wecom_frontend_user),
     repository: BusinessLicenseReviewReadRepository = Depends(get_review_read_repository),
 ) -> dict[str, Any]:
+    review_filter = _frontend_review_filter(review_status)
     payload = repository.list_business_license_reviews(
         business_name=keyword or None,
-        review_status=_frontend_review_status_to_current(review_status),
+        risk_level=review_filter.get("risk_level"),
+        review_status=review_filter.get("review_status"),
         page=1,
         page_size=limit,
     )
+    stats_payload = repository.list_business_license_reviews(
+        business_name=keyword or None,
+        page=1,
+        page_size=1,
+    )
     records = [_frontend_review_record(row) for row in payload.get("items", [])]
-    stats = _frontend_review_stats(payload)
+    records = [
+        record
+        for record in records
+        if not review_filter.get("frontend_status")
+        or record.get("review_status") == review_filter["frontend_status"]
+    ]
+    stats = _frontend_review_stats(stats_payload)
     return {"records": records, "stats": stats}
 
 
@@ -275,7 +288,7 @@ def _frontend_review_record(row: dict[str, Any]) -> dict[str, Any]:
         "expire_status": _risk_to_expire_status(row.get("risk_level")),
         "expire_days_remaining": None,
         "match_ratio": _match_ratio(row),
-        "review_status": _current_review_status_to_frontend(row.get("review_status")),
+        "review_status": _current_review_status_to_frontend(row),
         "created_at": row.get("created_at") or row.get("updated_at") or "",
         "source_file_url": row.get("source_url") or "",
     }
@@ -329,21 +342,28 @@ def _frontend_review_stats(payload: dict[str, Any]) -> dict[str, int]:
     }
 
 
-def _frontend_review_status_to_current(status: str) -> str | None:
+def _frontend_review_filter(status: str) -> dict[str, str]:
     return {
-        "pending": "PENDING_MANUAL_REVIEW",
-        "confirmed": "REVIEWED",
-        "flagged": "FAILED",
-    }.get(status or "")
+        "pending": {"review_status": "PENDING_MANUAL_REVIEW", "frontend_status": "pending"},
+        "confirmed": {"review_status": "MANUAL_REVIEWED", "frontend_status": "confirmed"},
+        "flagged": {"risk_level": "HIGH", "frontend_status": "flagged"},
+    }.get(status or "", {})
 
 
-def _current_review_status_to_frontend(status: str | None) -> str | None:
-    return {
+def _current_review_status_to_frontend(row: dict[str, Any]) -> str | None:
+    status = row.get("review_status")
+    if status == "MANUAL_REVIEWED":
+        if row.get("manual_review_decision") == "rejected":
+            return "flagged"
+        return "confirmed"
+    mapped = {
         "PENDING_MANUAL_REVIEW": "pending",
-        "MANUAL_REVIEWED": "confirmed",
         "REVIEWED": None,
         "FAILED": "flagged",
-    }.get(status or "", None)
+    }
+    if row.get("risk_level") == "HIGH" and status != "PENDING_MANUAL_REVIEW":
+        return "flagged"
+    return mapped.get(status or "", None)
 
 
 def _risk_to_expire_status(risk_level: str | None) -> str:

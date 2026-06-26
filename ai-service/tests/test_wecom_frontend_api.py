@@ -92,6 +92,60 @@ def test_wecom_frontend_confirm_review_writes_manual_review_decision(tmp_path, m
     assert detail["manual_review_comment"] == "已核对原始营业执照。"
 
 
+def test_wecom_frontend_flagged_filter_keeps_overall_stats(tmp_path, monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    _save_review(
+        tmp_path,
+        monkeypatch,
+        repository,
+        task_name="business-wecom-ok.pdf",
+        supplier_name="成都示例商贸有限公司",
+        supplier_credit_code="91510100MA0000000X",
+        source_record_id="SRM-CERT-WECOM-OK",
+        attachment_ref_id="ATT-WECOM-OK",
+        source_url="https://files.example.test/business-wecom-ok.pdf",
+    )
+    flagged = _save_review(
+        tmp_path,
+        monkeypatch,
+        repository,
+        task_name="business-wecom-flagged.pdf",
+        supplier_name="上海云岚供应链管理有限公司",
+        supplier_credit_code="91310115MA1K00002Q",
+        extracted_credit_code="91310115MA1K00002R",
+        source_record_id="SRM-CERT-WECOM-FLAGGED",
+        attachment_ref_id="ATT-WECOM-FLAGGED",
+        source_url="https://files.example.test/business-wecom-flagged.pdf",
+    )
+    app.dependency_overrides[get_review_read_repository] = lambda: repository
+    client = TestClient(app)
+    headers = business_license_auth_headers(client, monkeypatch)
+
+    flag_response = client.post(
+        f"/api/review/{flagged.task_id}/flag",
+        json={"comment": "识别结果异常。"},
+        headers=headers,
+    )
+    response = client.get(
+        "/api/review/list",
+        params={"review_status": "flagged"},
+        headers=headers,
+    )
+
+    assert flag_response.status_code == 200
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["stats"] == {
+        "total": 2,
+        "pending": 0,
+        "confirmed": 2,
+        "flagged": 1,
+    }
+    assert [record["id"] for record in payload["records"]] == [flagged.task_id]
+    assert payload["records"][0]["review_status"] == "flagged"
+
+
 def test_wecom_frontend_accepts_demo_token_for_vue_demo_mode(monkeypatch):
     client = TestClient(app)
 
