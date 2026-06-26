@@ -5,11 +5,8 @@ def test_core_architecture_docs_do_not_reintroduce_old_compatibility_language():
     repo_root = Path(__file__).resolve().parents[2]
     docs = [
         repo_root / "README.md",
-        repo_root / "docs/v1-python-architecture.md",
-        repo_root / "docs/skill-architecture.md",
-        repo_root / "docs/api-food-license-v1.md",
-        repo_root / "docs/product-requirements-ai-review.md",
-        repo_root / "docs/mvp-food-license.md",
+        repo_root / "docs/SPEC.md",
+        repo_root / "docs/API.md",
     ]
     forbidden_phrases = [
         "这条兼容链路必须继续保留",
@@ -28,14 +25,12 @@ def test_core_architecture_docs_do_not_reintroduce_old_compatibility_language():
 def test_core_architecture_docs_point_to_terminal_architecture():
     repo_root = Path(__file__).resolve().parents[2]
     readme = (repo_root / "README.md").read_text(encoding="utf-8")
-    architecture = (repo_root / "docs/v1-python-architecture.md").read_text(
-        encoding="utf-8"
-    )
-    skill_architecture = (repo_root / "docs/skill-architecture.md").read_text(
+    spec = (repo_root / "docs/SPEC.md").read_text(
         encoding="utf-8"
     )
 
-    assert "LangGraph + LangChain 驱动的 AI Workflow / Agent Platform" in readme
-    assert "UseCase Thin Entry" in architecture
-    assert "Workflow Registry / Graph Runtime" in architecture
-    assert "Capability 不再是流程层对象" in skill_architecture
+    assert "企业内部 AI 文档智能审核 demo" in readme
+    assert "LangGraph + LangChain" in spec
+    assert "UseCase Thin Entry" in spec
+    assert "Workflow Registry / Graph Runtime" in spec
+    assert "Capability 不再是流程层对象" in spec

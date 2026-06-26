@@ -2,7 +2,7 @@
 
 本文档定义食品安全证照检测 V1 的 FastAPI HTTP API 契约，供后续 `ai-service` 实现、测试脚本和外部系统集成使用。
 
-`README.md` 是项目唯一主上下文；`docs/prd-food-license-v1.md` 是本文档的产品依据。本文档只描述 API 契约，不实现业务代码。
+`README.md` 是项目唯一主上下文；`docs/PRD.md` 是原始产品需求依据。本文档只描述 API 契约，不实现业务代码。
 
 ---
 
