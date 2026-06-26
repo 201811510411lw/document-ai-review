@@ -10,6 +10,8 @@
 
 当前 demo 不拆分 Java / Spring Boot 服务，后端统一由 Python `ai-service` 承担 HTTP API、审核编排、规则执行、结果保存和人工复核。
 
+当前工作流主线采用 LangGraph + LangChain：用 LangGraph 表达审核流程和人工复核路由，用 LangChain 封装 OCR、字段抽取、字段标准化等结构化工具能力。
+
 ### 1.2 总体链路
 
 ```text

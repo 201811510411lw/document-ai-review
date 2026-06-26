@@ -1,233 +1,88 @@
 # document-ai-review
 
-企业内部 AI 文档智能审核系统。当前主线已经确认升级为 **LangGraph + LangChain 驱动的 AI Workflow / Agent Platform**；后续按 breaking change 路线演进，不再把旧 `UseCase + Workflow + Capability` 形态作为兼容目标。当前交付主线优先迁移 **营业执照单证审核 `business_license`**，再用烟草证等第二条证照链路验证多证照扩展方式。
+企业内部 AI 文档智能审核 demo。
 
-`README.md` 是项目唯一主上下文。当前不使用 `CONTEXT.md` / `CONTEXT-MAP.md`，也不要求创建 `AGENTS.md` / `CLAUDE.md`。
+项目目标是把营业执照、食品证照、烟草证、QC 报告、合同等非结构化材料转为可抽取、可校验、可追溯、可人工复核的结构化审核结果，减少人工核对证照、报告和合同条款的重复工作。
 
----
+## 当前功能
 
-## 1. 项目定位
+### 证照审核
 
-`document-ai-review` 面向企业内部文档审核场景，目标是把证照、批次报告、检验报告、合同等非结构化材料转为可校验、可追溯、可复核的结构化审核结果。
+- 支持营业执照单证审核。
+- 支持食品经营许可证审核。
+- 支持食品生产许可证审核。
+- 支持烟草专卖零售许可证审核。
+- 支持营业执照与烟草证一致性校验的用例入口和结果结构。
 
-平台不是单一 OCR 工具，也不是单一证照审核服务。OCR、LLM、PDF、图片解析、OA 回写和 IM 通知都只是底层 Adapter。平台终态核心是：
+### QC 文档审核
 
-- 用 UseCase 作为 Thin Entry，只负责输入组装、必要校验、调用 graph 和返回结果；
-- 用 LangGraph StateGraph 作为 workflow runtime，编排字段抽取、规则执行、条件路由和人工复核；
-- 用 LangChain Tools 组织 OCR、视觉解析、字段抽取、字段标准化、文档分类等无状态能力；
-- 用 Agent Skill / Prompt / Policy Layer 沉淀提示词、规则约束、guardrail 和 schema constraint；
-- 用 Domain Rules 承担最终合规判断、风险汇总和人工复核决策；
-- 用统一 `ReviewResult` 输出结构化审核结果。
+- 支持商品批次报告 / 第三方检验报告等 QC 文档审核流程。
+- 支持提取商品名称、供应商、批号、生产日期、签发日期、检验结论等字段。
+- 支持审核结果查询和人工复核。
 
-核心术语：
+### 审核工作台
 
-- UseCase：Thin Entry，负责承接平台请求、组装输入、调用对应 LangGraph workflow、返回 `ReviewResult`。
-- Workflow：LangGraph StateGraph，负责显式节点、边、条件路由、人工复核节点和可追踪执行。
-- LangChain Tool：无状态能力接口，负责 OCR/视觉解析、字段抽取、字段标准化、文档分类等结构化输入输出能力。
-- Agent Skill：位于 `.agents/skills/<skill>/SKILL.md` 的 Prompt / Policy Layer，只定义能力边界、输入输出、规则摘要、提示约束和人工复核边界。
-- Domain Rules：确定性业务规则层，负责最终合规判断、风险等级、人工复核需求和 `RuleResult` 生成。
-- RuleResult：Domain Rules 输出的结构化规则结果；LLM 可以辅助解释和抽取，但不能直接做最终审核决策。
-- ReviewResult：平台级审核结果契约。
+- 提供 Vue 前端控制台 `web-console`。
+- 支持审核结果列表、详情、人工确认、异常标记等工作台能力。
+- 支持企业微信登录和通知 worker 的后端接口。
 
----
+### 结果保存与追溯
 
-## 2. 当前主线
+- 使用统一 `ReviewResult` 保存审核结果。
+- 支持完整 JSON 快照保存。
+- 支持按业务场景写入投影表，便于列表查询和筛选。
+- 支持人工复核状态、复核人、复核意见和审计事件记录。
 
-当前主线优先完成 `business_license` 的 LangGraph + LangChain 架构迁移，再用 `tobacco_license` 作为第二条标准 workflow 验证多证照扩展方式。终态运行时结构固定为：
+## 业务场景
 
-```text
-ReviewService
-    ↓
-UseCase Thin Entry
-    ↓
-Workflow Registry
-    ↓
-LangGraph StateGraph
-    ↓
-LangChain Tools + Domain Rules
-    ↓
-Agent Skills / Prompt / Policy
-    ↓
-ReviewResult
-```
+项目来自 `docs/PRD.md` 中的三类业务场景：
 
-当前内置 use_case：
+| 场景 | 说明 | 当前状态 |
+| --- | --- | --- |
+| QC 证照及批次报告审核 | 审核营业执照、食品许可证、生产许可证、批次报告、第三方检验报告 | 已有主要 demo 流程 |
+| 营业执照与烟草证一致性校验 | 比对主体名称、经营场所、负责人、有效期等字段 | 已有用例入口和结构化结果 |
+| 法务合同内容审核 | 审核合同条款、识别风险、生成修改建议 | 当前偏占位，后续扩展 |
 
-- `business_license`
-- `food_license`
-- `tobacco_license`
-- `qc_document_review`
-- `tobacco_license_consistency_review`
-- `contract_review`
+## 技术栈
 
-其中：
+后端：
 
-- `business_license` 是第一条迁移主线，用于跑通 LangGraph StateGraph、LangChain Tools、Domain Rules、`ReviewResult` 生成、持久化、查询和人工复核；
-- `tobacco_license` 是第二条迁移主线，用于验证多证照 Graph 扩展方式；
-- `food_license` 已接入 Thin Entry / runtime projection / Workflow Registry；
-- `contract_review` 已接入 Workflow Registry，占位业务能力后续再按标准 graph 实现；
-- `qc_document_review`、`tobacco_license_consistency_review` 后续按同一终态架构改造，不再以旧兼容形态继续扩展。
+- Python 3.12
+- FastAPI
+- Pydantic v2
+- LangGraph
+- LangChain
+- PyMySQL
+- pytest
 
----
+前端：
 
-## 3. 三层边界
+- Vue 3
+- Vite
+- Pinia
+- Axios
+- Vant
 
-### 3.1 Agent Skills
+文档和规则：
 
-路径：
+- `docs/PRD.md`：产品需求
+- `docs/SPEC.md`：技术规范，包含架构、技术选型、数据模型、API、目录结构
+- `docs/API.md`：API 契约
+- `AGENTS.md`：Codex 项目说明
+- `.agents/skills/`：业务审核规则口径
 
-```text
-.agents/skills/<skill>/SKILL.md
-```
-
-职责：
-
-- 描述能力边界；
-- 描述支持的输入；
-- 描述输出结构摘要；
-- 维护业务规则口径；
-- 描述人工复核边界；
-- 说明与 runtime 的关系。
-
-不做：
-
-- 不直接执行规则；
-- 不直接调用 workflow 节点；
-- 不直接调用 OCR / LLM / OA / ERP / IM；
-- 不充当平台运行时入口。
-
-### 3.2 UseCase Thin Entry
-
-路径：
-
-```text
-ai-service/app/use_cases/
-```
-
-职责：
-
-- 作为平台可调用的薄入口；
-- 定义 `name`、`version`、`ruleset_version`、`supported_document_types`；
-- 实现 `supports(input_context)`；
-- 调用对应 LangGraph workflow；
-- 通过 runtime projection 返回 `ReviewResult`。
-
-UseCase 不承载流程编排、规则判断或 capability result 组装。
-
-### 3.3 LangChain Tools
-
-路径：
-
-```text
-ai-service/app/capabilities/
-```
-
-职责：
-
-- 组织无状态结构化工具；
-- 承接文档分类、字段抽取、字段标准化等能力；
-- 使用 Pydantic / TypedDict 等结构化输入输出；
-- 供 LangGraph workflow 节点调用。
-
-当前已迁移：
-
-```text
-ai-service/app/capabilities/business_license/
-ai-service/app/capabilities/tobacco_license/
-```
-
-Capability 不再是流程层对象，也不负责组装平台级 `ReviewResult`。
-
----
-
-## 4. 服务边界
-
-| 模块 | 职责 |
-| --- | --- |
-| FastAPI | 提供 HTTP API、解析请求、做基础校验 |
-| Review Service | 创建任务 ID、构造 `ReviewInputContext`、调用薄入口并保存结果 |
-| Workflow Registry | 注册和选择 graph definition |
-| UseCase Thin Entry | 调用 workflow 并通过 runtime projection 返回 `ReviewResult` |
-| workflows | 编排 LangGraph StateGraph、条件路由、人工复核节点 |
-| LangChain Tools | 承接分类、抽取、标准化等无状态结构化能力 |
-| Domain Rules | 承担最终合规判断、风险等级和人工复核需求 |
-| Agent Skills | 维护 Prompt / Policy / guardrail / schema constraint |
-| tools adapter | 远程文件、OCR/视觉识别、规则审核、企微通知等外部能力 Adapter |
-| repositories | 保存审核结果及后续人工复核、审计数据 |
-
-平台层不能直接调用 workflow 或 capability 内部节点，例如：
-
-- `load_document`
-- `extract_fields`
-- `run_rules`
-- `summarize_risk`
-- `manual_review`
-- `reviewed`
-- `reject`
-
-这些都属于内部实现细节。
-
----
-
-## 5. 迁移状态
-
-已按终态架构迁移：
-
-- `business_license`：LangGraph StateGraph、LangChain Tools、conditional routing、Thin Entry、runtime projection；
-- `tobacco_license`：第二条标准 LangGraph workflow、LangChain Tools、Thin Entry、runtime projection；
-- `food_license`：既有 LangGraph workflow 已接入 Thin Entry、runtime projection 和 Workflow Registry；
-- `ReviewGraphRegistry`：已具备注册、获取、选择 graph definition 的基础契约；
-- trace/replay：已具备稳定 JSON 摘要契约。
-
-仍待迁移：
-
-- `qc_document_review`；
-- `tobacco_license_consistency_review`；
-- `contract_review` 标准业务 graph 实现；
-- `ReviewService` 对 `qc_document_review` 和 `tobacco_license_consistency_review` 的旧 registry fallback。
-
----
-
-## 6. 结果模型边界
-
-当前 `ReviewResult` 包含：
-
-- `use_case_name`
-- `use_case_version`
-- `skill_name`
-- `skill_version`
-- `ruleset_version`
-- `capability_names`
-- `rule_results`
-- `manual_review`
-- `summary`
-- `skill_result`
-
-当前语义约定：
-
-- `use_case_name` / `use_case_version`：业务入口身份字段；
-- `capability_names`：本次执行用到的 LangChain tool/domain capability 名称；
-- `skill_name` / `skill_version`：模型字段仍保留，但不作为新扩展点；
-- `skill_result`：结构化领域 payload 和 trace/replay 所需材料。
-
-这意味着：
-
-- 新文档和新代码优先使用 `use_case_*`、`capability_names`、`ruleset_version` 和 `skill_result`；
-- 不再把 `skill_*` 当作架构扩展点。
-
----
-
-## 7. 推荐目录结构
+## 项目结构
 
 ```text
 document-ai-review/
-├── .agents/
-│   └── skills/
+├── AGENTS.md
+├── README.md
 ├── ai-service/
 │   ├── app/
 │   │   ├── api/
 │   │   ├── capabilities/
 │   │   ├── core/
+│   │   ├── integrations/
 │   │   ├── models/
 │   │   ├── repositories/
 │   │   ├── services/
@@ -235,57 +90,97 @@ document-ai-review/
 │   │   ├── use_cases/
 │   │   └── workflows/
 │   ├── tests/
-│   └── pytest.ini
+│   └── requirements.txt
+├── web-console/
+│   ├── src/
+│   ├── package.json
+│   └── vite.config.js
 ├── docs/
-└── README.md
+│   ├── PRD.md
+│   ├── SPEC.md
+│   └── API.md
+├── .agents/
+│   └── skills/
+└── ci-config/
 ```
 
-规则边界：
+## 本地运行
 
-- `.agents/skills/<skill>/SKILL.md`：业务规则口径；
-- `ai-service/app/tools/skill_rule_review.py`：读取 Skill、调用 LLM、解析结构化审核结果；
-- workflow：编排 LangGraph 节点、条件路由和人工复核节点；
-- Domain Rules：承担最终合规判断。
+默认 Python 环境：
 
----
+```bash
+/home/lsym005226/project/starrocks-cleanup-audit/ai-env/bin/python
+```
 
-## 8. 当前约束
+安装后端依赖：
 
-当前主线明确不做：
+```bash
+cd ai-service
+/home/lsym005226/project/starrocks-cleanup-audit/ai-env/bin/python -m pip install -r requirements.txt
+```
 
-- 不引入 Java / Spring Boot；
-- 不接真实 OCR / LLM / OA / ERP；
-- 不让 LLM 直接做最终合规决策；
-- 不用 LangChain agent 替代 deterministic workflow；
-- 不把 Agent Skill、UseCase、Workflow、LangChain Tool、Domain Rules 混成一个对象。
+启动后端：
 
----
+```bash
+cd ai-service
+/home/lsym005226/project/starrocks-cleanup-audit/ai-env/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
 
-## 9. 当前状态
+健康检查：
 
-当前已完成：
+```bash
+curl http://127.0.0.1:8000/health
+```
 
-- 终态架构 ADR；
-- 统一 `ReviewState` / `ReviewGraphDefinition` / runtime projection；
-- `business_license` 与 `tobacco_license` 标准 LangGraph workflow；
-- `business_license`、`tobacco_license`、`food_license`、`qc_document_review` 与 `tobacco_license_consistency_review` Thin Entry / runtime projection；
-- `business_license` 与 `tobacco_license` LangChain Tools；
-- `ReviewService` 已切换为只调用 `ReviewGraphRegistry` runtime entry，不再保留旧 registry fallback；
-- 营业执照审核已具备 PDF/图片/远程文件接入边界、视觉识别 adapter、字段抽取和标准化结果容器、规则审核、`ReviewResult` 输出；
-- 营业执照审核结果已具备 MySQL 完整 payload 保存、投影表保存、列表查询、详情查询和轻量人工复核写回接口；
-- `ReviewInputContext`、`ReviewResult` 已新增 `use_case_*` 和 `capability_names`；
-- `.agents/skills` 继续保留为 Agent Skill 描述层；
-- runtime trace/replay 稳定摘要契约。
+启动前端：
 
-后续优先级：
+```bash
+cd web-console
+npm run dev
+```
 
-1. 将 `contract_review` 占位 runtime entry 替换为标准业务 graph；
-2. 将更多最终合规判断从 LLM 规则审核过渡到 deterministic Domain Rules；
-3. 收口 `skill_*` 字段的长期模型语义。
+## 测试
 
----
+运行后端测试：
 
-## 10. 相关文档
+```bash
+cd ai-service
+/home/lsym005226/project/starrocks-cleanup-audit/ai-env/bin/pytest
+```
+
+当前文档结构相关测试：
+
+```bash
+cd ai-service
+/home/lsym005226/project/starrocks-cleanup-audit/ai-env/bin/pytest \
+  tests/test_terminal_architecture_docs.py \
+  tests/test_business_license_extension_boundaries.py \
+  tests/test_langgraph_langchain_architecture_adr.py
+```
+
+## 配置
+
+本地配置通过仓库根目录 `.env` 或 `ai-service/.env` 读取。
+
+常用配置包括：
+
+- `OPENAI_API_KEY`
+- `OPENAI_BASE_URL`
+- `SRM_MYSQL_*`
+- `REVIEW_RESULT_MYSQL_*`
+- `WEB_CONSOLE_AUTH_*`
+- `WECOM_*`
+
+不要提交 `.env`、数据库密码、API key、GitHub token、本地数据库、缓存和构建产物。
+
+## 当前边界
+
+- 当前 demo 不引入 Java / Spring Boot。
+- LLM 可辅助抽取、解释和结构化输出，但最终合规结论应逐步收口到确定性规则。
+- `contract_review` 仍偏占位，后续再补标准业务流程。
+- 企业微信、SRM、OCR、LLM 能力通过配置和 adapter 接入，本地 demo 可使用测试替身或样例数据验证。
+
+## 文档
 
 - [docs/PRD.md](docs/PRD.md)
 - [docs/SPEC.md](docs/SPEC.md)

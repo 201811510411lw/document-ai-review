@@ -29,7 +29,8 @@ def test_core_architecture_docs_point_to_terminal_architecture():
         encoding="utf-8"
     )
 
-    assert "LangGraph + LangChain 驱动的 AI Workflow / Agent Platform" in readme
+    assert "企业内部 AI 文档智能审核 demo" in readme
+    assert "LangGraph + LangChain" in spec
     assert "UseCase Thin Entry" in spec
     assert "Workflow Registry / Graph Runtime" in spec
     assert "Capability 不再是流程层对象" in spec
