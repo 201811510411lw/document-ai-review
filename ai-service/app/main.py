@@ -10,6 +10,8 @@ from app.api.auth import router as auth_router
 from app.api.business_license_reviews import router as business_license_reviews_router
 from app.api.food_license_reviews import router as food_license_reviews_router
 from app.api.health import router as health_router
+from app.api.wecom_frontend import api_router as wecom_frontend_api_router
+from app.api.wecom_frontend import auth_router as wecom_frontend_auth_router
 from app.api.qc_reviews import router as qc_reviews_router
 from app.api.wecom_notifications import router as wecom_notifications_router
 from app.core.config import settings
@@ -34,9 +36,11 @@ app.add_middleware(
 
 app.include_router(health_router)
 app.include_router(auth_router)
+app.include_router(wecom_frontend_auth_router)
 app.include_router(business_license_reviews_router)
 app.include_router(food_license_reviews_router)
 app.include_router(qc_reviews_router)
+app.include_router(wecom_frontend_api_router)
 app.include_router(wecom_notifications_router)
 
 
