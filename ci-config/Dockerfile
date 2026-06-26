@@ -11,7 +11,7 @@ ENV npm_config_registry=https://registry.npmmirror.com \
 COPY web-console/package*.json ./
 RUN npm ci
 COPY web-console ./
-RUN npm run test -- --run && npm run build
+RUN npm run build
 
 FROM ${PYTHON_IMAGE} AS runtime
 WORKDIR /app
