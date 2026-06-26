@@ -129,11 +129,17 @@ def review_list(
         page=1,
         page_size=1,
     )
-    records = [_frontend_review_record(row) for row in payload.get("items", [])]
+    records = [
+        _frontend_review_record(
+            row,
+            force_status=review_filter.get("force_frontend_status"),
+        )
+        for row in payload.get("items", [])
+    ]
     records = [
         record
         for record in records
-        if not review_filter.get("frontend_status")
+        if not review_filter.get("filter_frontend_status")
         or record.get("review_status") == review_filter["frontend_status"]
     ]
     stats = _frontend_review_stats(stats_payload)
@@ -278,7 +284,11 @@ def _frontend_user(user: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _frontend_review_record(row: dict[str, Any]) -> dict[str, Any]:
+def _frontend_review_record(
+    row: dict[str, Any],
+    *,
+    force_status: str | None = None,
+) -> dict[str, Any]:
     return {
         "id": row.get("task_id"),
         "company_name": row.get("business_name") or row.get("supplier_name") or "未识别主体名称",
@@ -288,7 +298,7 @@ def _frontend_review_record(row: dict[str, Any]) -> dict[str, Any]:
         "expire_status": _risk_to_expire_status(row.get("risk_level")),
         "expire_days_remaining": None,
         "match_ratio": _match_ratio(row),
-        "review_status": _current_review_status_to_frontend(row),
+        "review_status": force_status or _current_review_status_to_frontend(row),
         "created_at": row.get("created_at") or row.get("updated_at") or "",
         "source_file_url": row.get("source_url") or "",
     }
@@ -345,8 +355,16 @@ def _frontend_review_stats(payload: dict[str, Any]) -> dict[str, int]:
 def _frontend_review_filter(status: str) -> dict[str, str]:
     return {
         "pending": {"review_status": "PENDING_MANUAL_REVIEW", "frontend_status": "pending"},
-        "confirmed": {"review_status": "MANUAL_REVIEWED", "frontend_status": "confirmed"},
-        "flagged": {"risk_level": "HIGH", "frontend_status": "flagged"},
+        "confirmed": {
+            "review_status": "MANUAL_REVIEWED",
+            "frontend_status": "confirmed",
+            "filter_frontend_status": "1",
+        },
+        "flagged": {
+            "risk_level": "HIGH",
+            "frontend_status": "flagged",
+            "force_frontend_status": "flagged",
+        },
     }.get(status or "", {})
 
 
