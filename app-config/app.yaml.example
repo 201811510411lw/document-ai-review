@@ -1,0 +1,169 @@
+# 应用配置模板。
+# 本地开发时复制为 app-config/app.yaml，并填入非敏感配置。
+# 本文件只放模型名、提供方、超时、开关、数据库地址等非敏感值，后续可按配置映射管理。
+
+# 运行时开关和本地前端地址。
+runtime:
+  # 调试开关：true 时会输出 OCR 页摘要、旋转方向、模型解析元数据等诊断信息。
+  debug: false
+  # Web 控制台访问地址；企业微信登录完成后会跳转到该地址。
+  web_console_base_url: http://127.0.0.1:5173
+
+# OpenAI 兼容接口配置；密钥放在 .env 的 OPENAI_API_KEY。
+openai:
+  # OpenAI 兼容接口地址，例如 DashScope / OpenAI-compatible gateway。
+  base_url: <required>
+  # 历史兼容字段；通常留空，优先使用 base_url 字段。
+  api_base:
+  # 模型调用最大重试次数。
+  max_attempts: 3
+
+# 营业执照审核相关配置。
+business_license:
+  vision:
+    # 文件识别提供方：aliyun、qwen_ocr、qwen_ocr_with_aliyun_fallback。
+    provider: qwen_ocr_with_aliyun_fallback
+  qwen_ocr:
+    # Qwen OCR 多模态模型名。
+    model: <required>
+    # 单次 OCR 调用超时时间，单位秒。
+    timeout_seconds: 90
+    # Qwen OCR 最大重试次数。
+    max_attempts: 3
+    # PDF 最多处理页数。
+    max_pages: 5
+    # 找到营业执照页后是否停止处理后续页。
+    stop_after_first_license: true
+  # Skill 规则审核模型名。
+  skill_review_model: <required>
+  guardrails:
+    # 营业执照文件最大字节数。
+    max_file_bytes: 20971520
+    # 营业执照 PDF 最大页数。
+    max_pdf_pages: 3
+    # 营业执照图片最大像素数。
+    max_image_pixels: 25000000
+
+# 食品经营许可证审核相关配置。
+food_license:
+  file_recognition:
+    # 文件识别提供方；为空时使用默认逻辑。
+    provider:
+    # 文件识别模型名；为空时复用回退模型配置。
+    model:
+  qwen_ocr:
+    # 食品经营许可证 Qwen OCR 模型名。
+    model:
+    timeout_seconds: 90
+    max_attempts: 3
+    max_pages: 5
+  text_parse:
+    # OCR 文本转结构化字段的文本模型名。
+    model:
+    timeout_seconds: 90
+    max_attempts: 3
+  # 食品经营许可证 Skill 规则审核模型名。
+  skill_review_model:
+
+# 食品生产许可证审核相关配置。
+food_production_license:
+  file_recognition:
+    # 文件识别提供方；为空时使用默认逻辑。
+    provider:
+    # 文件识别模型名；为空时复用回退模型配置。
+    model:
+  qwen_ocr:
+    # 食品生产许可证 Qwen OCR 模型名。
+    model:
+    timeout_seconds: 90
+    max_attempts: 3
+    max_pages: 5
+  text_parse:
+    # OCR 文本转结构化字段的文本模型名。
+    model:
+    timeout_seconds: 90
+    max_attempts: 3
+  # 食品生产许可证 Skill 规则审核模型名。
+  skill_review_model:
+
+# QC 文档审核相关配置。
+qc_document:
+  # QC 文档 Skill 规则审核模型名。
+  skill_review_model:
+
+# 阿里云云市场 OCR 配置；AppCode 放在 .env 的 ALIYUN_OCR_APPCODE。
+aliyun_ocr:
+  # 阿里云 OCR 接口地址。
+  api_url: <required>
+  # 请求体中图片字段名。
+  image_field: img
+  # OCR 接口调用超时时间，单位秒。
+  timeout_seconds: 60
+  # 阿里云 OCR 返回文本后，用这个模型把 OCR 文本解析成结构化字段。
+  llm_parse_model: <required>
+  # 阿里云 OCR 请求体附加参数。
+  body_options:
+    prob: true
+    charInfo: true
+    rotate: true
+    table: false
+    sortPage: false
+    noStamp: false
+    figure: true
+    row: true
+    paragraph: true
+    oricoord: true
+  # 本地预筛提供方；例如 rapidocr，为空则关闭。
+  local_prefilter_provider:
+  # PDF 页方向不正时是否尝试旋转候选方向。
+  try_rotations: true
+  # 找到营业执照页后是否停止处理后续页。
+  stop_after_first_license: true
+  # OCR 旋转候选顺序。
+  rotation_order:
+    - 270
+    - 0
+    - 90
+    - 180
+
+# SRM 来源数据库地址；账号和密码放在 .env。
+srm_mysql:
+  host: <required>
+  port: 3306
+  database: <required>
+
+# 审核结果数据库地址；账号和密码放在 .env。
+review_result_mysql:
+  host: <required>
+  port: 3306
+  database: <required>
+
+# Web 控制台本地认证配置；密码和签名密钥放在 .env。
+web_console_auth:
+  username: reviewer
+  # 令牌有效期，单位秒。
+  token_ttl_seconds: 28800
+
+# 企业微信登录和通知路由配置；密钥和 worker 令牌放在 .env。
+wecom:
+  corp_id: <required>
+  agent_id: <required>
+  redirect_uri: <required>
+  # 企业微信通知里的审核详情基础地址。
+  notification_base_url:
+  # 企业微信用户无法匹配时的策略。
+  unmatched_user_policy: reject
+  # 默认审核员企业微信 UserID 列表。
+  reviewer_user_ids: []
+  # 管理员企业微信 UserID 列表。
+  admin_user_ids: []
+
+# 手工验证 Qwen OCR 脚本使用的本地参数。
+manual_qwen_ocr:
+  local_file:
+  expected_subject_name:
+  expected_credit_code:
+  source_sql:
+  vendor_name:
+  vendor_name_like:
+  source_offset: 0

@@ -160,18 +160,16 @@ cd ai-service
 
 ## 配置
 
-本地配置通过仓库根目录 `.env` 或 `ai-service/.env` 读取。
+本地配置分为两类：
 
-常用配置包括：
+- 非敏感应用配置：`app-config/app.yaml`，仓库提供 `app-config/app.yaml.example` 作为模板。它用于模型名、provider、超时、开关、数据库地址等，后续可按 Kubernetes `ConfigMap` 管理。
+- 敏感凭据：仓库根目录 `.env` 或 `ai-service/.env`，仓库提供 `.env.example` 作为模板。它只用于 API key、数据库密码、token、secret 等，后续可按 Kubernetes `Secret` 管理。
 
-- `OPENAI_API_KEY`
-- `OPENAI_BASE_URL`
-- `SRM_MYSQL_*`
-- `REVIEW_RESULT_MYSQL_*`
-- `WEB_CONSOLE_AUTH_*`
-- `WECOM_*`
+加载优先级：已存在的 Shell 环境变量最高；然后读取 `DOCUMENT_AI_REVIEW_CONFIG_FILE`
+指向的 YAML；再读取 `app-config/app.yaml` 和 `app-config/app.local.yaml`；最后读取 `.env`
+和 `ai-service/.env` 中的 Secret。
 
-不要提交 `.env`、数据库密码、API key、GitHub token、本地数据库、缓存和构建产物。
+不要提交 `.env`、`app-config/app.yaml`、数据库密码、API key、GitHub token、本地数据库、缓存和构建产物。
 
 ## 当前边界
 

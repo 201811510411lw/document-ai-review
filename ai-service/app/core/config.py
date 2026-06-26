@@ -1,82 +1,222 @@
 import os
+import json
 from pathlib import Path
+from typing import Any
 
 from dotenv import dotenv_values
 from pydantic import BaseModel
+import yaml
 
 
-PROJECT_ENV_KEYS = {
-    "OPENAI_API_KEY",
-    "OPENAI_API_KEY1",
-    "OPENAI_BASE_URL",
-    "OPENAI_API_BASE",
-    "DOCUMENT_AI_REVIEW_DEBUG",
-    "BUSINESS_LICENSE_VISION_PROVIDER",
-    "BUSINESS_LICENSE_QWEN_OCR_MODEL",
-    "BUSINESS_LICENSE_QWEN_OCR_TIMEOUT_SECONDS",
-    "BUSINESS_LICENSE_QWEN_OCR_MAX_ATTEMPTS",
-    "BUSINESS_LICENSE_QWEN_OCR_MAX_PAGES",
-    "BUSINESS_LICENSE_QWEN_OCR_STOP_AFTER_FIRST_LICENSE",
-    "BUSINESS_LICENSE_SKILL_REVIEW_MODEL",
-    "FOOD_LICENSE_FILE_RECOGNITION_PROVIDER",
-    "FOOD_LICENSE_FILE_RECOGNITION_MODEL",
-    "FOOD_LICENSE_TEXT_PARSE_MODEL",
-    "FOOD_LICENSE_TEXT_PARSE_TIMEOUT_SECONDS",
-    "FOOD_LICENSE_TEXT_PARSE_MAX_ATTEMPTS",
-    "FOOD_LICENSE_SKILL_REVIEW_MODEL",
-    "FOOD_PRODUCTION_LICENSE_FILE_RECOGNITION_PROVIDER",
-    "FOOD_PRODUCTION_LICENSE_FILE_RECOGNITION_MODEL",
-    "FOOD_PRODUCTION_LICENSE_QWEN_OCR_MODEL",
-    "FOOD_PRODUCTION_LICENSE_QWEN_OCR_TIMEOUT_SECONDS",
-    "FOOD_PRODUCTION_LICENSE_QWEN_OCR_MAX_ATTEMPTS",
-    "FOOD_PRODUCTION_LICENSE_QWEN_OCR_MAX_PAGES",
-    "FOOD_PRODUCTION_LICENSE_TEXT_PARSE_MODEL",
-    "FOOD_PRODUCTION_LICENSE_TEXT_PARSE_TIMEOUT_SECONDS",
-    "FOOD_PRODUCTION_LICENSE_TEXT_PARSE_MAX_ATTEMPTS",
-    "FOOD_PRODUCTION_LICENSE_SKILL_REVIEW_MODEL",
-    "QC_DOCUMENT_SKILL_REVIEW_MODEL",
-    "ALIYUN_OCR_API_URL",
-    "ALIYUN_OCR_APPCODE",
-    "ALIYUN_OCR_IMAGE_FIELD",
-    "ALIYUN_OCR_TIMEOUT_SECONDS",
-    "ALIYUN_OCR_BODY_JSON",
-    "ALIYUN_OCR_LLM_PARSE_MODEL",
-    "ALIYUN_OCR_TRY_ROTATIONS",
-    "ALIYUN_OCR_STOP_AFTER_FIRST_LICENSE",
-    "ALIYUN_OCR_ROTATION_ORDER",
-    "ALIYUN_OCR_LOCAL_PREFILTER_PROVIDER",
-    "SRM_MYSQL_HOST",
-    "SRM_MYSQL_PORT",
-    "SRM_MYSQL_USER",
-    "SRM_MYSQL_PASSWORD",
-    "SRM_MYSQL_DATABASE",
-    "REVIEW_RESULT_MYSQL_HOST",
-    "REVIEW_RESULT_MYSQL_PORT",
-    "REVIEW_RESULT_MYSQL_USER",
-    "REVIEW_RESULT_MYSQL_PASSWORD",
-    "REVIEW_RESULT_MYSQL_DATABASE",
-    "WEB_CONSOLE_AUTH_USERNAME",
-    "WEB_CONSOLE_AUTH_PASSWORD",
-    "WEB_CONSOLE_AUTH_SECRET",
-    "WEB_CONSOLE_AUTH_TOKEN_TTL_SECONDS",
-    "WECOM_CORP_ID",
-    "WECOM_AGENT_ID",
-    "WECOM_SECRET",
-    "WECOM_REDIRECT_URI",
-    "WECOM_UNMATCHED_USER_POLICY",
-    "WECOM_REVIEWER_USER_IDS",
-    "WECOM_ADMIN_USER_IDS",
-    "WECOM_WORKER_TOKEN",
-    "WECOM_NOTIFICATION_BASE_URL",
-    "WEB_CONSOLE_BASE_URL",
+CONFIG_KEY_PATHS = {
+    "DOCUMENT_AI_REVIEW_DEBUG": ("runtime", "debug"),
+    "WEB_CONSOLE_BASE_URL": ("runtime", "web_console_base_url"),
+    "OPENAI_BASE_URL": ("openai", "base_url"),
+    "OPENAI_API_BASE": ("openai", "api_base"),
+    "OPENAI_MAX_ATTEMPTS": ("openai", "max_attempts"),
+    "BUSINESS_LICENSE_VISION_PROVIDER": ("business_license", "vision", "provider"),
+    "BUSINESS_LICENSE_QWEN_OCR_MODEL": ("business_license", "qwen_ocr", "model"),
+    "BUSINESS_LICENSE_QWEN_OCR_TIMEOUT_SECONDS": (
+        "business_license",
+        "qwen_ocr",
+        "timeout_seconds",
+    ),
+    "BUSINESS_LICENSE_QWEN_OCR_MAX_ATTEMPTS": (
+        "business_license",
+        "qwen_ocr",
+        "max_attempts",
+    ),
+    "BUSINESS_LICENSE_QWEN_OCR_MAX_PAGES": (
+        "business_license",
+        "qwen_ocr",
+        "max_pages",
+    ),
+    "BUSINESS_LICENSE_QWEN_OCR_STOP_AFTER_FIRST_LICENSE": (
+        "business_license",
+        "qwen_ocr",
+        "stop_after_first_license",
+    ),
+    "BUSINESS_LICENSE_SKILL_REVIEW_MODEL": (
+        "business_license",
+        "skill_review_model",
+    ),
+    "BUSINESS_LICENSE_MAX_FILE_BYTES": (
+        "business_license",
+        "guardrails",
+        "max_file_bytes",
+    ),
+    "BUSINESS_LICENSE_MAX_PDF_PAGES": (
+        "business_license",
+        "guardrails",
+        "max_pdf_pages",
+    ),
+    "BUSINESS_LICENSE_MAX_IMAGE_PIXELS": (
+        "business_license",
+        "guardrails",
+        "max_image_pixels",
+    ),
+    "FOOD_LICENSE_FILE_RECOGNITION_PROVIDER": (
+        "food_license",
+        "file_recognition",
+        "provider",
+    ),
+    "FOOD_LICENSE_FILE_RECOGNITION_MODEL": (
+        "food_license",
+        "file_recognition",
+        "model",
+    ),
+    "FOOD_LICENSE_QWEN_OCR_MODEL": ("food_license", "qwen_ocr", "model"),
+    "FOOD_LICENSE_QWEN_OCR_TIMEOUT_SECONDS": (
+        "food_license",
+        "qwen_ocr",
+        "timeout_seconds",
+    ),
+    "FOOD_LICENSE_QWEN_OCR_MAX_ATTEMPTS": (
+        "food_license",
+        "qwen_ocr",
+        "max_attempts",
+    ),
+    "FOOD_LICENSE_QWEN_OCR_MAX_PAGES": (
+        "food_license",
+        "qwen_ocr",
+        "max_pages",
+    ),
+    "FOOD_LICENSE_TEXT_PARSE_MODEL": ("food_license", "text_parse", "model"),
+    "FOOD_LICENSE_TEXT_PARSE_TIMEOUT_SECONDS": (
+        "food_license",
+        "text_parse",
+        "timeout_seconds",
+    ),
+    "FOOD_LICENSE_TEXT_PARSE_MAX_ATTEMPTS": (
+        "food_license",
+        "text_parse",
+        "max_attempts",
+    ),
+    "FOOD_LICENSE_SKILL_REVIEW_MODEL": ("food_license", "skill_review_model"),
+    "FOOD_PRODUCTION_LICENSE_FILE_RECOGNITION_PROVIDER": (
+        "food_production_license",
+        "file_recognition",
+        "provider",
+    ),
+    "FOOD_PRODUCTION_LICENSE_FILE_RECOGNITION_MODEL": (
+        "food_production_license",
+        "file_recognition",
+        "model",
+    ),
+    "FOOD_PRODUCTION_LICENSE_QWEN_OCR_MODEL": (
+        "food_production_license",
+        "qwen_ocr",
+        "model",
+    ),
+    "FOOD_PRODUCTION_LICENSE_QWEN_OCR_TIMEOUT_SECONDS": (
+        "food_production_license",
+        "qwen_ocr",
+        "timeout_seconds",
+    ),
+    "FOOD_PRODUCTION_LICENSE_QWEN_OCR_MAX_ATTEMPTS": (
+        "food_production_license",
+        "qwen_ocr",
+        "max_attempts",
+    ),
+    "FOOD_PRODUCTION_LICENSE_QWEN_OCR_MAX_PAGES": (
+        "food_production_license",
+        "qwen_ocr",
+        "max_pages",
+    ),
+    "FOOD_PRODUCTION_LICENSE_TEXT_PARSE_MODEL": (
+        "food_production_license",
+        "text_parse",
+        "model",
+    ),
+    "FOOD_PRODUCTION_LICENSE_TEXT_PARSE_TIMEOUT_SECONDS": (
+        "food_production_license",
+        "text_parse",
+        "timeout_seconds",
+    ),
+    "FOOD_PRODUCTION_LICENSE_TEXT_PARSE_MAX_ATTEMPTS": (
+        "food_production_license",
+        "text_parse",
+        "max_attempts",
+    ),
+    "FOOD_PRODUCTION_LICENSE_SKILL_REVIEW_MODEL": (
+        "food_production_license",
+        "skill_review_model",
+    ),
+    "QC_DOCUMENT_SKILL_REVIEW_MODEL": ("qc_document", "skill_review_model"),
+    "ALIYUN_OCR_API_URL": ("aliyun_ocr", "api_url"),
+    "ALIYUN_OCR_IMAGE_FIELD": ("aliyun_ocr", "image_field"),
+    "ALIYUN_OCR_TIMEOUT_SECONDS": ("aliyun_ocr", "timeout_seconds"),
+    "ALIYUN_OCR_BODY_JSON": ("aliyun_ocr", "body_options"),
+    "ALIYUN_OCR_LLM_PARSE_MODEL": ("aliyun_ocr", "llm_parse_model"),
+    "ALIYUN_OCR_TRY_ROTATIONS": ("aliyun_ocr", "try_rotations"),
+    "ALIYUN_OCR_STOP_AFTER_FIRST_LICENSE": (
+        "aliyun_ocr",
+        "stop_after_first_license",
+    ),
+    "ALIYUN_OCR_ROTATION_ORDER": ("aliyun_ocr", "rotation_order"),
+    "ALIYUN_OCR_LOCAL_PREFILTER_PROVIDER": (
+        "aliyun_ocr",
+        "local_prefilter_provider",
+    ),
+    "SRM_MYSQL_HOST": ("srm_mysql", "host"),
+    "SRM_MYSQL_PORT": ("srm_mysql", "port"),
+    "SRM_MYSQL_DATABASE": ("srm_mysql", "database"),
+    "REVIEW_RESULT_MYSQL_HOST": ("review_result_mysql", "host"),
+    "REVIEW_RESULT_MYSQL_PORT": ("review_result_mysql", "port"),
+    "REVIEW_RESULT_MYSQL_DATABASE": ("review_result_mysql", "database"),
+    "WEB_CONSOLE_AUTH_USERNAME": ("web_console_auth", "username"),
+    "WEB_CONSOLE_AUTH_TOKEN_TTL_SECONDS": (
+        "web_console_auth",
+        "token_ttl_seconds",
+    ),
+    "WECOM_CORP_ID": ("wecom", "corp_id"),
+    "WECOM_AGENT_ID": ("wecom", "agent_id"),
+    "WECOM_REDIRECT_URI": ("wecom", "redirect_uri"),
+    "WECOM_UNMATCHED_USER_POLICY": ("wecom", "unmatched_user_policy"),
+    "WECOM_REVIEWER_USER_IDS": ("wecom", "reviewer_user_ids"),
+    "WECOM_ADMIN_USER_IDS": ("wecom", "admin_user_ids"),
+    "WECOM_NOTIFICATION_BASE_URL": ("wecom", "notification_base_url"),
+    "QWEN_OCR_LOCAL_FILE": ("manual_qwen_ocr", "local_file"),
+    "QWEN_OCR_EXPECTED_SUBJECT_NAME": (
+        "manual_qwen_ocr",
+        "expected_subject_name",
+    ),
+    "QWEN_OCR_EXPECTED_CREDIT_CODE": (
+        "manual_qwen_ocr",
+        "expected_credit_code",
+    ),
+    "QWEN_OCR_SOURCE_SQL": ("manual_qwen_ocr", "source_sql"),
+    "QWEN_OCR_VENDOR_NAME": ("manual_qwen_ocr", "vendor_name"),
+    "QWEN_OCR_VENDOR_NAME_LIKE": ("manual_qwen_ocr", "vendor_name_like"),
+    "QWEN_OCR_SOURCE_OFFSET": ("manual_qwen_ocr", "source_offset"),
 }
 
+SECRET_ENV_KEYS = {
+    "OPENAI_API_KEY",
+    "OPENAI_API_KEY1",
+    "ALIYUN_OCR_APPCODE",
+    "SRM_MYSQL_USER",
+    "SRM_MYSQL_PASSWORD",
+    "REVIEW_RESULT_MYSQL_USER",
+    "REVIEW_RESULT_MYSQL_PASSWORD",
+    "WEB_CONSOLE_AUTH_PASSWORD",
+    "WEB_CONSOLE_AUTH_SECRET",
+    "WECOM_SECRET",
+    "WECOM_WORKER_TOKEN",
+}
 
-def load_local_env() -> None:
-    project_root = Path(__file__).resolve().parents[3]
+PROJECT_ENV_KEYS = set(CONFIG_KEY_PATHS) | SECRET_ENV_KEYS
+CONFIG_FILE_ENV_KEY = "DOCUMENT_AI_REVIEW_CONFIG_FILE"
+
+
+def load_local_env(project_root: Path | None = None) -> None:
+    project_root = project_root or Path(__file__).resolve().parents[3]
     env_values = {
-        **dotenv_values(project_root / ".env"),
-        **dotenv_values(project_root / "ai-service" / ".env"),
+        **load_yaml_config_values(project_root / "app-config" / "app.yaml"),
+        **load_yaml_config_values(project_root / "app-config" / "app.local.yaml"),
+        **_load_config_file_from_env(),
+        **_load_secret_env_values(project_root / ".env"),
+        **_load_secret_env_values(project_root / "ai-service" / ".env"),
     }
     for key in PROJECT_ENV_KEYS:
         if key in os.environ:
@@ -85,6 +225,58 @@ def load_local_env() -> None:
             os.environ[key] = env_values[key] or ""
     if not os.environ.get("OPENAI_API_KEY") and os.environ.get("OPENAI_API_KEY1"):
         os.environ["OPENAI_API_KEY"] = os.environ["OPENAI_API_KEY1"]
+
+
+def _load_config_file_from_env() -> dict[str, str]:
+    config_file = os.environ.get(CONFIG_FILE_ENV_KEY, "").strip()
+    if not config_file:
+        return {}
+    return load_yaml_config_values(Path(config_file).expanduser())
+
+
+def _load_secret_env_values(path: Path) -> dict[str, str]:
+    return {
+        key: value or ""
+        for key, value in dotenv_values(path).items()
+        if key in SECRET_ENV_KEYS and value is not None
+    }
+
+
+def load_yaml_config_values(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"{path} must contain a YAML mapping")
+
+    values = {}
+    for env_key, key_path in CONFIG_KEY_PATHS.items():
+        value = _get_nested_value(payload, key_path)
+        if value is None:
+            continue
+        values[env_key] = _env_value(value)
+    return values
+
+
+def _get_nested_value(payload: dict[str, Any], key_path: tuple[str, ...]) -> Any:
+    value: Any = payload
+    for key in key_path:
+        if not isinstance(value, dict) or key not in value:
+            return None
+        value = value[key]
+    return value
+
+
+def _env_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, list):
+        return ",".join(str(item) for item in value)
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    return str(value)
 
 
 load_local_env()
