@@ -3,7 +3,7 @@ from pathlib import Path
 
 def test_langgraph_langchain_terminal_architecture_adr_documents_breaking_change():
     repo_root = Path(__file__).resolve().parents[2]
-    adr = repo_root / "docs/adr/0001-langgraph-langchain-terminal-architecture.md"
+    adr = repo_root / "docs/SPEC.md"
 
     content = adr.read_text(encoding="utf-8")
 
@@ -19,7 +19,7 @@ def test_langgraph_langchain_terminal_architecture_adr_documents_breaking_change
 
 def test_langgraph_langchain_terminal_architecture_adr_records_guardrails():
     repo_root = Path(__file__).resolve().parents[2]
-    adr = repo_root / "docs/adr/0001-langgraph-langchain-terminal-architecture.md"
+    adr = repo_root / "docs/SPEC.md"
 
     content = adr.read_text(encoding="utf-8")
 

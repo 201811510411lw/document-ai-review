@@ -287,11 +287,6 @@ document-ai-review/
 
 ## 10. 相关文档
 
-- [docs/skill-architecture.md](docs/skill-architecture.md)
-- [docs/v1-python-architecture.md](docs/v1-python-architecture.md)
-- [docs/product-requirements-ai-review.md](docs/product-requirements-ai-review.md)
-- [docs/prd-business-license-review-v1.md](docs/prd-business-license-review-v1.md)
-- [docs/prd-business-license-review-workbench-v1.md](docs/prd-business-license-review-workbench-v1.md)
-- [docs/business-license-e2e-acceptance.md](docs/business-license-e2e-acceptance.md)
-- [docs/prd-food-license-v1.md](docs/prd-food-license-v1.md)
-- [docs/api-food-license-v1.md](docs/api-food-license-v1.md)
+- [docs/PRD.md](docs/PRD.md)
+- [docs/SPEC.md](docs/SPEC.md)
+- [docs/API.md](docs/API.md)
