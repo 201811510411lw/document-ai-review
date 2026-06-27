@@ -1,6 +1,6 @@
 <template>
   <div class="review-page">
-    <van-nav-bar title="校验审核" left-arrow @click-left="router.push('/scene1')" />
+    <van-nav-bar title="营业执照校验审核" left-arrow @click-left="router.push('/scene1')" />
 
     <!-- 统计卡片 -->
     <div class="stats-row">
@@ -97,6 +97,7 @@ async function loadList() {
     const res = await reviewApi.list({
       review_status: filterStatus.value,
       keyword: keyword.value,
+      document_type: 'business_license',
       limit: 200,
     })
     records.value = res.records || []
