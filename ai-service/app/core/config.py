@@ -193,7 +193,6 @@ CONFIG_KEY_PATHS = {
 
 SECRET_ENV_KEYS = {
     "OPENAI_API_KEY",
-    "OPENAI_API_KEY1",
     "ALIYUN_OCR_APPCODE",
     "SRM_MYSQL_USER",
     "SRM_MYSQL_PASSWORD",
@@ -223,9 +222,6 @@ def load_local_env(project_root: Path | None = None) -> None:
             continue
         if key in env_values and env_values[key] is not None:
             os.environ[key] = env_values[key] or ""
-    if not os.environ.get("OPENAI_API_KEY") and os.environ.get("OPENAI_API_KEY1"):
-        os.environ["OPENAI_API_KEY"] = os.environ["OPENAI_API_KEY1"]
-
 
 def _load_config_file_from_env() -> dict[str, str]:
     config_file = os.environ.get(CONFIG_FILE_ENV_KEY, "").strip()

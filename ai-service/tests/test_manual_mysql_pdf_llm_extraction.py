@@ -21,7 +21,6 @@ pytestmark = pytest.mark.manual
 
 _ENV_KEYS = {
     "OPENAI_API_KEY",
-    "OPENAI_API_KEY1",
     "OPENAI_BASE_URL",
     "OPENAI_API_BASE",
     "BUSINESS_LICENSE_VISION_PROVIDER",
