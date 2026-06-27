@@ -184,6 +184,40 @@ def test_review_service_generates_unique_uuid_task_ids(monkeypatch):
     assert first.task_id != second.task_id
 
 
+def test_review_service_uses_source_record_id_as_stable_task_id(monkeypatch):
+    class StubRuntimeRegistry:
+        def get_entry(self, use_case_name: str):
+            def invoke(input_context: ReviewInputContext) -> ReviewResult:
+                return _stub_result(input_context)
+
+            return ReviewRuntimeEntry(
+                definition=ReviewGraphDefinition(
+                    name="business_license",
+                    version="v1",
+                    ruleset_version="business-license-rules-v1",
+                    supported_document_types=("business_license",),
+                    capability_names=("business_license",),
+                ),
+                invoke=invoke,
+            )
+
+    monkeypatch.setattr(
+        review_service_module,
+        "review_graph_registry",
+        StubRuntimeRegistry(),
+    )
+    review_input = ReviewInput(
+        supplier_name="成都示例商贸有限公司",
+        supplier_credit_code="91510100MA0000000X",
+        declared_document_type="business_license",
+        source={"record_id": "264d843e-c629-4c22-b3d7-9de224311f4b"},
+    )
+
+    result = ReviewService().review(review_input, use_case_name="business_license")
+
+    assert result.task_id == "review-task-264d843e-c629-4c22-b3d7-9de224311f4b"
+
+
 def _is_review_task_uuid(task_id: str) -> bool:
     prefix = "review-task-"
     if not task_id.startswith(prefix):

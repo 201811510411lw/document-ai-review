@@ -20,6 +20,9 @@ def business_license_fields(
         "legal_person": "张三",
         "valid_from": "2020-01-02",
         "valid_to": valid_to,
+        "subject_name_evidence": "名称：成都示例商贸有限公司",
+        "credit_code_evidence": "统一社会信用代码：91510100MA0000000X",
+        "valid_to_evidence": "营业期限：2020年01月02日至2030年01月01日",
     }
 
 

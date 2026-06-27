@@ -24,7 +24,7 @@ class ReviewService:
         review_input: ReviewInput,
         use_case_name: str | None = None,
     ) -> ReviewResult:
-        task_id = f"review-task-{uuid4()}"
+        task_id = _task_id_for_input(review_input)
         if use_case_name is None:
             provisional_context = ReviewInputContext(
                 task_id=task_id,
@@ -65,3 +65,10 @@ def _get_runtime_entry(use_case_name: str):
 
 def _select_runtime_entry(input_context: ReviewInputContext):
     return review_graph_registry.select_entry(input_context)
+
+
+def _task_id_for_input(review_input: ReviewInput) -> str:
+    source_record_id = str(review_input.source.get("record_id") or "").strip()
+    if source_record_id:
+        return f"review-task-{source_record_id}"
+    return f"review-task-{uuid4()}"

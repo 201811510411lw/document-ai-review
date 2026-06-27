@@ -27,7 +27,7 @@ def test_fetch_business_license_source_tasks_maps_sql_rows_to_review_inputs():
                 "number": "1092453497593159680",
                 "num": "91510100MA0000000X",
                 "url": "https://files.example.test/business-license.pdf",
-                "attachmentName": "business-license.pdf",
+                "attachmentName": "成都示例商贸有限公司-营业执照.pdf",
             }
         ]
     )
@@ -43,9 +43,58 @@ def test_fetch_business_license_source_tasks_maps_sql_rows_to_review_inputs():
     assert task.review_input.supplier_name == "成都示例商贸有限公司"
     assert task.review_input.supplier_credit_code == "91510100MA0000000X"
     assert task.review_input.file.file_uri == "https://files.example.test/business-license.pdf"
-    assert task.review_input.file.file_name == "business-license.pdf"
+    assert task.review_input.file.file_name == "成都示例商贸有限公司-营业执照.pdf"
     assert task.review_input.source["record_id"] == "cert-business-001"
     assert task.review_input.source["attachment_ref_id"] == "attach-business-001"
+
+
+def test_fetch_business_license_source_tasks_uses_remark_subject_for_multi_license_vendor():
+    client = StubSqlClient(
+        [
+            {
+                "uuid": "a069c5bb-97c0-4d1b-9cbe-591ee5a51002",
+                "attachmentRefId": "a069c5bb-97c0-4d1b-9cbe-591ee5a51002",
+                "typeName": "营业执照",
+                "vendorName": "湖南笑辣辣销售服务有限公司",
+                "num": "91410328MA467UBROH",
+                "remark": "生产商2 河南笑笑食品有限公司",
+                "url": "https://files.example.test/henan-xiaoxiao.jpg",
+                "attachmentName": "河南笑笑食品有限公司-营业执照.jpg",
+            }
+        ]
+    )
+
+    tasks = fetch_business_license_source_tasks(client, "select pasted rows")
+
+    assert len(tasks) == 1
+    task = tasks[0]
+    assert task.record.vendor_name == "湖南笑辣辣销售服务有限公司"
+    assert task.review_input.supplier_name == "河南笑笑食品有限公司"
+    assert task.review_input.supplier_credit_code == "91410328MA467UBROH"
+    assert task.review_input.file.file_uri == "https://files.example.test/henan-xiaoxiao.jpg"
+
+
+def test_fetch_business_license_source_tasks_falls_back_to_attachment_subject_name():
+    client = StubSqlClient(
+        [
+            {
+                "uuid": "cert-business-001",
+                "refId": "attach-business-001",
+                "typeName": "营业执照",
+                "vendorName": "湖南笑辣辣销售服务有限公司",
+                "num": "91430111MAEAG9F41T",
+                "remark": "经销商",
+                "url": "https://files.example.test/hunan-xiaolala.jpg",
+                "attachmentName": "湖南笑辣辣销售服务有限公司-营业执照.jpg",
+            }
+        ]
+    )
+
+    tasks = fetch_business_license_source_tasks(client, "select pasted rows")
+
+    assert len(tasks) == 1
+    task = tasks[0]
+    assert task.review_input.supplier_name == "湖南笑辣辣销售服务有限公司"
 
 
 def test_fetch_business_license_source_tasks_returns_empty_list_for_empty_sql_result():
@@ -112,9 +161,11 @@ def test_fetch_one_business_license_source_task_uses_default_srm_sql():
     normalized_sql = " ".join(DEFAULT_BUSINESS_LICENSE_SOURCE_SQL.split())
     assert "srm.certification t1" in DEFAULT_BUSINESS_LICENSE_SOURCE_SQL
     assert "srm.attachment t2" in DEFAULT_BUSINESS_LICENSE_SOURCE_SQL
+    assert "t2.refId as attachmentRefId" in DEFAULT_BUSINESS_LICENSE_SOURCE_SQL
     assert "typeName = '营业执照'" in normalized_sql
     assert "t2.url is not null" in DEFAULT_BUSINESS_LICENSE_SOURCE_SQL.lower()
     assert "t2.url <> ''" in DEFAULT_BUSINESS_LICENSE_SOURCE_SQL.lower()
+    assert "order by rand()" in DEFAULT_BUSINESS_LICENSE_SOURCE_SQL.lower()
     assert "limit 1" in DEFAULT_BUSINESS_LICENSE_SOURCE_SQL.lower()
 
 

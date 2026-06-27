@@ -88,6 +88,15 @@ def validate_business_license_ocr_result(
     elif expected_subject and actual_subject != expected_subject:
         failure_reasons.append("subject_name_mismatch")
 
+    if actual_subject and not _normalize_text(fields.get("subject_name_evidence")):
+        failure_reasons.append("subject_name_evidence_missing")
+
+    if actual_credit and not _normalize_text(fields.get("credit_code_evidence")):
+        failure_reasons.append("credit_code_evidence_missing")
+
+    if not _has_secondary_business_license_fields(fields):
+        failure_reasons.append("secondary_fields_missing")
+
     return {
         "passed": not failure_reasons,
         "failure_reasons": failure_reasons,
@@ -142,6 +151,18 @@ def _normalize_text(value: Any) -> str:
         return ""
     normalized = unicodedata.normalize("NFKC", str(value))
     return "".join(normalized.split()).strip()
+
+
+def _has_secondary_business_license_fields(fields: dict[str, Any]) -> bool:
+    return bool(
+        fields.get("legal_person")
+        or fields.get("business_address")
+        or fields.get("valid_to")
+        or fields.get("valid_from")
+        or fields.get("established_date")
+        or fields.get("issue_authority")
+        or fields.get("issue_date")
+    )
 
 
 def _get_value(source: Any, key: str) -> Any:

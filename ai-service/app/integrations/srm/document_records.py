@@ -22,6 +22,7 @@ class DocumentRecord(BaseModel):
     business_num: str | None = None
     vendor_id: str | None = None
     vendor_name: str | None = None
+    remark: str | None = None
     source_expired_begin: str | None = None
     source_expired_end: str | None = None
     file_name: str | None = None
@@ -49,7 +50,15 @@ def map_srm_certification_row(row: dict[str, Any]) -> DocumentRecord:
     return DocumentRecord(
         tenant=_first_present(row, "tenant", "t1.tenant", "t2.tenant"),
         record_id=_first_present(row, "uuid", "t1.uuid"),
-        attachment_ref_id=_first_present(row, "refId", "refid", "t2.refId", "t2.refid"),
+        attachment_ref_id=_first_present(
+            row,
+            "attachmentRefId",
+            "attachment_ref_id",
+            "refId",
+            "refid",
+            "t2.refId",
+            "t2.refid",
+        ),
         document_category=_first_present(row, "category", "t1.category"),
         declared_document_type=declared_document_type,
         document_type_code=_first_present(row, "typeCode", "t1.typeCode"),
@@ -57,6 +66,7 @@ def map_srm_certification_row(row: dict[str, Any]) -> DocumentRecord:
         business_num=_first_present(row, "num", "t1.num"),
         vendor_id=_first_present(row, "vendorId", "t1.vendorId"),
         vendor_name=_first_present(row, "vendorName", "t1.vendorName"),
+        remark=_first_present(row, "remark", "t1.remark"),
         source_expired_begin=_to_source_string(
             _first_present(row, "expiredBegin", "t1.expiredBegin")
         ),

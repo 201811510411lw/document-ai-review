@@ -71,6 +71,7 @@ def _review_business(skill_name, payload):
         _rule("BUSINESS_LICENSE_TYPE_MATCH", "营业执照类型匹配", payload.get("document_type") == "business_license", RiskLevel.HIGH, {"expected": "business_license", "actual": payload.get("document_type")}),
         _rule("BUSINESS_LICENSE_SUBJECT_NAME_MATCH", "营业执照主体名称匹配", _same(fields.get("subject_name"), source.get("supplier_name")), RiskLevel.MEDIUM, {"field": "subject_name", "expected": source.get("supplier_name"), "actual": fields.get("subject_name")}),
         _rule("BUSINESS_LICENSE_CREDIT_CODE_MATCH", "统一社会信用代码匹配", _same_code(fields.get("credit_code"), source.get("supplier_credit_code")) and len(_text(fields.get("credit_code"))) in {15, 18}, RiskLevel.HIGH, {"field": "credit_code", "expected": source.get("supplier_credit_code"), "actual": fields.get("credit_code")}),
+        _business_key_field_evidence(fields),
         _business_validity(fields.get("valid_to")),
     ]
     return _result(skill_name, rules, "营业执照规则校验通过", "营业执照存在需要人工复核的规则问题")
@@ -147,6 +148,27 @@ def _business_validity(valid_to):
     except ValueError:
         return _rule("BUSINESS_LICENSE_VALIDITY_PERIOD", "营业期限是否有效", False, RiskLevel.MEDIUM, {"field": "valid_to", "actual": valid_to})
     return _rule("BUSINESS_LICENSE_VALIDITY_PERIOD", "营业期限是否有效", days > 30, RiskLevel.HIGH if days < 0 else RiskLevel.MEDIUM, {"field": "valid_to", "actual": valid_to, "days_until_expiry": days})
+
+
+def _business_key_field_evidence(fields):
+    missing = []
+    if fields.get("subject_name") and not _text(fields.get("subject_name_evidence")):
+        missing.append("subject_name_evidence")
+    if fields.get("credit_code") and not _text(fields.get("credit_code_evidence")):
+        missing.append("credit_code_evidence")
+    return _rule(
+        "BUSINESS_LICENSE_KEY_FIELD_EVIDENCE_PRESENT",
+        "关键字段识别依据完整性",
+        not missing,
+        RiskLevel.MEDIUM,
+        {
+            "required_evidence_fields": [
+                "subject_name_evidence",
+                "credit_code_evidence",
+            ],
+            "missing_evidence_fields": missing,
+        },
+    )
 
 
 def _result(skill_name, rules, pass_summary, fail_summary):

@@ -22,6 +22,7 @@ def test_business_license_review_accepts_image_file_with_fake_vision_extractor(
     tmp_path,
     monkeypatch,
 ):
+    _enable_debug_response(monkeypatch)
     install_mysql_repository_stub(monkeypatch)
     image_path = tmp_path / "business-license.png"
     image_path.write_bytes(b"fake-image-bytes")
@@ -81,6 +82,211 @@ def test_business_license_review_accepts_structured_fields_from_vision_adapter(
     tmp_path,
     monkeypatch,
 ):
+    _enable_debug_response(monkeypatch)
+    install_mysql_repository_stub(monkeypatch)
+    image_path = tmp_path / "business-license.png"
+    image_path.write_bytes(b"fake-image-bytes")
+    monkeypatch.setenv(
+        "BUSINESS_LICENSE_FAKE_VISION_JSON",
+        """
+        {
+          "document_type": "business_license",
+          "subject_name": "成都示例商贸有限公司",
+          "credit_code": "91510100MA0000000X",
+          "business_address": "成都市高新区天府大道 1 号",
+          "legal_person": "张三",
+          "valid_from": "2020-01-02",
+          "valid_to": "2030-01-01",
+          "subject_name_evidence": "名称：成都示例商贸有限公司",
+          "credit_code_evidence": "统一社会信用代码：91510100MA0000000X",
+          "valid_to_evidence": "营业期限：2020年01月02日至2030年01月01日"
+        }
+        """,
+    )
+    monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/business-license/reviews",
+        json={
+            "file": {
+                "local_path": str(image_path),
+                "file_name": "business-license.png",
+                "mime_type": "image/png",
+                "document_format": "image",
+            },
+            "supplier_name": "成都示例商贸有限公司",
+            "supplier_credit_code": "91510100MA0000000X",
+            "declared_document_type": "business_license",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "REVIEWED"
+    assert payload["risk_level"] == "NONE"
+    assert payload["skill_result"]["document_classification"]["document_type"] == "business_license"
+    assert (
+        payload["skill_result"]["extracted_fields"]["subject_name"]
+        == "成都示例商贸有限公司"
+    )
+    assert payload["skill_result"]["extraction_metadata"]["structured_extraction"] == {
+        "source": "llm_file_extractor",
+        "schema": "BusinessLicenseExtractedFields",
+    }
+
+
+def test_business_license_review_omits_internal_trace_when_debug_false(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("DOCUMENT_AI_REVIEW_DEBUG", "false")
+    install_mysql_repository_stub(monkeypatch)
+    image_path = tmp_path / "business-license.png"
+    image_path.write_bytes(b"fake-image-bytes")
+    monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_JSON", _business_license_json())
+    monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/business-license/reviews",
+        json={
+            "file": {
+                "local_path": str(image_path),
+                "file_name": "business-license.png",
+                "mime_type": "image/png",
+                "document_format": "image",
+            },
+            "supplier_name": "成都示例商贸有限公司",
+            "supplier_credit_code": "91510100MA0000000X",
+            "declared_document_type": "business_license",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "REVIEWED"
+    assert "use_case_version" not in payload
+    assert "skill_name" not in payload
+    assert "audit_events" not in payload
+    assert "extraction_metadata" not in payload["skill_result"]
+    assert "normalized_fields" not in payload["skill_result"]
+    assert "document" not in payload["skill_result"]
+    assert "document_classification" not in payload["skill_result"]
+    assert "document_input" not in payload["skill_result"]
+    assert "source_evidence" not in payload["skill_result"]
+    assert "source_payload" not in str(payload)
+    assert payload["skill_result"]["extracted_fields"]["subject_name"] == "成都示例商贸有限公司"
+    assert "subject_name_evidence" not in payload["skill_result"]["extracted_fields"]
+    assert "credit_code_evidence" not in payload["skill_result"]["extracted_fields"]
+    assert "valid_to_evidence" not in payload["skill_result"]["extracted_fields"]
+
+
+def test_business_license_subject_name_punctuation_difference_passes_by_normalized_match(
+    tmp_path,
+    monkeypatch,
+):
+    _enable_debug_response(monkeypatch)
+    install_mysql_repository_stub(monkeypatch)
+    image_path = tmp_path / "business-license.png"
+    image_path.write_bytes(b"fake-image-bytes")
+    monkeypatch.setenv(
+        "BUSINESS_LICENSE_FAKE_VISION_JSON",
+        """
+        {
+          "document_type": "business_license",
+          "subject_name": "欧扎克(滁州)食品有限公司",
+          "credit_code": "91341171MA2WNB2240",
+          "business_address": "安徽省滁州市中新苏滁高新技术产业开发区",
+          "legal_person": "李国栋",
+          "valid_to": "长期",
+          "subject_name_evidence": "名称欧扎克(滁州)食品有限公司",
+          "credit_code_evidence": "统一社会信用代码91341171MA2WNB2240"
+        }
+        """,
+    )
+    monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
+
+    class ContradictorySubjectNameReviewAdapter:
+        def review(self, *, skill_name, skill_text, review_payload):
+            return {
+                "status": "PENDING_MANUAL_REVIEW",
+                "status_label": "待人工复核",
+                "risk_level": "MEDIUM",
+                "risk_level_label": "中风险",
+                "needs_manual_review": True,
+                "summary": "营业执照存在需要人工复核的规则问题",
+                "manual_review_reasons": ["主体名称与来源信息不一致"],
+                "rule_results": [
+                    RuleResult(
+                        rule_code="BUSINESS_LICENSE_SUBJECT_NAME_MATCH",
+                        rule_name="营业执照主体名称匹配",
+                        passed=False,
+                        risk_level_on_failure=RiskLevel.MEDIUM,
+                        message="主体名称存在全角/半角括号差异，但核心字号和组织形式一致，可视为一致",
+                        details={
+                            "field": "subject_name",
+                            "expected": review_payload["source_fields"]["supplier_name"],
+                            "actual": review_payload["extracted_fields"]["subject_name"],
+                        },
+                    ),
+                    RuleResult(
+                        rule_code="BUSINESS_LICENSE_CREDIT_CODE_MATCH",
+                        rule_name="统一社会信用代码匹配",
+                        passed=True,
+                        risk_level_on_failure=RiskLevel.HIGH,
+                        message="统一社会信用代码一致",
+                        details={
+                            "field": "credit_code",
+                            "expected": review_payload["source_fields"]["supplier_credit_code"],
+                            "actual": review_payload["extracted_fields"]["credit_code"],
+                        },
+                    ),
+                ],
+                "metadata": {"implementation_status": "stub", "skill_name": skill_name},
+            }
+
+    monkeypatch.setattr(
+        business_license_nodes,
+        "business_license_skill_rule_review_adapter",
+        ContradictorySubjectNameReviewAdapter(),
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/business-license/reviews",
+        json={
+            "file": {
+                "local_path": str(image_path),
+                "file_name": "business-license.png",
+                "mime_type": "image/png",
+                "document_format": "image",
+            },
+            "supplier_name": "欧扎克（滁州）食品有限公司",
+            "supplier_credit_code": "91341171MA2WNB2240",
+            "declared_document_type": "business_license",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "REVIEWED"
+    assert payload["risk_level"] == "NONE"
+    assert payload["needs_manual_review"] is False
+    subject_rule = next(
+        item
+        for item in payload["rule_results"]
+        if item["rule_code"] == "BUSINESS_LICENSE_SUBJECT_NAME_MATCH"
+    )
+    assert subject_rule["passed"] is True
+    assert subject_rule["details"]["normalized_match"] is True
+
+
+def test_business_license_key_fields_without_evidence_route_manual_review(
+    tmp_path,
+    monkeypatch,
+):
+    _enable_debug_response(monkeypatch)
     install_mysql_repository_stub(monkeypatch)
     image_path = tmp_path / "business-license.png"
     image_path.write_bytes(b"fake-image-bytes")
@@ -118,23 +324,27 @@ def test_business_license_review_accepts_structured_fields_from_vision_adapter(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["status"] == "REVIEWED"
-    assert payload["risk_level"] == "NONE"
-    assert payload["skill_result"]["document_classification"]["document_type"] == "business_license"
-    assert (
-        payload["skill_result"]["extracted_fields"]["subject_name"]
-        == "成都示例商贸有限公司"
+    assert payload["status"] == "PENDING_MANUAL_REVIEW"
+    assert payload["risk_level"] == "MEDIUM"
+    assert payload["needs_manual_review"] is True
+    assert "关键字段缺少 OCR 原文证据" in payload["manual_review"]["reasons"]
+    evidence_rule = next(
+        item
+        for item in payload["rule_results"]
+        if item["rule_code"] == "BUSINESS_LICENSE_KEY_FIELD_EVIDENCE_PRESENT"
     )
-    assert payload["skill_result"]["extraction_metadata"]["structured_extraction"] == {
-        "source": "llm_file_extractor",
-        "schema": "BusinessLicenseExtractedFields",
-    }
+    assert evidence_rule["passed"] is False
+    assert evidence_rule["details"]["missing_evidence_fields"] == [
+        "subject_name_evidence",
+        "credit_code_evidence",
+    ]
 
 
 def test_business_license_normalized_fields_drive_rule_review_without_hiding_raw_values(
     tmp_path,
     monkeypatch,
 ):
+    _enable_debug_response(monkeypatch)
     install_mysql_repository_stub(monkeypatch)
     image_path = tmp_path / "business-license.png"
     image_path.write_bytes(b"fake-image-bytes")
@@ -147,7 +357,10 @@ def test_business_license_normalized_fields_drive_rule_review_without_hiding_raw
           "credit_code": " 91510100ma0000000x ",
           "business_address": "成都市高新区天府大道 1 号",
           "legal_person": "张三",
-          "valid_to": "长期有效"
+          "valid_to": "长期有效",
+          "subject_name_evidence": "名称：成都（示例）商贸有限公司",
+          "credit_code_evidence": "统一社会信用代码：91510100ma0000000x",
+          "valid_to_evidence": "营业期限：长期有效"
         }
         """,
     )
@@ -189,6 +402,7 @@ def test_business_license_non_business_document_is_rejected_before_rule_review(
     tmp_path,
     monkeypatch,
 ):
+    _enable_debug_response(monkeypatch)
     install_mysql_repository_stub(monkeypatch)
     image_path = tmp_path / "wrong-license.png"
     image_path.write_bytes(b"fake-image-bytes")
@@ -345,6 +559,7 @@ def test_business_license_review_rejects_text_only_input():
 
 
 def test_business_license_review_uses_llm_file_extractor_for_text_pdf(tmp_path, monkeypatch):
+    _enable_debug_response(monkeypatch)
     install_mysql_repository_stub(monkeypatch)
     pdf_path = tmp_path / "business-license.pdf"
     write_minimal_pdf(pdf_path, _business_license_text())
@@ -392,6 +607,7 @@ def test_business_license_text_only_model_output_does_not_bypass_structured_fiel
     tmp_path,
     monkeypatch,
 ):
+    _enable_debug_response(monkeypatch)
     install_mysql_repository_stub(monkeypatch)
     pdf_path = tmp_path / "business-license.pdf"
     write_minimal_pdf(pdf_path, _business_license_text())
@@ -441,6 +657,7 @@ def test_business_license_hallucinated_fields_route_high_risk_manual_review(
     tmp_path,
     monkeypatch,
 ):
+    _enable_debug_response(monkeypatch)
     install_mysql_repository_stub(monkeypatch)
     pdf_path = tmp_path / "liaoji-business-license.pdf"
     write_minimal_pdf(pdf_path, _business_license_text())
@@ -507,6 +724,7 @@ def test_business_license_image_without_vision_configuration_routes_manual_revie
     tmp_path,
     monkeypatch,
 ):
+    _enable_debug_response(monkeypatch)
     install_mysql_repository_stub(monkeypatch)
     image_path = tmp_path / "business-license.png"
     image_path.write_bytes(b"fake-image-bytes")
@@ -662,6 +880,7 @@ def test_business_license_rejects_image_over_pixel_limit(tmp_path, monkeypatch):
 def test_business_license_review_accepts_remote_image_file(
     monkeypatch,
 ):
+    _enable_debug_response(monkeypatch)
     install_mysql_repository_stub(monkeypatch)
     monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_JSON", _business_license_json())
     monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
@@ -719,6 +938,7 @@ def test_business_license_review_accepts_remote_image_file(
 def test_business_license_review_from_srm_creates_task_and_persists_trace_snapshot(
     monkeypatch,
 ):
+    _enable_debug_response(monkeypatch)
     storage = install_mysql_repository_stub(monkeypatch)
     monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_JSON", _business_license_json())
     monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
@@ -787,6 +1007,7 @@ def test_business_license_review_from_srm_creates_task_and_persists_trace_snapsh
 
 
 def test_business_license_review_accepts_remote_jpeg_file(monkeypatch):
+    _enable_debug_response(monkeypatch)
     install_mysql_repository_stub(monkeypatch)
     monkeypatch.setenv("BUSINESS_LICENSE_FAKE_VISION_JSON", _business_license_json())
     monkeypatch.delenv("BUSINESS_LICENSE_FAKE_VISION_TEXT", raising=False)
@@ -830,6 +1051,7 @@ def test_business_license_review_accepts_remote_jpeg_file(monkeypatch):
 
 
 def test_business_license_review_uses_llm_file_extractor_for_remote_pdf(tmp_path, monkeypatch):
+    _enable_debug_response(monkeypatch)
     install_mysql_repository_stub(monkeypatch)
     pdf_path = tmp_path / "business-license.pdf"
     write_minimal_pdf(pdf_path, _business_license_text())
@@ -897,6 +1119,7 @@ def test_business_license_scanned_local_pdf_uses_vision_extractor(
     tmp_path,
     monkeypatch,
 ):
+    _enable_debug_response(monkeypatch)
     install_mysql_repository_stub(monkeypatch)
     pdf_path = tmp_path / "business-license-scan.pdf"
     write_blank_pdf(pdf_path)
@@ -983,6 +1206,7 @@ def test_business_license_passed_rules_normalize_low_risk_to_none(
     tmp_path,
     monkeypatch,
 ):
+    _enable_debug_response(monkeypatch)
     install_mysql_repository_stub(monkeypatch)
     image_path = tmp_path / "business-license.png"
     image_path.write_bytes(b"fake-image-bytes")
@@ -1065,3 +1289,7 @@ def _business_license_fields() -> dict:
 
 def _auth_headers(client: TestClient, monkeypatch) -> dict[str, str]:
     return business_license_auth_headers(client, monkeypatch)
+
+
+def _enable_debug_response(monkeypatch) -> None:
+    monkeypatch.setenv("DOCUMENT_AI_REVIEW_DEBUG", "true")

@@ -132,6 +132,12 @@ def run_rules(state: BusinessLicenseWorkflowState) -> BusinessLicenseWorkflowSta
         skill_text=load_skill_text(skill_name),
         review_payload=review_payload,
     )
+    rules_result = _enforce_subject_name_normalized_match_rules(
+        rules_result,
+        normalized_payload,
+        review_payload["source_fields"],
+    )
+    rules_result = _enforce_key_field_evidence_rules(rules_result, normalized_payload)
     rule_results = rules_result.get("rule_results", [])
     needs_manual_review = rules_result.get("needs_manual_review", True)
     return {
@@ -273,3 +279,110 @@ def _manual_review_reasons(
     if vision_metadata.get("error_code") == "VISION_EXTRACTOR_MODEL_CALL_FAILED":
         return ["视觉模型调用失败", *reasons]
     return reasons
+
+
+def _enforce_key_field_evidence_rules(
+    rules_result: dict,
+    fields: dict,
+) -> dict:
+    missing = []
+    if fields.get("subject_name") and not _present_text(fields.get("subject_name_evidence")):
+        missing.append("subject_name_evidence")
+    if fields.get("credit_code") and not _present_text(fields.get("credit_code_evidence")):
+        missing.append("credit_code_evidence")
+    if not missing:
+        return rules_result
+
+    rule = {
+        "rule_code": "BUSINESS_LICENSE_KEY_FIELD_EVIDENCE_PRESENT",
+        "rule_name": "关键字段识别依据完整性",
+        "passed": False,
+        "risk_level_on_failure": "MEDIUM",
+        "message": "主体名称或统一社会信用代码缺少 OCR 原文证据",
+        "details": {
+            "required_evidence_fields": [
+                "subject_name_evidence",
+                "credit_code_evidence",
+            ],
+            "missing_evidence_fields": missing,
+            "subject_name_evidence": fields.get("subject_name_evidence"),
+            "credit_code_evidence": fields.get("credit_code_evidence"),
+        },
+    }
+    reasons = list(rules_result.get("manual_review_reasons") or [])
+    reason = "关键字段缺少 OCR 原文证据"
+    if reason not in reasons:
+        reasons.append(reason)
+    return {
+        **rules_result,
+        "status": "PENDING_MANUAL_REVIEW",
+        "status_label": "待人工复核",
+        "risk_level": "MEDIUM"
+        if _risk_level_is_none(rules_result.get("risk_level"))
+        else rules_result.get("risk_level"),
+        "risk_level_label": "中风险"
+        if _risk_level_is_none(rules_result.get("risk_level"))
+        else rules_result.get("risk_level_label"),
+        "needs_manual_review": True,
+        "summary": "营业执照存在需要人工复核的规则问题",
+        "manual_review_reasons": reasons,
+        "rule_results": [*list(rules_result.get("rule_results") or []), rule],
+    }
+
+
+def _enforce_subject_name_normalized_match_rules(
+    rules_result: dict,
+    fields: dict,
+    source_fields: dict,
+) -> dict:
+    actual = fields.get("subject_name")
+    expected = source_fields.get("supplier_name")
+    if not actual or not expected or actual != expected:
+        return rules_result
+
+    changed = False
+    rule_results = []
+    for rule in list(rules_result.get("rule_results") or []):
+        if not _is_subject_name_match_rule(rule) or _rule_passed(rule):
+            rule_results.append(rule)
+            continue
+        changed = True
+        payload = dict(rule) if isinstance(rule, dict) else rule.model_dump(mode="json")
+        payload["passed"] = True
+        payload["message"] = "主体名称归一化后一致"
+        details = dict(payload.get("details") or {})
+        details["normalized_match"] = True
+        payload["details"] = details
+        rule_results.append(payload)
+    if not changed:
+        return rules_result
+
+    manual_review_reasons = [
+        reason
+        for reason in list(rules_result.get("manual_review_reasons") or [])
+        if "主体名称" not in str(reason)
+    ]
+    return {
+        **rules_result,
+        "rule_results": rule_results,
+        "manual_review_reasons": manual_review_reasons,
+        "needs_manual_review": any(not _rule_passed(rule) for rule in rule_results),
+    }
+
+
+def _is_subject_name_match_rule(rule) -> bool:
+    code = rule.get("rule_code") if isinstance(rule, dict) else getattr(rule, "rule_code", "")
+    details = rule.get("details", {}) if isinstance(rule, dict) else getattr(rule, "details", {})
+    return "SUBJECT_NAME" in str(code) or details.get("field") == "subject_name"
+
+
+def _present_text(value) -> bool:
+    return bool(str(value or "").strip())
+
+
+def _risk_level_is_none(value) -> bool:
+    if value is None:
+        return True
+    if value == RiskLevel.NONE:
+        return True
+    return str(value).upper() == "NONE"

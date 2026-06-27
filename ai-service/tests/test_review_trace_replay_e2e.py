@@ -12,6 +12,9 @@ BUSINESS_FIELDS = {
     "business_address": "成都市高新区天府大道 1 号",
     "legal_person": "张三",
     "valid_to": "长期有效",
+    "subject_name_evidence": "名称：成都示例商贸有限公司",
+    "credit_code_evidence": "统一社会信用代码：91510100MA0000000X",
+    "valid_to_evidence": "营业期限：长期有效",
 }
 
 TOBACCO_FIELDS = {

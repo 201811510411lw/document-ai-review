@@ -169,13 +169,15 @@ def dashboard_history(
 def review_list(
     review_status: str = Query(default=""),
     keyword: str = Query(default=""),
+    document_type: str = Query(default=""),
     limit: int = Query(default=100, ge=1, le=1000),
     _current_user: dict[str, Any] = Depends(get_wecom_frontend_user),
     repository: FrontendRepository = Depends(get_review_read_repository),
 ) -> dict[str, Any]:
     review_filter = _frontend_review_filter(review_status)
+    records_scope = _all_qc_records(repository, document_type=_blank_to_none(document_type))
     records = _filter_frontend_records(
-        _all_qc_records(repository),
+        records_scope,
         [keyword.strip()] if keyword.strip() else [],
     )
     records = [
@@ -183,7 +185,7 @@ def review_list(
         for record in records
         if _frontend_record_matches_review_filter(record, review_filter)
     ]
-    stats = _frontend_workbench_stats(_all_qc_records(repository))
+    stats = _frontend_workbench_stats(records_scope)
     return {"records": records[:limit], "stats": stats}
 
 
@@ -548,7 +550,7 @@ def _frontend_qc_record(
         "expire_days_remaining": _days_remaining(valid_to),
         "risk_level": row.get("risk_level") or "",
         "risk_level_label": row.get("risk_level_label") or "",
-        "match_ratio": _match_ratio(row),
+        "match_ratio": _match_ratio(row, validation_fields=_validation_fields(row)),
         "review_status": force_status or _current_review_status_to_frontend(row),
         "created_at": row.get("created_at") or row.get("updated_at") or "",
         "source_file_url": row.get("source_url") or "",
@@ -560,10 +562,12 @@ def _frontend_qc_record(
 
 def _frontend_qc_detail(detail: dict[str, Any], payload: dict[str, Any] | None) -> dict[str, Any]:
     record = _frontend_qc_record(detail)
+    validation_fields = _validation_fields(detail)
     record.update(
         {
             "review_comment": (detail.get("manual_review") or {}).get("comment") or "",
-            "validation_fields": _validation_fields(detail),
+            "match_ratio": _match_ratio(detail, validation_fields=validation_fields),
+            "validation_fields": validation_fields,
             "raw_payload": payload or {},
             "rule_results": detail.get("rule_results") or [],
             "extracted_fields": detail.get("extracted_fields") or {},
@@ -573,11 +577,19 @@ def _frontend_qc_detail(detail: dict[str, Any], payload: dict[str, Any] | None) 
     return record
 
 
-def _all_qc_records(repository: FrontendRepository) -> list[dict[str, Any]]:
+def _all_qc_records(
+    repository: FrontendRepository,
+    *,
+    document_type: str | None = None,
+) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     page = 1
     while True:
-        payload = repository.list_qc_reviews(page=page, page_size=100)
+        payload = repository.list_qc_reviews(
+            document_type=document_type,
+            page=page,
+            page_size=100,
+        )
         records.extend(_frontend_qc_record(row) for row in payload.get("items", []))
         if page >= int(payload.get("total_pages") or 1):
             break
@@ -680,23 +692,113 @@ def _frontend_review_detail(snapshot: dict[str, Any], payload: dict[str, Any] | 
 def _validation_fields(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     extracted = dict(snapshot.get("extracted_fields") or {})
     normalized = dict(snapshot.get("normalized_fields") or {})
-    fields = [
-        ("主体名称", "subject_name"),
-        ("统一社会信用代码", "credit_code"),
-        ("法定代表人", "legal_person"),
-        ("有效期开始", "valid_from"),
-        ("有效期结束", "valid_to"),
-        ("住所", "business_address"),
-    ]
-    return [
-        {
+    source_fields = _source_validation_fields(snapshot)
+    document_type = snapshot.get("document_type")
+    fields = _validation_field_specs(document_type)
+    validation_fields = []
+    for label, keys in fields:
+        recognized = _first_field_value(extracted, keys)
+        expected = _first_field_value(source_fields, keys)
+        if expected is None:
+            expected = _first_field_value(normalized, keys)
+        validation_fields.append(
+            {
             "field": label,
-            "recognized": extracted.get(key) or "",
-            "expected": normalized.get(key) or "",
-            "match": (extracted.get(key) or "") == (normalized.get(key) or ""),
+            "recognized": _display_field_value(recognized),
+            "expected": _display_field_value(expected),
+            "match": _field_values_match(
+                document_type,
+                keys,
+                recognized,
+                expected,
+            ),
         }
-        for label, key in fields
+        )
+    return validation_fields
+
+
+def _source_validation_fields(snapshot: dict[str, Any]) -> dict[str, Any]:
+    source_evidence = dict(snapshot.get("source_evidence") or {})
+    return {
+        "subject_name": source_evidence.get("supplier_name"),
+        "credit_code": source_evidence.get("supplier_credit_code"),
+    }
+
+
+def _validation_field_specs(document_type: str | None) -> list[tuple[str, tuple[str, ...]]]:
+    if document_type == "food_license":
+        return [
+            ("经营者名称", ("subject_name",)),
+            ("统一社会信用代码", ("credit_code",)),
+            ("许可证编号", ("license_no",)),
+            ("经营场所", ("business_address",)),
+            ("法定代表人/负责人", ("legal_person",)),
+            ("经营项目", ("business_items",)),
+            ("有效期开始", ("valid_from",)),
+            ("有效期结束", ("valid_to",)),
+            ("发证机关", ("issue_authority",)),
+            ("签发日期", ("issue_date",)),
+        ]
+    if document_type == "food_production_license":
+        return [
+            ("生产者名称", ("producer_name",)),
+            ("统一社会信用代码", ("credit_code",)),
+            ("许可证编号", ("license_no",)),
+            ("生产地址", ("production_address",)),
+            ("法定代表人/负责人", ("legal_person",)),
+            ("食品类别", ("food_categories",)),
+            ("有效期开始", ("valid_from",)),
+            ("有效期结束", ("valid_to",)),
+            ("发证机关", ("issue_authority",)),
+            ("签发日期", ("issue_date",)),
+        ]
+    return [
+        ("主体名称", ("subject_name",)),
+        ("统一社会信用代码", ("credit_code",)),
+        ("法定代表人", ("legal_person",)),
+        ("有效期开始", ("valid_from", "established_date", "issue_date")),
+        ("有效期结束", ("valid_to",)),
+        ("住所", ("business_address",)),
     ]
+
+
+def _first_field_value(fields: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        value = fields.get(key)
+        if _display_field_value(value):
+            return value
+    return None
+
+
+def _display_field_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return "、".join(_display_field_value(item) for item in value if _display_field_value(item))
+    if isinstance(value, dict):
+        return "、".join(
+            _display_field_value(item)
+            for item in value.values()
+            if _display_field_value(item)
+        )
+    return str(value).strip()
+
+
+def _field_values_match(
+    document_type: str | None,
+    keys: tuple[str, ...],
+    recognized: Any,
+    expected: Any,
+) -> bool:
+    if document_type == "business_license" and "subject_name" in keys:
+        return _normalize_business_subject_name(recognized) == _normalize_business_subject_name(expected)
+    return _display_field_value(recognized) == _display_field_value(expected)
+
+
+def _normalize_business_subject_name(value: Any) -> str:
+    text = _display_field_value(value)
+    punctuation = set("()（）[]【】,，.。;；:：-—_·'\"“”‘’")
+    return "".join(character for character in text if character not in punctuation)
 
 
 def _frontend_review_stats(payload: dict[str, Any]) -> dict[str, int]:
@@ -727,6 +829,13 @@ def _frontend_review_filter(status: str) -> dict[str, str]:
     }.get(status or "", {})
 
 
+def _blank_to_none(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
 def _current_review_status_to_frontend(row: dict[str, Any]) -> str | None:
     status = row.get("review_status")
     if status == "MANUAL_REVIEWED":
@@ -751,12 +860,23 @@ def _risk_to_expire_status(risk_level: str | None) -> str:
     return "valid"
 
 
-def _match_ratio(row: dict[str, Any]) -> int:
-    if row.get("risk_level") == "HIGH":
-        return 45
-    if row.get("risk_level") == "MEDIUM":
-        return 72
-    return 96
+def _match_ratio(
+    row: dict[str, Any],
+    *,
+    validation_fields: list[dict[str, Any]] | None = None,
+) -> int:
+    fields = validation_fields or _validation_fields(row)
+    if not fields:
+        return 0
+    has_any_value = any(
+        field.get("recognized") not in (None, "")
+        or field.get("expected") not in (None, "")
+        for field in fields
+    )
+    if not has_any_value:
+        return 0
+    matched = sum(1 for field in fields if field.get("match") is True)
+    return round((matched / len(fields)) * 100)
 
 
 def _document_type_label(document_type: str | None) -> str:
