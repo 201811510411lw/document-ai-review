@@ -341,6 +341,16 @@ class StubMySQLCursor:
                 }
             )
             return
+        if compact.startswith("insert into frontend_settings"):
+            self.storage["frontend_settings"][params[0]] = {
+                "setting_key": params[0],
+                "value_json": params[1],
+                "updated_at": params[2],
+            }
+            return
+        if compact.startswith("select value_json from frontend_settings"):
+            self.result = self.storage["frontend_settings"].get(params[0])
+            return
         if compact.startswith("select event_type, message, occurred_at"):
             rows = [
                 row
@@ -528,6 +538,7 @@ def install_mysql_repository_stub(monkeypatch):
         "business_license_reviews": {},
         "business_license_review_audit_events": [],
         "wecom_notification_queue": [],
+        "frontend_settings": {},
         "food_license_reviews": {},
         "food_production_license_reviews": {},
         "tobacco_license_reviews": {},

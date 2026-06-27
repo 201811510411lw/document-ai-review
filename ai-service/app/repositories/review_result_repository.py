@@ -450,6 +450,40 @@ class MySQLReviewResultRepository:
             updated_at=updated_at,
         )
 
+    def get_frontend_setting(self, key: str, default: Any = None) -> Any:
+        self._ensure_schema_once()
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT value_json
+                    FROM frontend_settings
+                    WHERE setting_key = %s
+                    """,
+                    (key,),
+                )
+                row = cursor.fetchone()
+        if row is None:
+            return default
+        return loads(row["value_json"])
+
+    def set_frontend_setting(self, key: str, value: Any) -> None:
+        self._ensure_schema_once()
+        updated_at = datetime.now().astimezone().isoformat()
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO frontend_settings (setting_key, value_json, updated_at)
+                    VALUES (%s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        value_json = VALUES(value_json),
+                        updated_at = VALUES(updated_at)
+                    """,
+                    (key, dumps(value, ensure_ascii=False), updated_at),
+                )
+            connection.commit()
+
     def _update_wecom_notification_status(
         self,
         *,
@@ -1076,6 +1110,15 @@ class MySQLReviewResultRepository:
                         updated_at VARCHAR(64) NOT NULL,
                         INDEX idx_wecom_notification_status (channel, status, next_retry_at),
                         INDEX idx_wecom_notification_task_id (task_id)
+                    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS frontend_settings (
+                        setting_key VARCHAR(128) PRIMARY KEY,
+                        value_json JSON NOT NULL,
+                        updated_at VARCHAR(64) NOT NULL
                     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
                     """
                 )
