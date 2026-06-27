@@ -54,11 +54,29 @@ export const adminApi = {
   setNotifyUsers(userIds) {
     return http.put('/api/admin/notify-users', { userIds })
   },
+  getLicenseTypes() {
+    return http.get('/api/admin/license-types')
+  },
+  importPreview(file) {
+    const form = new FormData()
+    form.append('file', file)
+    return http.post('/api/admin/import/preview', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+    })
+  },
   checkExpiry() {
     return http.post('/api/admin/check-expiry')
   },
   getRecords(params) {
     return http.get('/api/records', { params })
+  },
+  exportRecords(params) {
+    return http.get('/api/records/export', {
+      params,
+      responseType: 'blob',
+      timeout: 120000,
+    })
   },
   deleteRecord(id) {
     return http.delete(`/api/records/${id}`)

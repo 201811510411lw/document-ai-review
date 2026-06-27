@@ -19,13 +19,13 @@
 
     <!-- 功能菜单 -->
     <van-cell-group>
-      <van-cell title="我的查询历史" icon="search" is-link />
-      <van-cell title="我的下载记录" icon="down" is-link />
-      <van-cell title="常用证照收藏" icon="star-o" is-link />
+      <van-cell title="我的查询历史" icon="search" is-link @click="openHistory" />
+      <van-cell title="我的下载记录" icon="down" is-link @click="showDownloads = true" />
+      <van-cell title="常用证照收藏" icon="star-o" is-link @click="showFavorites = true" />
     </van-cell-group>
 
     <van-cell-group style="margin-top: 12px;">
-      <van-cell title="使用帮助" icon="info-o" is-link />
+      <van-cell title="使用帮助" icon="info-o" is-link @click="showHelp = true" />
       <van-cell title="意见反馈" icon="chat-o" is-link @click="showFeedback = true" />
       <van-cell title="关于" icon="info-o" is-link @click="showAbout = true" />
     </van-cell-group>
@@ -61,6 +61,33 @@
         <p>基于企业微信工作台</p>
       </div>
     </van-dialog>
+
+    <van-action-sheet v-model:show="showHistory" title="我的查询历史" close-on-popup-action>
+      <van-cell
+        v-for="item in searchHistory"
+        :key="item"
+        :title="item"
+        is-link
+        @click="goQuery(item)"
+      />
+      <van-empty v-if="!searchHistory.length" description="暂无查询历史" />
+    </van-action-sheet>
+
+    <van-dialog v-model:show="showDownloads" title="我的下载记录" :confirm-button-text="'关闭'">
+      <van-empty description="下载记录暂未接入后端持久化" />
+    </van-dialog>
+
+    <van-dialog v-model:show="showFavorites" title="常用证照收藏" :confirm-button-text="'关闭'">
+      <van-empty description="收藏功能暂未上线" />
+    </van-dialog>
+
+    <van-dialog v-model:show="showHelp" title="使用帮助" :confirm-button-text="'关闭'">
+      <div class="help-content">
+        <p>证照查询支持按公司名称、统一社会信用代码和来源记录搜索。</p>
+        <p>效期看板基于当前审核结果统计正常、临期和异常记录。</p>
+        <p>系统管理中的批量导入当前仅解析预览，不会自动入库。</p>
+      </div>
+    </van-dialog>
   </div>
 </template>
 
@@ -68,6 +95,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
+import { getSearchHistory } from '@/utils'
 import { showToast } from 'vant'
 
 const router = useRouter()
@@ -80,6 +108,21 @@ const avatarUrl = ref('')
 const showFeedback = ref(false)
 const feedbackText = ref('')
 const showAbout = ref(false)
+const showHistory = ref(false)
+const showDownloads = ref(false)
+const showFavorites = ref(false)
+const showHelp = ref(false)
+const searchHistory = ref([])
+
+function openHistory() {
+  searchHistory.value = getSearchHistory()
+  showHistory.value = true
+}
+
+function goQuery(keyword) {
+  showHistory.value = false
+  router.push({ path: '/query', query: { keyword } })
+}
 
 function handleLogout() {
   userStore.logout()
@@ -154,5 +197,14 @@ function submitFeedback() {
   color: #969799;
   font-size: 13px;
   margin: 2px 0;
+}
+.help-content {
+  padding: 16px 20px;
+}
+.help-content p {
+  margin: 8px 0;
+  color: #646566;
+  font-size: 14px;
+  line-height: 1.5;
 }
 </style>

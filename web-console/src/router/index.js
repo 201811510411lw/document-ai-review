@@ -5,6 +5,7 @@ import DashboardPage from '@/views/DashboardPage.vue'
 import ReviewPage from '@/views/ReviewPage.vue'
 import ReviewDetailPage from '@/views/ReviewDetailPage.vue'
 import AdminPage from '@/views/AdminPage.vue'
+import ImportPage from '@/views/ImportPage.vue'
 import ProfilePage from '@/views/ProfilePage.vue'
 import LoginPage from '@/views/LoginPage.vue'
 import HomePage from '@/views/HomePage.vue'
@@ -57,6 +58,12 @@ const routes = [
     path: '/admin',
     name: 'Admin',
     component: AdminPage,
+    meta: { admin: true },
+  },
+  {
+    path: '/admin/import',
+    name: 'Import',
+    component: ImportPage,
     meta: { admin: true },
   },
   {

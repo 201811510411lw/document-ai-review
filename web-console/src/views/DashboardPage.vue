@@ -62,6 +62,7 @@
     <!-- 证照类型分布 -->
     <div class="section-title">证照类型分布</div>
     <div class="type-distribution">
+      <div v-if="typeDistribution.length">
       <div v-for="item in typeDistribution" :key="item.type" class="type-bar-item">
         <span class="type-name">{{ item.type }}</span>
         <div class="bar-bg">
@@ -72,6 +73,8 @@
         </div>
         <span class="type-count">{{ item.count }}</span>
       </div>
+      </div>
+      <van-empty v-else description="暂无证照类型统计" />
     </div>
   </div>
 </template>
@@ -92,14 +95,9 @@ const loading = ref(true)
 const todayStr = new Date().toISOString().slice(0, 10)
 
 const typeDistribution = computed(() => {
-  const mock = [
-    { type: '营业执照', count: 78, color: '#667eea' },
-    { type: '食品经营许可证', count: 34, color: '#f093fb' },
-    { type: '食品生产许可证', count: 32, color: '#4facfe' },
-    { type: '商品批次报告', count: 12, color: '#a18cd1' },
-  ]
-  const max = Math.max(...mock.map(i => i.count), 1)
-  return mock.map(i => ({ ...i, percent: (i.count / max) * 100 }))
+  const rows = stats.value.type_distribution || []
+  const max = Math.max(...rows.map(i => i.count), 1)
+  return rows.map(i => ({ ...i, percent: (i.count / max) * 100 }))
 })
 
 onMounted(async () => {

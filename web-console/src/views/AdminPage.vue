@@ -17,8 +17,8 @@
     <!-- 证照管理 -->
     <van-cell-group title="证照管理">
       <van-cell title="批量导入证照" icon="records" is-link to="/admin/import" />
-      <van-cell title="全部证照记录" icon="records" is-link @click="showRecords = true" />
-      <van-cell title="证照类型管理" icon="label-o" is-link @click="showToast('功能开发中')" />
+      <van-cell title="全部证照记录" icon="records" is-link @click="openRecords" />
+      <van-cell title="证照类型管理" icon="label-o" is-link @click="openLicenseTypes" />
     </van-cell-group>
 
     <!-- 数据维护 -->
@@ -72,6 +72,28 @@
         </van-list>
       </div>
     </van-action-sheet>
+
+    <van-action-sheet v-model:show="showLicenseTypes" title="证照类型管理" close-on-popup-action>
+      <div class="license-type-sheet">
+        <van-notice-bar
+          text="当前为只读管理界面，启停配置尚未开放。"
+          left-icon="info-o"
+          color="#1989fa"
+          background="#ecf5ff"
+        />
+        <van-cell
+          v-for="item in licenseTypes"
+          :key="`${item.use_case_name}-${item.document_type}`"
+          :title="item.name"
+          :label="`${item.use_case_name} · ${item.ruleset_version}`"
+        >
+          <template #value>
+            <van-tag type="success">启用</van-tag>
+            <span class="record-count">{{ item.record_count }} 条</span>
+          </template>
+        </van-cell>
+      </div>
+    </van-action-sheet>
   </div>
 </template>
 
@@ -85,8 +107,10 @@ const notifyUsers = ref([])
 const newUserId = ref('')
 const showUserManager = ref(false)
 const showRecords = ref(false)
+const showLicenseTypes = ref(false)
 const recordKeyword = ref('')
 const records = ref([])
+const licenseTypes = ref([])
 const recordsLoading = ref(false)
 const recordsFinished = ref(false)
 const stats = ref({})
@@ -128,6 +152,16 @@ async function handleSaveUsers() {
   }
 }
 
+async function openLicenseTypes() {
+  showLicenseTypes.value = true
+  try {
+    const res = await adminApi.getLicenseTypes()
+    licenseTypes.value = res.items || []
+  } catch (e) {
+    showToast('加载失败: ' + e.message)
+  }
+}
+
 async function handleManualCheck() {
   showLoadingToast({ message: '效期检查中...', forbidClick: true })
   try {
@@ -140,8 +174,18 @@ async function handleManualCheck() {
   }
 }
 
-function handleExportAll() {
-  showToast('导出功能开发中')
+async function handleExportAll() {
+  try {
+    const blob = await adminApi.exportRecords()
+    downloadBlob(blob, `全部证照记录_${new Date().toISOString().slice(0, 10)}.csv`)
+  } catch (e) {
+    showToast('导出失败: ' + e.message)
+  }
+}
+
+function openRecords() {
+  showRecords.value = true
+  loadRecords()
 }
 
 async function loadRecords() {
@@ -159,18 +203,19 @@ async function loadRecords() {
 
 async function handleDeleteRecord(id) {
   showConfirmDialog({
-    title: '确认删除',
-    message: '确定删除该证照记录吗？',
+    title: '确认忽略',
+    message: '确定从工作台列表忽略该证照记录吗？原始审核结果不会删除。',
   }).then(async () => {
     try {
       await adminApi.deleteRecord(id)
       records.value = records.value.filter(r => r.id !== id)
-      showToast('已删除')
+      showToast('已忽略')
     } catch (e) {
       showToast('删除失败')
     }
   }).catch(() => {})
 }
+
 </script>
 
 <style scoped>
@@ -199,6 +244,14 @@ async function handleDeleteRecord(id) {
   padding: 0 16px 24px;
   max-height: 60vh;
   overflow-y: auto;
+}
+.license-type-sheet {
+  padding-bottom: 16px;
+}
+.record-count {
+  margin-left: 6px;
+  color: #969799;
+  font-size: 12px;
 }
 .record-item {
   display: flex;
