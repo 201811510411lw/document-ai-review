@@ -702,18 +702,28 @@ def _validation_fields(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
         if expected is None and not _requires_source_field(keys):
             expected = _first_field_value(normalized, keys)
         risk = _validation_field_risk(keys, recognized)
+        required = _is_required_validation_field(document_type, keys)
+        missing_recognized = required and not _display_field_value(recognized)
+        missing_expected = _requires_source_field(keys) and not _display_field_value(expected)
         validation_fields.append(
             {
             "field": label,
             "recognized": _display_field_value(recognized),
             "expected": _display_field_value(expected),
-            "match": _field_values_match(
-                document_type,
-                keys,
-                recognized,
-                expected,
+            "match": (
+                not missing_recognized
+                and not missing_expected
+                and _field_values_match(
+                    document_type,
+                    keys,
+                    recognized,
+                    expected,
+                )
             ),
             "risk": risk,
+            "required": required,
+            "missing_recognized": missing_recognized,
+            "missing_expected": missing_expected,
         }
         )
     return validation_fields
@@ -749,6 +759,35 @@ def _source_validation_fields(snapshot: dict[str, Any]) -> dict[str, Any]:
 
 def _requires_source_field(keys: tuple[str, ...]) -> bool:
     return any(key in {"subject_name", "producer_name", "credit_code"} for key in keys)
+
+
+def _is_required_validation_field(
+    document_type: str | None,
+    keys: tuple[str, ...],
+) -> bool:
+    if document_type == "food_production_license":
+        required_keys = {
+            "producer_name",
+            "credit_code",
+            "license_no",
+            "production_address",
+            "legal_person",
+            "food_categories",
+            "valid_to",
+        }
+        return any(key in required_keys for key in keys)
+    if document_type == "food_license":
+        required_keys = {
+            "subject_name",
+            "credit_code",
+            "license_no",
+            "business_address",
+            "legal_person",
+            "business_items",
+            "valid_to",
+        }
+        return any(key in required_keys for key in keys)
+    return False
 
 
 def _source_credit_code(source_evidence: dict[str, Any], source: dict[str, Any]) -> str:

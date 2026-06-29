@@ -1,3 +1,5 @@
+from datetime import date
+
 from app.capabilities.food_production_license.schemas import (
     FoodProductionLicenseDocumentClassification,
     FoodProductionLicenseDocumentInputResult,
@@ -89,7 +91,10 @@ def extract_fields(
     structured_fields = state.get("llm_structured_fields") or {}
     if structured_fields:
         extracted_fields = FoodProductionLicenseExtractedFields.model_validate(
-            _sanitize_structured_fields(structured_fields)
+            _sanitize_structured_fields(
+                structured_fields,
+                source_text=state.get("document_text") or "",
+            )
         )
         return {
             **state,
@@ -221,6 +226,20 @@ def _apply_deterministic_review_guards(
                 risk_level_on_failure=RiskLevel.HIGH,
                 message="证照统一社会信用代码缺失，无法与来源系统比对。",
                 details={},
+            ),
+        )
+        risk_level = RiskLevel.HIGH
+    elif not expected_credit:
+        reasons.append("来源系统统一社会信用代码缺失")
+        rule_results = _upsert_rule_result(
+            rule_results,
+            RuleResult(
+                rule_code="FOOD_PRODUCTION_LICENSE_CREDIT_CODE_MATCH",
+                rule_name="统一社会信用代码是否与供应商一致",
+                passed=False,
+                risk_level_on_failure=RiskLevel.HIGH,
+                message="来源系统统一社会信用代码缺失，无法与证照识别值比对。",
+                details={"recognized_credit_code": recognized_credit},
             ),
         )
         risk_level = RiskLevel.HIGH
@@ -375,9 +394,63 @@ def _normalize_date_text(value: str | None) -> str | None:
     return text
 
 
-def _sanitize_structured_fields(fields: dict) -> dict:
+def _sanitize_structured_fields(fields: dict, *, source_text: str = "") -> dict:
     sanitized = dict(fields)
     sanitized["food_categories"] = _string_list(sanitized.get("food_categories"))
+    if not sanitized["food_categories"]:
+        sanitized["food_categories"] = _extract_food_categories_from_text(source_text)
+    if not _optional_text(sanitized.get("legal_person")):
+        sanitized["legal_person"] = _first_optional_text(
+            sanitized,
+            (
+                "法定代表人",
+                "负责人",
+                "法定代表人/负责人",
+                "法定代表人（负责人）",
+                "负责人姓名",
+                "legalRepresentative",
+                "legal_representative",
+                "responsible_person",
+                "person_in_charge",
+            ),
+        )
+    if not _optional_text(sanitized.get("legal_person")):
+        sanitized["legal_person"] = _extract_legal_person_from_text(source_text)
+    if not _optional_text(sanitized.get("issue_date")):
+        sanitized["issue_date"] = _first_optional_text(
+            sanitized,
+            (
+                "签发日期",
+                "发证日期",
+                "核发日期",
+                "issueDate",
+                "issue_date",
+            ),
+        )
+    if not _optional_text(sanitized.get("valid_to")):
+        sanitized["valid_to"] = _first_optional_text(
+            sanitized,
+            (
+                "有效日期至",
+                "有效期至",
+                "有效期止",
+                "有效期限至",
+                "截止日期",
+                "到期日期",
+                "valid_until",
+                "valid_end",
+                "expiry_date",
+                "expiration_date",
+                "expire_date",
+            ),
+        )
+    issue_date = _optional_text(sanitized.get("issue_date"))
+    if issue_date:
+        valid_from = _optional_text(sanitized.get("valid_from"))
+        valid_to = _optional_text(sanitized.get("valid_to"))
+        if _should_move_valid_from_to_valid_to(valid_from, valid_to, issue_date):
+            sanitized["valid_to"] = valid_from
+        sanitized["valid_from"] = issue_date
     for key in (
         "document_type",
         "producer_name",
@@ -423,3 +496,109 @@ def _item_to_text(value) -> str:
 def _optional_text(value) -> str | None:
     text = _item_to_text(value)
     return text or None
+
+
+def _first_optional_text(fields: dict, keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        text = _optional_text(fields.get(key))
+        if text:
+            return text
+    return None
+
+
+def _extract_legal_person_from_text(source_text: str) -> str | None:
+    if not source_text:
+        return None
+    import re
+    import unicodedata
+
+    compact = unicodedata.normalize("NFKC", source_text)
+    compact = re.sub(r"[ \t\r\f\v]+", "", compact)
+    compact = re.sub(r"\n+", "", compact)
+    label_pattern = r"(?:法定代表人|法定代表人/负责人|法定代表人负责人|负责人)"
+    stop_pattern = (
+        r"住[所址]|住所|生产地址|生产地|食品类别|许可证编号|统一社会信用代码|"
+        r"发证机关|发证日期|签发日期|有效日期至|有效期至|说明"
+    )
+    patterns = (
+        rf"{label_pattern}[(:：)]{{0,2}}(.{{1,24}}?)(?={stop_pattern}|$)",
+        rf"{label_pattern}[(:：)]{{0,2}}(.{{1,24}})",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, compact)
+        if not match:
+            continue
+        text = unicodedata.normalize("NFKC", match.group(1))
+        text = re.sub(r"[（(]负责人[）)]", "", text)
+        text = text.strip(" ：:;；,，。|/\\")
+        text = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff·.-]", "", text)
+        text = re.sub(
+            r"(住所|住址|生产地址|食品类别|许可证编号|统一社会信用代码|发证机关|发证日期|签发日期|有效日期至|有效期至|说明).*$",
+            "",
+            text,
+        )
+        if text and text not in {"负责人", "法定代表人"} and len(text) <= 12:
+            return text
+    return None
+
+
+def _extract_food_categories_from_text(source_text: str) -> list[str]:
+    if not source_text:
+        return []
+    import re
+    import unicodedata
+
+    compact = unicodedata.normalize("NFKC", source_text)
+    compact = re.sub(r"[ \t\r\f\v]+", "", compact)
+    compact = re.sub(r"\n+", "", compact)
+    label_pattern = r"(?:食品类别|食品生产类别|类别名称|生产范围|品种明细)"
+    stop_pattern = (
+        r"发证机关|发证日期|签发日期|有效日期至|有效期至|许可证编号|"
+        r"统一社会信用代码|说明|备注|二维码"
+    )
+    patterns = (
+        rf"{label_pattern}[(:：)]{{0,2}}(.{{1,80}}?)(?={stop_pattern}|$)",
+        rf"{label_pattern}[(:：)]{{0,2}}(.{{1,40}})",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, compact)
+        if not match:
+            continue
+        text = unicodedata.normalize("NFKC", match.group(1))
+        text = re.sub(
+            r"(发证机关|发证日期|签发日期|有效日期至|有效期至|许可证编号|统一社会信用代码|说明|备注|二维码).*$",
+            "",
+            text,
+        )
+        text = re.sub(r"\s+", "", text).strip(" ：:;；,，。|/\\")
+        if not text:
+            continue
+        text = re.sub(r"[()（）【】\[\]{}]", "", text)
+        items = []
+        for item in re.split(r"[、,，;；/|]+", text):
+            cleaned = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff·.-]", "", item).strip()
+            if cleaned and cleaned not in {"食品类别", "类别名称", "生产范围", "品种明细"}:
+                items.append(cleaned)
+        if items:
+            return list(dict.fromkeys(items))
+    return []
+
+
+def _should_move_valid_from_to_valid_to(
+    valid_from,
+    valid_to,
+    issue_date,
+) -> bool:
+    normalized_valid_from = _normalize_date_text(_optional_text(valid_from))
+    normalized_issue_date = _normalize_date_text(_optional_text(issue_date))
+    if not normalized_valid_from or not normalized_issue_date:
+        return False
+    valid_to_text = _optional_text(valid_to) or ""
+    if valid_to_text and "长期" not in valid_to_text:
+        return False
+    try:
+        from_date = date.fromisoformat(normalized_valid_from)
+        issue = date.fromisoformat(normalized_issue_date)
+    except ValueError:
+        return False
+    return from_date > issue

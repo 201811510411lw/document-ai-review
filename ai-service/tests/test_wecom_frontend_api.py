@@ -1240,6 +1240,160 @@ def test_wecom_frontend_food_production_detail_uses_production_validation_fields
     assert food_categories["match"] is True
 
 
+def test_wecom_frontend_food_production_detail_prefers_payload_document_type_over_stale_projection(
+    tmp_path,
+    monkeypatch,
+):
+    storage = install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+
+    class StubFoodProductionLicenseFileAdapter:
+        def extract_text(self, source):
+            return {
+                "text": "",
+                "structured_fields": {
+                    "document_type": "food_production_license",
+                    "producer_name": "河南晚柔食品科技有限公司",
+                    "credit_code": "91450203MA5MTFWN72",
+                    "license_no": "SC10344040400307",
+                    "food_categories": ["调味品"],
+                    "valid_to": "2027-12-19",
+                },
+                "metadata": {"implementation_status": "stub"},
+            }
+
+    pdf_path = tmp_path / "food-production-stale-projection.pdf"
+    write_minimal_pdf(pdf_path, "embedded text should not be used")
+    monkeypatch.setattr(
+        food_production_license_nodes,
+        "food_production_license_file_adapter",
+        StubFoodProductionLicenseFileAdapter(),
+    )
+    result = ReviewService(repository=repository).review(
+        ReviewInput(
+            file=ReviewDocumentInput(
+                local_path=str(pdf_path),
+                file_name="food-production-stale-projection.pdf",
+                mime_type="application/pdf",
+                document_format="pdf",
+            ),
+            supplier_name="河南晚柔食品科技有限公司",
+            supplier_credit_code="",
+            declared_document_type="food_production_license",
+        ),
+        use_case_name="food_production_license",
+    )
+    food_projection = storage["food_production_license_reviews"][result.task_id]
+    storage["business_license_reviews"][result.task_id] = {
+        **food_projection,
+        "document_type": "business_license",
+        "business_name": None,
+        "business_address": None,
+        "legal_person": None,
+        "valid_from": None,
+        "valid_to": None,
+        "issue_authority": None,
+        "issue_date": None,
+    }
+    app.dependency_overrides[get_review_read_repository] = lambda: repository
+    client = TestClient(app)
+
+    response = client.get(
+        f"/api/review/{result.task_id}",
+        headers=business_license_auth_headers(client, monkeypatch),
+    )
+
+    assert response.status_code == 200
+    record = response.json()["record"]
+    assert record["document_type"] == "food_production_license"
+    assert record["license_type"] == "食品生产许可证"
+    assert [field["field"] for field in record["validation_fields"]] == [
+        "生产者名称",
+        "统一社会信用代码",
+        "许可证编号",
+        "生产地址",
+        "法定代表人/负责人",
+        "食品类别",
+        "有效期开始",
+        "有效期结束",
+        "发证机关",
+        "签发日期",
+    ]
+
+
+def test_wecom_frontend_food_production_required_empty_fields_are_mismatches(
+    tmp_path,
+    monkeypatch,
+):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+
+    class StubFoodProductionLicenseFileAdapter:
+        def extract_text(self, source):
+            return {
+                "text": "",
+                "structured_fields": {
+                    "document_type": "food_production_license",
+                    "producer_name": "珠海佳霖食品有限公司",
+                    "credit_code": None,
+                    "license_no": "SC10344040400307",
+                    "production_address": None,
+                    "legal_person": None,
+                    "food_categories": ["淀粉及淀粉制品", "调味品"],
+                    "valid_from": None,
+                    "valid_to": None,
+                    "issue_authority": None,
+                    "issue_date": None,
+                },
+                "metadata": {"implementation_status": "stub"},
+            }
+
+    pdf_path = tmp_path / "food-production-required-empty.pdf"
+    write_minimal_pdf(pdf_path, "embedded text should not be used")
+    monkeypatch.setattr(
+        food_production_license_nodes,
+        "food_production_license_file_adapter",
+        StubFoodProductionLicenseFileAdapter(),
+    )
+    result = ReviewService(repository=repository).review(
+        ReviewInput(
+            file=ReviewDocumentInput(
+                local_path=str(pdf_path),
+                file_name="food-production-required-empty.pdf",
+                mime_type="application/pdf",
+                document_format="pdf",
+            ),
+            supplier_name="珠海佳霖食品有限公司",
+            supplier_credit_code="",
+            declared_document_type="food_production_license",
+        ),
+        use_case_name="food_production_license",
+    )
+    app.dependency_overrides[get_review_read_repository] = lambda: repository
+    client = TestClient(app)
+
+    response = client.get(
+        f"/api/review/{result.task_id}",
+        headers=business_license_auth_headers(client, monkeypatch),
+    )
+
+    assert response.status_code == 200
+    record = response.json()["record"]
+    fields = record["validation_fields"]
+    credit_code = next(field for field in fields if field["field"] == "统一社会信用代码")
+    production_address = next(field for field in fields if field["field"] == "生产地址")
+    valid_to = next(field for field in fields if field["field"] == "有效期结束")
+    assert record["match_ratio"] < 100
+    assert credit_code["required"] is True
+    assert credit_code["missing_recognized"] is True
+    assert credit_code["missing_expected"] is True
+    assert credit_code["match"] is False
+    assert production_address["missing_recognized"] is True
+    assert production_address["match"] is False
+    assert valid_to["missing_recognized"] is True
+    assert valid_to["match"] is False
+
+
 def test_frontend_import_route_and_view_exist():
     from pathlib import Path
 

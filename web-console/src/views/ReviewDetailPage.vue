@@ -15,6 +15,11 @@
           <div class="ratio-value" :class="ratioClass">{{ formatRatio(record.match_ratio) }}</div>
         </div>
         <van-tag :type="statusTagType" size="medium">{{ statusText }}</van-tag>
+        <div v-if="manualReviewReasons.length" class="review-reasons">
+          <div v-for="reason in manualReviewReasons" :key="reason" class="review-reason">
+            {{ reason }}
+          </div>
+        </div>
         <div v-if="record.review_comment" class="comment">
           备注: {{ record.review_comment }}
         </div>
@@ -28,13 +33,19 @@
           <div class="field-values">
             <div class="value-row">
               <span class="value-label">识别值</span>
-              <span class="value-text" :class="{ mismatch: !field.match }">{{ field.recognized || '-' }}</span>
-              <van-icon v-if="!field.match" name="cross" color="#ee0a24" />
+              <span class="value-text" :class="valueClass(field, 'recognized')">
+                {{ field.recognized || '-' }}
+              </span>
+              <van-icon v-if="field.missing_recognized" name="warning-o" color="#ee0a24" />
+              <van-icon v-else-if="!field.match" name="cross" color="#ee0a24" />
               <van-icon v-else name="check" color="#07c160" />
             </div>
             <div class="value-row">
               <span class="value-label">数据库</span>
-              <span class="value-text">{{ field.expected || '-' }}</span>
+              <span class="value-text" :class="valueClass(field, 'expected')">
+                {{ field.expected || '-' }}
+              </span>
+              <van-icon v-if="field.missing_expected" name="warning-o" color="#ee0a24" />
             </div>
           </div>
         </div>
@@ -106,6 +117,11 @@ const validationFields = computed(() => {
   return record.value?.validation_fields || []
 })
 
+const manualReviewReasons = computed(() => {
+  const reasons = record.value?.manual_review?.reasons || record.value?.manual_review_reasons || []
+  return Array.isArray(reasons) ? reasons.filter(Boolean) : []
+})
+
 const ratioClass = computed(() => {
   const ratio = record.value?.match_ratio
   if (ratio === null || ratio === undefined) return ''
@@ -145,6 +161,13 @@ onMounted(async () => {
 function formatRatio(val) {
   if (val === null || val === undefined) return '-'
   return Math.round(val) + '%'
+}
+
+function valueClass(field, side) {
+  return {
+    mismatch: !field.match,
+    missing: side === 'recognized' ? field.missing_recognized : field.missing_expected,
+  }
 }
 
 function openSourceFile() {
@@ -216,6 +239,18 @@ async function handleFlag() {
 .ratio-good { color: #07c160; }
 .ratio-ok { color: #ff976a; }
 .ratio-bad { color: #ee0a24; }
+.review-reasons { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.review-reason {
+  width: fit-content;
+  max-width: 100%;
+  color: #ee0a24;
+  background: #fff2f0;
+  border: 1px solid #ffccc7;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
 .comment { margin-top: 8px; font-size: 13px; color: #ee0a24; background: #fff2f0; padding: 6px 10px; border-radius: 4px; }
 .section-title {
   font-size: 14px; font-weight: 600; color: #323233;
@@ -231,6 +266,7 @@ async function handleFlag() {
 .value-label { font-size: 11px; color: #969799; width: 40px; flex-shrink: 0; }
 .value-text { flex: 1; color: #323233; }
 .value-text.mismatch { color: #ee0a24; text-decoration: line-through; }
+.value-text.missing { color: #ee0a24; font-weight: 700; text-decoration: none; }
 .file-section { margin: 0 16px; background: #fff; border-radius: 8px; padding: 16px; }
 .no-file { color: #969799; font-size: 13px; }
 .action-section { margin: 0 16px; }
