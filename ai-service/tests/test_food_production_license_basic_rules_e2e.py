@@ -104,6 +104,131 @@ def test_food_production_license_chinese_document_type_and_dates_are_normalized(
     assert payload["risk_level"] == "NONE"
 
 
+def test_food_production_license_valid_from_uses_issue_date_when_equal_to_valid_to(
+    tmp_path,
+    monkeypatch,
+):
+    pdf_path = _write_pdf(tmp_path)
+    adapter = StubFileAdapter(
+        {
+            **BASE_FIELDS,
+            "valid_from": "2030-11-30",
+            "valid_to": "2030年11月30日",
+            "issue_date": "2025年12月01日",
+        }
+    )
+    monkeypatch.setattr(
+        food_production_license_nodes,
+        "food_production_license_file_adapter",
+        adapter,
+    )
+
+    result = ReviewService().review(
+        _review_input(pdf_path),
+        use_case_name="food_production_license",
+    )
+    payload = result.model_dump(mode="json")
+
+    assert payload["skill_result"]["extracted_fields"]["valid_from"] == "2025年12月01日"
+    assert payload["skill_result"]["normalized_fields"]["valid_from"] == "2025-12-01"
+    assert payload["skill_result"]["normalized_fields"]["valid_to"] == "2030-11-30"
+    assert payload["skill_result"]["normalized_fields"]["issue_date"] == "2025-12-01"
+
+
+def test_food_production_license_missing_valid_from_uses_issue_date(
+    tmp_path,
+    monkeypatch,
+):
+    pdf_path = _write_pdf(tmp_path)
+    adapter = StubFileAdapter(
+        {
+            **BASE_FIELDS,
+            "valid_from": None,
+            "valid_to": "2026年06月06日",
+            "issue_date": "2024年10月18日",
+        }
+    )
+    monkeypatch.setattr(
+        food_production_license_nodes,
+        "food_production_license_file_adapter",
+        adapter,
+    )
+
+    result = ReviewService().review(
+        _review_input(pdf_path),
+        use_case_name="food_production_license",
+    )
+    payload = result.model_dump(mode="json")
+
+    assert payload["skill_result"]["extracted_fields"]["valid_from"] == "2024年10月18日"
+    assert payload["skill_result"]["normalized_fields"]["valid_from"] == "2024-10-18"
+    assert payload["skill_result"]["normalized_fields"]["valid_to"] == "2026-06-06"
+    assert payload["skill_result"]["normalized_fields"]["issue_date"] == "2024-10-18"
+
+
+def test_food_production_license_valid_from_prefers_issue_date_over_ocr_value(
+    tmp_path,
+    monkeypatch,
+):
+    pdf_path = _write_pdf(tmp_path)
+    adapter = StubFileAdapter(
+        {
+            **BASE_FIELDS,
+            "valid_from": "2027年01月27日",
+            "valid_to": "长期",
+            "issue_date": "2022年01月28日",
+        }
+    )
+    monkeypatch.setattr(
+        food_production_license_nodes,
+        "food_production_license_file_adapter",
+        adapter,
+    )
+
+    result = ReviewService().review(
+        _review_input(pdf_path),
+        use_case_name="food_production_license",
+    )
+    payload = result.model_dump(mode="json")
+
+    assert payload["skill_result"]["extracted_fields"]["valid_from"] == "2022年01月28日"
+    assert payload["skill_result"]["normalized_fields"]["valid_from"] == "2022-01-28"
+    assert payload["skill_result"]["extracted_fields"]["valid_to"] == "2027年01月27日"
+    assert payload["skill_result"]["normalized_fields"]["valid_to"] == "2027-01-27"
+    assert payload["skill_result"]["normalized_fields"]["issue_date"] == "2022-01-28"
+
+
+def test_food_production_license_valid_to_uses_chinese_valid_until_alias(
+    tmp_path,
+    monkeypatch,
+):
+    pdf_path = _write_pdf(tmp_path)
+    adapter = StubFileAdapter(
+        {
+            **BASE_FIELDS,
+            "valid_to": None,
+            "有效日期至": "2025年02月24日",
+            "issue_date": "2023年12月26日",
+        }
+    )
+    monkeypatch.setattr(
+        food_production_license_nodes,
+        "food_production_license_file_adapter",
+        adapter,
+    )
+
+    result = ReviewService().review(
+        _review_input(pdf_path),
+        use_case_name="food_production_license",
+    )
+    payload = result.model_dump(mode="json")
+
+    assert payload["skill_result"]["extracted_fields"]["valid_from"] == "2023年12月26日"
+    assert payload["skill_result"]["normalized_fields"]["valid_from"] == "2023-12-26"
+    assert payload["skill_result"]["extracted_fields"]["valid_to"] == "2025年02月24日"
+    assert payload["skill_result"]["normalized_fields"]["valid_to"] == "2025-02-24"
+
+
 def test_food_production_license_workflow_sanitizes_object_food_categories(
     tmp_path,
     monkeypatch,
@@ -165,6 +290,34 @@ def test_food_production_license_workflow_sanitizes_list_scalar_fields(
     assert payload["skill_result"]["extracted_fields"]["valid_to"] == "2028-06-05"
 
 
+def test_food_production_license_legal_person_uses_chinese_alias(
+    tmp_path,
+    monkeypatch,
+):
+    pdf_path = _write_pdf(tmp_path)
+    adapter = StubFileAdapter(
+        {
+            **BASE_FIELDS,
+            "legal_person": None,
+            "法定代表人": "吴守允",
+        }
+    )
+    monkeypatch.setattr(
+        food_production_license_nodes,
+        "food_production_license_file_adapter",
+        adapter,
+    )
+
+    result = ReviewService().review(
+        _review_input(pdf_path),
+        use_case_name="food_production_license",
+    )
+    payload = result.model_dump(mode="json")
+
+    assert payload["skill_result"]["extracted_fields"]["legal_person"] == "吴守允"
+    assert "负责人/法定代表人缺失" not in payload["manual_review"]["reasons"]
+
+
 def test_food_production_license_producer_name_mismatch_requires_review(
     tmp_path,
     monkeypatch,
@@ -211,6 +364,56 @@ def test_food_production_license_credit_code_mismatch_requires_manual_review(
     assert payload["needs_manual_review"] is True
     assert "统一社会信用代码与来源信息不一致" in payload["manual_review"]["reasons"]
     assert credit_rule["passed"] is False
+
+
+def test_food_production_license_missing_source_credit_code_requires_manual_review_even_if_skill_passes(
+    tmp_path,
+    monkeypatch,
+):
+    pdf_path = _write_pdf(tmp_path)
+    monkeypatch.setattr(
+        food_production_license_nodes,
+        "food_production_license_file_adapter",
+        StubFileAdapter({**BASE_FIELDS, "credit_code": "91321323314091953H"}),
+    )
+
+    class PassingRuleAdapter:
+        def review(self, *, skill_name, skill_text, review_payload):
+            return {
+                "risk_level": "NONE",
+                "needs_manual_review": False,
+                "summary": "食品生产许可证规则校验通过",
+                "manual_review_reasons": [],
+                "rule_results": [
+                    {
+                        "rule_code": "FOOD_PRODUCTION_LICENSE_CREDIT_CODE_MATCH",
+                        "rule_name": "统一社会信用代码是否与供应商一致",
+                        "passed": True,
+                        "risk_level_on_failure": "HIGH",
+                        "message": "统一社会信用代码与供应商一致。",
+                        "details": {},
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(
+        food_production_license_nodes,
+        "food_production_license_skill_rule_review_adapter",
+        PassingRuleAdapter(),
+    )
+
+    result = ReviewService().review(
+        _review_input(pdf_path, supplier_credit_code=""),
+        use_case_name="food_production_license",
+    )
+    payload = result.model_dump(mode="json")
+    credit_rule = _rule(payload, "FOOD_PRODUCTION_LICENSE_CREDIT_CODE_MATCH")
+
+    assert payload["risk_level"] == "HIGH"
+    assert payload["needs_manual_review"] is True
+    assert "来源系统统一社会信用代码缺失" in payload["manual_review"]["reasons"]
+    assert credit_rule["passed"] is False
+    assert credit_rule["risk_level_on_failure"] == "HIGH"
 
 
 def test_food_production_license_missing_visible_key_fields_requires_manual_review(

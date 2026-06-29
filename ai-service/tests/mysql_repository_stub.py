@@ -11,6 +11,11 @@ class StubMySQLCursor:
             return
         if compact.startswith("alter table"):
             return
+        if compact.startswith("delete from "):
+            table = compact.split()[2]
+            if table in self.storage:
+                self.storage[table].pop(params[0], None)
+            return
         if compact.startswith("insert into review_results"):
             self.storage["review_results"][params[0]] = {
                 "task_id": params[0],
