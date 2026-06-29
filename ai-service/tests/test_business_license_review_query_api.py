@@ -253,6 +253,7 @@ def test_business_license_manual_review_writes_decision_and_audit_event(
     tmp_path,
     monkeypatch,
 ):
+    monkeypatch.setenv("DOCUMENT_AI_REVIEW_DEBUG", "true")
     install_mysql_repository_stub(monkeypatch)
     repository = _repository()
     result = _save_review(
@@ -511,7 +512,10 @@ def _save_review(
           "business_address": "成都市高新区天府大道 1 号",
           "legal_person": "张三",
           "valid_from": "2020-01-02",
-          "valid_to": "2030-01-01"
+          "valid_to": "2030-01-01",
+          "subject_name_evidence": "名称：{supplier_name}",
+          "credit_code_evidence": "统一社会信用代码：{extracted_credit_code or supplier_credit_code}",
+          "valid_to_evidence": "营业期限：2020年01月02日至2030年01月01日"
         }}
         """,
     )

@@ -71,6 +71,75 @@ def test_fetch_food_license_source_tasks_does_not_treat_serial_num_as_credit_cod
     assert tasks[0].record.business_num == "1001010427202311270017"
 
 
+def test_fetch_food_license_source_tasks_routes_rows_marked_as_food_production_license():
+    client = StubSqlClient(
+        [
+            {
+                "uuid": "cert-food-wrong-type",
+                "refId": "attach-food-wrong-type",
+                "typeName": "食品经营许可证",
+                "remark": "食品生产许可证",
+                "vendorName": "江苏香之派食品有限公司",
+                "number": "781923075088699392",
+                "num": "SC10432130000012",
+                "url": "https://files.example.test/食品生产许可证.jpg",
+                "attachmentName": "食品生产许可证.jpg",
+                "storeId": "vss-web/食品生产许可证.jpg",
+            }
+        ]
+    )
+
+    tasks = fetch_food_license_source_tasks(client, "select * from certification")
+
+    assert len(tasks) == 1
+    assert tasks[0].record.declared_document_type == "food_license"
+    assert tasks[0].review_input.declared_document_type == "food_production_license"
+    assert tasks[0].review_input.supplier_credit_code == ""
+    assert tasks[0].review_input.source["document_type_evidence"] == {
+        "declared_document_type": "food_license",
+        "resolved_document_type": "food_production_license",
+        "hints": [
+            "remark:食品生产许可证",
+            "attachmentName:食品生产许可证",
+            "storeId:食品生产许可证",
+            "url:食品生产许可证",
+            "num:SC",
+        ],
+        "conflict": True,
+    }
+
+
+def test_fetch_food_license_source_tasks_routes_food_production_detail_attachment():
+    client = StubSqlClient(
+        [
+            {
+                "uuid": "cert-food-production-detail",
+                "refId": "attach-food-production-detail",
+                "typeName": "食品经营许可证",
+                "vendorName": "浙江优拉食品有限公司",
+                "number": "SC10833040205187",
+                "url": "https://files.example.test/2-3食品生产许可品种明细表.jpg",
+                "attachmentName": "2-3食品生产许可品种明细表.jpg",
+            }
+        ]
+    )
+
+    tasks = fetch_food_license_source_tasks(client, "select * from certification")
+
+    assert len(tasks) == 1
+    assert tasks[0].review_input.declared_document_type == "food_production_license"
+    assert tasks[0].review_input.source["document_type_evidence"] == {
+        "declared_document_type": "food_license",
+        "resolved_document_type": "food_production_license",
+        "hints": [
+            "attachmentName:食品生产许可品种明细表",
+            "url:食品生产许可品种明细表",
+            "number:SC",
+        ],
+        "conflict": True,
+    }
+
+
 def test_fetch_food_license_source_tasks_rejects_missing_url():
     client = StubSqlClient(
         [

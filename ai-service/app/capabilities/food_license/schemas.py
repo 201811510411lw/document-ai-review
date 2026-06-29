@@ -8,6 +8,7 @@ class FoodLicenseDocumentClassification(BaseModel):
 
 
 class FoodLicenseExtractedFields(BaseModel):
+    document_type: str | None = None
     subject_name: str | None = None
     credit_code: str | None = None
     license_no: str | None = None
@@ -21,6 +22,7 @@ class FoodLicenseExtractedFields(BaseModel):
 
 
 class FoodLicenseNormalizedFields(BaseModel):
+    document_type: str | None = None
     subject_name: str | None = None
     credit_code: str | None = None
     license_no: str | None = None

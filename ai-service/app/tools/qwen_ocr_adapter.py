@@ -312,7 +312,8 @@ def qwen_ocr_parse_prompt() -> str:
         "2. credit_code 提取统一社会信用代码，必须来自证照原文。\n"
         "3. subject_name 提取企业/主体名称本体，不要包含字段标签、类型、法定代表人或经营范围。\n"
         "4. 日期尽量规范为 YYYY-MM-DD；长期、永久、无固定期限输出 长期；无法确定输出 null。\n"
-        "5. evidence 字段必须包含能支撑对应字段的原文片段；没有原文片段输出 null。\n"
+        "5. subject_name、credit_code 只要输出字段值，就必须同时输出对应 evidence；"
+        "evidence 字段必须包含能支撑对应字段的图片/PDF 可见原文片段，不能只重复字段值；没有原文片段输出 null。\n"
         "6. 多页文件只选择营业执照页抽取，source_page 输出页码；ignored_pages 输出被忽略页面及原因。"
     )
 

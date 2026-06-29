@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from typing import Any, Literal, Protocol
 
@@ -135,7 +136,7 @@ def create_business_license_review(
                 "message": error.message,
             },
         ) from error
-    return result.model_dump(mode="json")
+    return _review_response(result)
 
 
 @router.post("/reviews/from-srm")
@@ -183,7 +184,7 @@ def create_business_license_review_from_srm(
                 "message": error.message,
             },
         ) from error
-    return result.model_dump(mode="json")
+    return _review_response(result)
 
 
 @router.get("/reviews")
@@ -230,9 +231,9 @@ def get_business_license_review_detail(
         )
 
     result = repository.get_by_task_id(task_id)
-    payload = result.model_dump(mode="json") if result is not None else None
+    payload = _review_response(result) if result is not None else None
     row = _detail_row(snapshot)
-    return {
+    detail = {
         **row,
         "source_url": snapshot.get("source_url"),
         "summary": snapshot.get("summary"),
@@ -245,13 +246,19 @@ def get_business_license_review_detail(
         "rule_results": snapshot["rule_results"],
         "extracted_fields": snapshot["extracted_fields"],
         "normalized_fields": snapshot["normalized_fields"],
-        "extraction_metadata": snapshot["extraction_metadata"],
-        "source_evidence": snapshot["source_evidence"],
         "manual_review_reasons": (payload or {}).get("manual_review", {}).get("reasons", []),
         "manual_review": _manual_review(snapshot, payload),
         "audit_events": repository.list_business_license_audit_events(task_id),
         "payload": payload,
     }
+    if _debug_enabled():
+        detail.update(
+            {
+                "extraction_metadata": snapshot["extraction_metadata"],
+                "source_evidence": snapshot["source_evidence"],
+            }
+        )
+    return detail
 
 
 @router.post("/reviews/{task_id}/manual-review")
@@ -279,7 +286,7 @@ def manual_review_business_license(
             },
         )
     payload = repository.get_by_task_id(task_id)
-    payload_dict = payload.model_dump(mode="json") if payload is not None else None
+    payload_dict = _review_response(payload) if payload is not None else None
     row = _detail_row(snapshot)
     return {
         **row,
@@ -357,3 +364,96 @@ def _risk_level_label(risk_level: str | None) -> str:
         "MEDIUM": "中风险",
         "HIGH": "高风险",
     }.get(risk_level or "", risk_level or "")
+
+
+def _review_response(result: ReviewResult) -> dict[str, Any]:
+    payload = result.model_dump(mode="json")
+    if _debug_enabled():
+        return payload
+    return _compact_review_payload(payload)
+
+
+def _compact_review_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    skill_result = dict(payload.get("skill_result") or {})
+    compact_payload = {
+        "task_id": payload.get("task_id"),
+        "use_case_name": payload.get("use_case_name"),
+        "document_type": payload.get("document_type"),
+        "status": payload.get("status"),
+        "status_label": _review_status_label(payload.get("status")),
+        "risk_level": payload.get("risk_level"),
+        "risk_level_label": _risk_level_label(payload.get("risk_level")),
+        "needs_manual_review": payload.get("needs_manual_review"),
+        "summary": payload.get("summary"),
+        "manual_review": _compact_manual_review(payload.get("manual_review")),
+        "rule_results": _compact_rule_results(payload.get("rule_results") or []),
+        "created_at": payload.get("created_at"),
+        "updated_at": payload.get("updated_at"),
+        "skill_result": {
+            "extracted_fields": _compact_extracted_fields(
+                skill_result.get("extracted_fields") or {}
+            ),
+        },
+    }
+    return {key: value for key, value in compact_payload.items() if value is not None}
+
+
+def _compact_manual_review(value: Any) -> dict[str, Any]:
+    manual_review = dict(value or {})
+    compact = {
+        "status": manual_review.get("status"),
+        "reasons": manual_review.get("reasons") or [],
+        "reviewer": manual_review.get("reviewer"),
+        "action": manual_review.get("action"),
+        "comment": manual_review.get("comment"),
+        "reviewed_at": manual_review.get("reviewed_at"),
+    }
+    return {key: value for key, value in compact.items() if value not in (None, "")}
+
+
+def _compact_rule_results(rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    compact_rules = []
+    for rule in rules:
+        passed = bool(rule.get("passed"))
+        compact_rule = {
+            "rule_code": rule.get("rule_code"),
+            "rule_name": rule.get("rule_name"),
+            "passed": passed,
+            "message": rule.get("message"),
+        }
+        if not passed:
+            compact_rule["risk_level_on_failure"] = rule.get("risk_level_on_failure")
+        compact_rules.append(
+            {key: value for key, value in compact_rule.items() if value is not None}
+        )
+    return compact_rules
+
+
+def _compact_extracted_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    keys = (
+        "document_type",
+        "subject_name",
+        "credit_code",
+        "business_address",
+        "legal_person",
+        "established_date",
+        "valid_from",
+        "valid_to",
+        "issue_authority",
+        "issue_date",
+    )
+    return {
+        key: fields.get(key)
+        for key in keys
+        if fields.get(key) not in (None, "", [])
+    }
+
+
+def _debug_enabled() -> bool:
+    return os.environ.get("DOCUMENT_AI_REVIEW_DEBUG", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "y",
+        "on",
+    }

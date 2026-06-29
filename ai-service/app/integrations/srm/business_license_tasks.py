@@ -1,3 +1,5 @@
+from pathlib import Path
+import re
 from typing import Any, Protocol
 
 from pydantic import BaseModel
@@ -28,7 +30,13 @@ class BusinessLicenseSourceTask(BaseModel):
 
 DEFAULT_BUSINESS_LICENSE_SOURCE_SQL = """
 select
-	*
+	t1.*,
+	t2.refId as attachmentRefId,
+	t2.refType,
+	t2.attachmentName,
+	t2.storeId,
+	t2.removed,
+	t2.url
 from
 	srm.certification t1
 left join srm.attachment t2 on
@@ -40,6 +48,7 @@ where
 	and t2.url is not null
 	and t2.url <> ''
 	and typeName  = '营业执照'
+	order by rand()
 	limit 1
 """.strip()
 
@@ -82,7 +91,7 @@ def fetch_business_license_source_tasks(
 
 def _to_review_input(record: DocumentRecord) -> ReviewInput:
     return ReviewInput(
-        supplier_name=record.vendor_name or "",
+        supplier_name=_business_license_subject_name(record),
         supplier_credit_code=record.business_num or record.business_number or "",
         declared_document_type="business_license",
         file=ReviewDocumentInput(
@@ -100,3 +109,40 @@ def _to_review_input(record: DocumentRecord) -> ReviewInput:
             "source_payload": record.source_payload,
         },
     )
+
+
+def _business_license_subject_name(record: DocumentRecord) -> str:
+    return (
+        _subject_name_from_remark(record.remark)
+        or _subject_name_from_file_name(record.file_name)
+        or record.vendor_name
+        or ""
+    )
+
+
+def _subject_name_from_remark(remark: str | None) -> str | None:
+    text = (remark or "").strip()
+    if not text:
+        return None
+    match = re.search(r"(?:生产商|经销商)\s*\d*\s*(?P<name>[^,，;；]+)", text)
+    if not match:
+        return None
+    return _clean_subject_name(match.group("name"))
+
+
+def _subject_name_from_file_name(file_name: str | None) -> str | None:
+    stem = Path((file_name or "").strip()).stem
+    if not stem:
+        return None
+    for marker in ("营业执照副本", "营业执照", "执照副本", "执照"):
+        stem = stem.replace(marker, "")
+    return _clean_subject_name(stem)
+
+
+def _clean_subject_name(value: str | None) -> str | None:
+    text = (value or "").strip(" -_()（）[]【】")
+    if not re.search(r"[\u4e00-\u9fff]", text):
+        return None
+    if not re.search(r"(公司|厂|店|社|部|中心|商行|个体工商户)$", text):
+        return None
+    return text or None
