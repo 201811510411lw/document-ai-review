@@ -1,6 +1,15 @@
 <template>
   <div class="review-page">
-    <van-nav-bar title="营业执照校验审核" left-arrow @click-left="router.push('/scene1')" />
+    <van-nav-bar :title="`${currentDocument.label}校验审核`" left-arrow @click-left="router.push('/scene1')" />
+
+    <van-tabs v-model:active="activeDocumentType" class="document-tabs" @change="switchDocumentType">
+      <van-tab
+        v-for="item in documentTypeOptions"
+        :key="item.value"
+        :title="item.shortLabel"
+        :name="item.value"
+      />
+    </van-tabs>
 
     <!-- 统计卡片 -->
     <div class="stats-row">
@@ -25,11 +34,23 @@
     <!-- 搜索栏 -->
     <van-search
       v-model="keyword"
-      placeholder="搜索公司名"
+      :placeholder="`搜索${currentDocument.subjectLabel}`"
       shape="round"
       clearable
       @search="loadList"
     />
+
+    <div class="toolbar">
+      <van-button
+        type="primary"
+        size="small"
+        icon="plus"
+        :loading="creating"
+        @click="createReviewFromSrm"
+      >
+        从 SRM 发起{{ currentDocument.label }}审核
+      </van-button>
+    </div>
 
     <!-- 待审核提示 -->
     <van-notice-bar
@@ -55,7 +76,7 @@
           </van-tag>
         </div>
         <div class="card-meta">
-          <span>{{ r.license_type || '未识别' }}</span>
+          <span>{{ r.license_type || currentDocument.label || '未识别' }}</span>
           <span class="sep">|</span>
           <span>匹配率: {{ formatRatio(r.match_ratio) }}</span>
           <span class="sep">|</span>
@@ -75,21 +96,63 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { reviewApi } from '@/api'
 import { showToast } from 'vant'
 
 const router = useRouter()
+const route = useRoute()
 const records = ref([])
 const stats = ref({})
 const loading = ref(true)
+const creating = ref(false)
 const keyword = ref('')
 const filterStatus = ref('')
+const activeDocumentType = ref('')
 
-onMounted(() => loadList())
+const documentTypeOptions = [
+  {
+    value: 'business_license',
+    label: '营业执照',
+    shortLabel: '营业执照',
+    subjectLabel: '公司名',
+  },
+  {
+    value: 'food_license',
+    label: '食品经营许可证',
+    shortLabel: '食品经营',
+    subjectLabel: '经营者名称',
+  },
+  {
+    value: 'food_production_license',
+    label: '食品生产许可证',
+    shortLabel: '食品生产',
+    subjectLabel: '生产者名称',
+  },
+]
+
+const documentTypeMap = Object.fromEntries(documentTypeOptions.map(item => [item.value, item]))
+
+const documentType = computed(() => {
+  const queryType = String(route.query.document_type || 'business_license')
+  return documentTypeMap[queryType] ? queryType : 'business_license'
+})
+
+const currentDocument = computed(() => documentTypeMap[documentType.value])
+
+onMounted(() => {
+  activeDocumentType.value = documentType.value
+  loadList()
+})
 
 watch(filterStatus, () => loadList())
+
+watch(documentType, (value) => {
+  activeDocumentType.value = value
+  filterStatus.value = ''
+  loadList()
+})
 
 async function loadList() {
   loading.value = true
@@ -97,7 +160,7 @@ async function loadList() {
     const res = await reviewApi.list({
       review_status: filterStatus.value,
       keyword: keyword.value,
-      document_type: 'business_license',
+      document_type: documentType.value,
       limit: 200,
     })
     records.value = res.records || []
@@ -106,6 +169,30 @@ async function loadList() {
     showToast('加载失败')
   } finally {
     loading.value = false
+  }
+}
+
+function switchDocumentType(name) {
+  if (name === documentType.value) return
+  router.replace({
+    path: '/review',
+    query: { document_type: name },
+  })
+}
+
+async function createReviewFromSrm() {
+  creating.value = true
+  try {
+    const result = await reviewApi.createFromSrm(documentType.value)
+    showToast('已发起审核')
+    await loadList()
+    if (result?.task_id) {
+      router.push(`/review/${result.task_id}`)
+    }
+  } catch (e) {
+    showToast(e.message || '发起审核失败')
+  } finally {
+    creating.value = false
   }
 }
 
@@ -135,6 +222,7 @@ function statusText(status) {
 
 <style scoped>
 .review-page { padding-bottom: 16px; }
+.document-tabs { background: #fff; }
 .stats-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -155,6 +243,12 @@ function statusText(status) {
 .stat-card.danger { background: linear-gradient(135deg, #fa709a, #fee140); }
 .stat-num { font-size: 26px; font-weight: 700; }
 .stat-label { font-size: 12px; opacity: 0.9; margin-top: 2px; }
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 16px 10px;
+  background: #f7f8fa;
+}
 .page-loading { display: flex; justify-content: center; padding: 40px; }
 .record-list { padding: 0 16px; }
 .record-card {

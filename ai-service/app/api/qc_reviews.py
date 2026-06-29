@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
 from app.api.auth import require_web_console_user
+from app.api.business_license_reviews import _review_response
 from app.integrations.mysql_client import MySqlFetchClient, mysql_settings_from_env
 from app.integrations.srm.food_production_license_tasks import (
     FoodProductionLicenseSourceTaskError,
@@ -108,8 +109,11 @@ def create_food_production_license_review_from_srm(
             },
         )
 
-    result = service.review(task.review_input, use_case_name="food_production_license")
-    return result.model_dump(mode="json")
+    result = service.review(
+        task.review_input,
+        use_case_name=task.review_input.declared_document_type,
+    )
+    return _review_response(result)
 
 
 @router.get("/reviews")

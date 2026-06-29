@@ -697,10 +697,11 @@ def _validation_fields(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     fields = _validation_field_specs(document_type)
     validation_fields = []
     for label, keys in fields:
-        recognized = _first_field_value(extracted, keys)
+        recognized = _recognized_field_value(extracted, normalized, keys)
         expected = _first_field_value(source_fields, keys)
-        if expected is None:
+        if expected is None and not _requires_source_field(keys):
             expected = _first_field_value(normalized, keys)
+        risk = _validation_field_risk(keys, recognized)
         validation_fields.append(
             {
             "field": label,
@@ -712,17 +713,71 @@ def _validation_fields(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
                 recognized,
                 expected,
             ),
+            "risk": risk,
         }
         )
     return validation_fields
 
 
+def _recognized_field_value(
+    extracted: dict[str, Any],
+    normalized: dict[str, Any],
+    keys: tuple[str, ...],
+) -> Any:
+    if _is_date_field(keys):
+        normalized_value = _first_field_value(normalized, keys)
+        if normalized_value is not None:
+            return normalized_value
+    return _first_field_value(extracted, keys)
+
+
+def _validation_field_risk(keys: tuple[str, ...], recognized: Any) -> str:
+    if "valid_to" in keys:
+        return _valid_to_status(recognized)
+    return ""
+
+
 def _source_validation_fields(snapshot: dict[str, Any]) -> dict[str, Any]:
     source_evidence = dict(snapshot.get("source_evidence") or {})
+    source = source_evidence.get("source") if isinstance(source_evidence.get("source"), dict) else {}
     return {
         "subject_name": source_evidence.get("supplier_name"),
-        "credit_code": source_evidence.get("supplier_credit_code"),
+        "producer_name": source_evidence.get("supplier_name"),
+        "credit_code": _source_credit_code(source_evidence, source),
     }
+
+
+def _requires_source_field(keys: tuple[str, ...]) -> bool:
+    return any(key in {"subject_name", "producer_name", "credit_code"} for key in keys)
+
+
+def _source_credit_code(source_evidence: dict[str, Any], source: dict[str, Any]) -> str:
+    candidates = [
+        source_evidence.get("supplier_credit_code"),
+        source.get("supplier_credit_code"),
+    ]
+    source_payload = source.get("source_payload")
+    if isinstance(source_payload, dict):
+        candidates.extend(
+            [
+                source_payload.get("creditCode"),
+                source_payload.get("credit_code"),
+                source_payload.get("unifiedSocialCreditCode"),
+                source_payload.get("socialCreditCode"),
+                source_payload.get("num"),
+                source_payload.get("t1.num"),
+            ]
+        )
+    for candidate in candidates:
+        normalized = _normalize_credit_code_candidate(candidate)
+        if normalized:
+            return normalized
+    return ""
+
+
+def _normalize_credit_code_candidate(value: Any) -> str:
+    text = "".join(str(value or "").split()).upper()
+    return text if len(text) in {15, 18} else ""
 
 
 def _validation_field_specs(document_type: str | None) -> list[tuple[str, tuple[str, ...]]]:
@@ -790,9 +845,55 @@ def _field_values_match(
     recognized: Any,
     expected: Any,
 ) -> bool:
-    if document_type == "business_license" and "subject_name" in keys:
+    if "valid_to" in keys:
+        validity = _valid_to_status(recognized)
+        if validity in {"expired", "expiring_soon", "invalid"}:
+            return False
+    if _is_date_field(keys):
+        return _normalize_date_text(recognized) == _normalize_date_text(expected)
+    if any(key in {"subject_name", "producer_name"} for key in keys):
         return _normalize_business_subject_name(recognized) == _normalize_business_subject_name(expected)
     return _display_field_value(recognized) == _display_field_value(expected)
+
+
+def _is_date_field(keys: tuple[str, ...]) -> bool:
+    return any(key in {"valid_from", "valid_to", "issue_date", "established_date"} for key in keys)
+
+
+def _normalize_date_text(value: Any) -> str:
+    text = _display_field_value(value)
+    if not text:
+        return ""
+    normalized = text.strip()
+    for suffix in ("日", "号"):
+        if normalized.endswith(suffix):
+            normalized = normalized[: -len(suffix)]
+    normalized = normalized.replace("年", "-").replace("月", "-").replace("/", "-").replace(".", "-")
+    parts = [part for part in normalized.split("-") if part]
+    if len(parts) == 3 and all(part.isdigit() for part in parts):
+        year, month, day = parts
+        if len(year) == 4:
+            return f"{year}-{int(month):02d}-{int(day):02d}"
+    return text
+
+
+def _valid_to_status(value: Any) -> str:
+    normalized = _normalize_date_text(value)
+    if not normalized:
+        return "unknown"
+    if "长期" in normalized:
+        return "valid"
+    from datetime import date
+
+    try:
+        days = (date.fromisoformat(normalized) - date.today()).days
+    except ValueError:
+        return "invalid"
+    if days < 0:
+        return "expired"
+    if days <= 30:
+        return "expiring_soon"
+    return "valid"
 
 
 def _normalize_business_subject_name(value: Any) -> str:

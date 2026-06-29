@@ -21,6 +21,7 @@ def test_food_production_license_review_from_srm_routes_to_qc_review_boundary(
     tmp_path,
     monkeypatch,
 ):
+    monkeypatch.setenv("DOCUMENT_AI_REVIEW_DEBUG", "true")
     install_mysql_repository_stub(monkeypatch)
     _stub_food_production_file_recognition(monkeypatch, tmp_path)
 
@@ -78,6 +79,14 @@ def test_food_production_license_review_from_srm_routes_to_qc_review_boundary(
             "document_category": "vendor",
             "document_type_code": None,
             "file_store_key": "oss-key-food-production-license",
+            "document_type_evidence": {
+                "declared_document_type": "food_production_license",
+                "resolved_document_type": "food_production_license",
+                "hints": [
+                    "number:SC",
+                ],
+                "conflict": False,
+            },
             "source_payload": {
                 "uuid": "cert-food-production-001",
                 "refId": "attach-food-production-001",
@@ -204,6 +213,66 @@ def test_food_production_license_review_from_srm_rejects_missing_url(monkeypatch
     }
 
 
+def test_food_production_license_review_from_srm_compacts_response_when_debug_disabled(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("DOCUMENT_AI_REVIEW_DEBUG", "false")
+    response = _create_food_production_license_review_from_srm(tmp_path, monkeypatch)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "audit_events" not in payload
+    assert set(payload["skill_result"]) == {"extracted_fields"}
+    assert "source_evidence" not in payload["skill_result"]
+
+
+def test_food_production_license_review_from_srm_keeps_full_response_when_debug_enabled(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("DOCUMENT_AI_REVIEW_DEBUG", "true")
+    response = _create_food_production_license_review_from_srm(tmp_path, monkeypatch)
+
+    assert response.status_code == 200
+    payload = response.json()
+    source = payload["skill_result"]["source_evidence"]["source"]
+    assert source["source_payload"]["typeName"] == "食品生产许可证"
+
+
+def _create_food_production_license_review_from_srm(tmp_path, monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
+    _stub_food_production_file_recognition(monkeypatch, tmp_path)
+
+    class StubSrmSqlClient:
+        def fetch_all(self, sql):
+            return [
+                {
+                    "uuid": "cert-food-production-001",
+                    "refId": "attach-food-production-001",
+                    "tenant": "8560",
+                    "category": "vendor",
+                    "typeName": "食品生产许可证",
+                    "vendorName": "成都示例食品生产有限公司",
+                    "number": "SC10151010000000",
+                    "num": "91510100MA00000000",
+                    "url": "https://files.example.test/food-production-license.pdf",
+                    "attachmentName": "food-production-license.pdf",
+                    "storeId": "oss-key-food-production-license",
+                }
+            ]
+
+    app.dependency_overrides[get_food_production_license_srm_sql_client] = (
+        lambda: StubSrmSqlClient()
+    )
+
+    client = TestClient(app)
+    return client.post(
+        "/api/v1/qc/food-production-license/reviews/from-srm",
+        headers=_auth_headers(client, monkeypatch),
+    )
+
+
 def _auth_headers(client, monkeypatch):
     return business_license_auth_headers(client, monkeypatch)
 
@@ -240,6 +309,7 @@ class StubFoodProductionFileAdapter:
                 "producer_name": "成都示例食品生产有限公司",
                 "credit_code": "91510100MA00000000",
                 "license_no": "SC10151010000000",
+                "legal_person": "王波",
                 "food_categories": ["糕点"],
                 "valid_to": "2028-06-05",
             },

@@ -7,6 +7,7 @@ from app.api.food_license_reviews import get_review_service, get_srm_sql_client
 from app.main import app
 from app.models import ReviewResult
 from app.workflows.food_license import nodes as food_license_nodes
+from app.workflows.food_production_license import nodes as food_production_license_nodes
 from tests.business_license_helpers import business_license_auth_headers
 from tests.mysql_repository_stub import install_mysql_repository_stub
 from tests.pdf_helpers import write_minimal_pdf
@@ -240,6 +241,7 @@ def test_food_license_review_route_calls_review_service_boundary():
 
 
 def test_food_license_review_from_srm_runs_review_with_source_evidence(monkeypatch):
+    monkeypatch.setenv("DOCUMENT_AI_REVIEW_DEBUG", "true")
     install_mysql_repository_stub(monkeypatch)
 
     class StubSrmSqlClient:
@@ -315,6 +317,188 @@ def test_food_license_review_from_srm_runs_review_with_source_evidence(monkeypat
     assert source["source_payload"]["typeName"] == "食品经营许可证"
 
 
+def test_food_license_review_from_srm_routes_food_production_evidence_to_production_workflow(
+    monkeypatch,
+):
+    monkeypatch.setenv("DOCUMENT_AI_REVIEW_DEBUG", "true")
+    install_mysql_repository_stub(monkeypatch)
+
+    class StubSrmSqlClient:
+        def fetch_all(self, sql):
+            return [
+                {
+                    "uuid": "2b2d05d6-d63f-4630-bd85-bbaacfc704fd",
+                    "refId": "attach-food-production-001",
+                    "tenant": "8560",
+                    "category": "vendor",
+                    "typeName": "食品经营许可证",
+                    "remark": "食品生产许可证",
+                    "vendorName": "江苏香之派食品有限公司",
+                    "number": "781923075088699392",
+                    "num": "SC10432130000012",
+                    "url": "https://files.example.test/食品生产许可证.jpg",
+                    "attachmentName": "食品生产许可证.jpg",
+                    "storeId": "vss-web/8560/certification/食品生产许可证.jpg",
+                }
+            ]
+
+    class StubFoodProductionFileAdapter:
+        def extract_text(self, source):
+            return {
+                "text": "",
+                "structured_fields": {
+                    "document_type": "food_production_license",
+                    "producer_name": "江苏香之派食品有限公司",
+                    "credit_code": "91321323314091953H",
+                    "license_no": "SC10432130000012",
+                    "legal_person": "王波",
+                    "food_categories": ["肉制品"],
+                    "valid_from": "2023-06-07",
+                    "valid_to": "2028-04-09",
+                },
+                "metadata": {"implementation_status": "fake"},
+            }
+
+    class StubDownloader:
+        def download(self, file_url):
+            from app.tools.remote_document import RemoteDocument
+
+            return RemoteDocument(
+                source_url=file_url,
+                content=b"fake-production-license-image",
+                file_type="jpg",
+                mime_type="image/jpeg",
+                status_code=200,
+                headers={"content-type": "image/jpeg"},
+            )
+
+    app.dependency_overrides[get_srm_sql_client] = lambda: StubSrmSqlClient()
+    monkeypatch.setattr(
+        food_production_license_nodes,
+        "food_production_license_file_adapter",
+        StubFoodProductionFileAdapter(),
+    )
+    monkeypatch.setattr(
+        food_production_license_nodes,
+        "food_production_license_remote_downloader",
+        StubDownloader(),
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/food-license/reviews/from-srm",
+        headers=_auth_headers(client, monkeypatch),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["task_id"] == "review-task-2b2d05d6-d63f-4630-bd85-bbaacfc704fd"
+    assert payload["use_case_name"] == "food_production_license"
+    assert payload["document_type"] == "food_production_license"
+    source = payload["skill_result"]["source_evidence"]["source"]
+    assert source["source_payload"]["typeName"] == "食品经营许可证"
+    assert source["document_type_evidence"] == {
+        "declared_document_type": "food_license",
+        "resolved_document_type": "food_production_license",
+        "hints": [
+            "remark:食品生产许可证",
+            "attachmentName:食品生产许可证",
+            "storeId:食品生产许可证",
+            "url:食品生产许可证",
+            "num:SC",
+        ],
+        "conflict": True,
+    }
+    assert payload["skill_result"]["extracted_fields"]["license_no"] == "SC10432130000012"
+
+
+def test_food_license_review_from_srm_routes_food_production_detail_attachment_to_production_workflow(
+    monkeypatch,
+):
+    monkeypatch.setenv("DOCUMENT_AI_REVIEW_DEBUG", "true")
+    install_mysql_repository_stub(monkeypatch)
+
+    class StubSrmSqlClient:
+        def fetch_all(self, sql):
+            return [
+                {
+                    "uuid": "97f1c862-0b02-4bc5-b452-4482fcdd2357",
+                    "refId": "attach-food-production-detail",
+                    "tenant": "8560",
+                    "category": "vendor",
+                    "typeName": "食品经营许可证",
+                    "vendorName": "浙江优拉食品有限公司",
+                    "number": "SC10833040205187",
+                    "url": "https://files.example.test/2-3食品生产许可品种明细表.jpg",
+                    "attachmentName": "2-3食品生产许可品种明细表.jpg",
+                }
+            ]
+
+    class StubFoodProductionFileAdapter:
+        def extract_text(self, source):
+            return {
+                "text": "",
+                "structured_fields": {
+                    "document_type": "food_production_license",
+                    "producer_name": "浙江优拉食品有限公司",
+                    "license_no": "SC10833040205187",
+                    "food_categories": ["饼干", "膨化食品"],
+                    "valid_to": "2027-09-04",
+                    "issue_date": "2024-01-02",
+                },
+                "metadata": {"implementation_status": "fake"},
+            }
+
+    class StubDownloader:
+        def download(self, file_url):
+            from app.tools.remote_document import RemoteDocument
+
+            return RemoteDocument(
+                source_url=file_url,
+                content=b"fake-production-license-detail-image",
+                file_type="jpg",
+                mime_type="image/jpeg",
+                status_code=200,
+                headers={"content-type": "image/jpeg"},
+            )
+
+    app.dependency_overrides[get_srm_sql_client] = lambda: StubSrmSqlClient()
+    monkeypatch.setattr(
+        food_production_license_nodes,
+        "food_production_license_file_adapter",
+        StubFoodProductionFileAdapter(),
+    )
+    monkeypatch.setattr(
+        food_production_license_nodes,
+        "food_production_license_remote_downloader",
+        StubDownloader(),
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/food-license/reviews/from-srm",
+        headers=_auth_headers(client, monkeypatch),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["task_id"] == "review-task-97f1c862-0b02-4bc5-b452-4482fcdd2357"
+    assert payload["use_case_name"] == "food_production_license"
+    assert payload["document_type"] == "food_production_license"
+    source = payload["skill_result"]["source_evidence"]["source"]
+    assert source["document_type_evidence"] == {
+        "declared_document_type": "food_license",
+        "resolved_document_type": "food_production_license",
+        "hints": [
+            "attachmentName:食品生产许可品种明细表",
+            "url:食品生产许可品种明细表",
+            "number:SC",
+        ],
+        "conflict": True,
+    }
+    assert payload["skill_result"]["extracted_fields"]["license_no"] == "SC10833040205187"
+
+
 def test_food_license_review_from_srm_returns_not_found(monkeypatch):
     class StubSrmSqlClient:
         def fetch_all(self, sql):
@@ -362,6 +546,95 @@ def test_food_license_review_from_srm_rejects_missing_url(monkeypatch):
         "message": "食品经营许可证来源记录缺少文件 URL",
         "record_id": "cert-food-001",
     }
+
+
+def test_food_license_review_from_srm_compacts_response_when_debug_disabled(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("DOCUMENT_AI_REVIEW_DEBUG", "false")
+    response = _create_food_license_review_from_srm(tmp_path, monkeypatch)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "audit_events" not in payload
+    assert set(payload["skill_result"]) == {"extracted_fields"}
+    assert "source_evidence" not in payload["skill_result"]
+
+
+def test_food_license_review_from_srm_keeps_full_response_when_debug_enabled(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("DOCUMENT_AI_REVIEW_DEBUG", "true")
+    response = _create_food_license_review_from_srm(tmp_path, monkeypatch)
+
+    assert response.status_code == 200
+    payload = response.json()
+    source = payload["skill_result"]["source_evidence"]["source"]
+    assert source["source_payload"]["typeName"] == "食品经营许可证"
+
+
+def _create_food_license_review_from_srm(tmp_path, monkeypatch):
+    class StubSrmSqlClient:
+        def fetch_all(self, sql):
+            return [
+                {
+                    "uuid": "cert-food-001",
+                    "refId": "attach-food-001",
+                    "tenant": "8560",
+                    "category": "vendor",
+                    "typeName": "食品经营许可证",
+                    "vendorName": "成都示例食品有限公司",
+                    "number": "JY15101000000000",
+                    "num": "91510100MA00000000",
+                    "url": "https://files.example.test/food-license.png",
+                    "attachmentName": "food-license.png",
+                    "storeId": "oss-key-food-license",
+                }
+            ]
+
+    class StubFileAdapter:
+        def extract_text(self, source):
+            return {
+                "text": "",
+                "structured_fields": {
+                    "document_type": "food_license",
+                    "subject_name": "成都示例食品有限公司",
+                    "credit_code": "91510100MA00000000",
+                    "license_no": "JY15101000000000",
+                    "business_items": ["预包装食品销售"],
+                    "valid_to": "2028-06-05",
+                },
+                "metadata": {"implementation_status": "fake"},
+            }
+
+    class StubDownloader:
+        def download(self, file_url):
+            from app.tools.remote_document import RemoteDocument
+
+            return RemoteDocument(
+                source_url=file_url,
+                content=b"fake-remote-png",
+                file_type="png",
+                mime_type="image/png",
+                status_code=200,
+                headers={"content-type": "image/png"},
+            )
+
+    app.dependency_overrides[get_srm_sql_client] = lambda: StubSrmSqlClient()
+    monkeypatch.setattr(food_license_nodes, "food_license_file_adapter", StubFileAdapter())
+    monkeypatch.setattr(
+        food_license_nodes,
+        "food_license_remote_downloader",
+        StubDownloader(),
+    )
+
+    client = TestClient(app)
+    return client.post(
+        "/api/v1/food-license/reviews/from-srm",
+        headers=_auth_headers(client, monkeypatch),
+    )
 
 
 def _is_review_task_uuid(task_id: str) -> bool:

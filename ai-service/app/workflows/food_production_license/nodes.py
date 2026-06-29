@@ -4,7 +4,7 @@ from app.capabilities.food_production_license.schemas import (
     FoodProductionLicenseExtractedFields,
     FoodProductionLicenseNormalizedFields,
 )
-from app.models import ManualReview, ManualReviewStatus, RiskLevel
+from app.models import ManualReview, ManualReviewStatus, RiskLevel, RuleResult
 from app.tools.license_file_recognition import recognize_license_file
 from app.tools.remote_document import RemoteDocumentDownloader
 from app.tools.skill_rule_review import (
@@ -190,12 +190,123 @@ def run_rules(
 def summarize_risk(
     state: FoodProductionLicenseWorkflowState,
 ) -> FoodProductionLicenseWorkflowState:
+    guarded = _apply_deterministic_review_guards(state)
+    return {
+        **guarded,
+        "risk_level": guarded.get("risk_level", RiskLevel.MEDIUM),
+        "needs_manual_review": guarded.get("needs_manual_review", True),
+        "summary": guarded.get("summary", "食品生产许可证 Skill 规则审核完成。"),
+    }
+
+
+def _apply_deterministic_review_guards(
+    state: FoodProductionLicenseWorkflowState,
+) -> FoodProductionLicenseWorkflowState:
+    normalized_fields = state.get("normalized_fields") or FoodProductionLicenseNormalizedFields()
+    input_context = state["input_context"]
+    reasons = list(state.get("manual_review_reasons", []))
+    rule_results = list(state.get("rule_results", []))
+    risk_level = state.get("risk_level", RiskLevel.MEDIUM)
+
+    recognized_credit = _normalize_credit_code(normalized_fields.credit_code)
+    expected_credit = _normalize_credit_code(input_context.input.supplier_credit_code)
+    if not recognized_credit:
+        reasons.append("证照统一社会信用代码缺失")
+        rule_results = _upsert_rule_result(
+            rule_results,
+            RuleResult(
+                rule_code="FOOD_PRODUCTION_LICENSE_CREDIT_CODE_MATCH",
+                rule_name="统一社会信用代码是否与供应商一致",
+                passed=False,
+                risk_level_on_failure=RiskLevel.HIGH,
+                message="证照统一社会信用代码缺失，无法与来源系统比对。",
+                details={},
+            ),
+        )
+        risk_level = RiskLevel.HIGH
+    elif expected_credit and recognized_credit != expected_credit:
+        reasons.append("统一社会信用代码与来源信息不一致")
+        rule_results = _upsert_rule_result(
+            rule_results,
+            RuleResult(
+                rule_code="FOOD_PRODUCTION_LICENSE_CREDIT_CODE_MATCH",
+                rule_name="统一社会信用代码是否与供应商一致",
+                passed=False,
+                risk_level_on_failure=RiskLevel.HIGH,
+                message="证照统一社会信用代码与供应商信用代码不一致。",
+                details={
+                    "recognized_credit_code": recognized_credit,
+                    "expected_credit_code": expected_credit,
+                },
+            ),
+        )
+        risk_level = RiskLevel.HIGH
+
+    if not _text(normalized_fields.legal_person):
+        reasons.append("负责人/法定代表人缺失")
+        risk_level = _max_risk(risk_level, RiskLevel.MEDIUM)
+
+    if not _text(normalized_fields.valid_to):
+        reasons.append("有效期截止日期缺失")
+        rule_results = _upsert_rule_result(
+            rule_results,
+            RuleResult(
+                rule_code="FOOD_PRODUCTION_LICENSE_VALIDITY_PERIOD",
+                rule_name="有效期是否合规",
+                passed=False,
+                risk_level_on_failure=RiskLevel.HIGH,
+                message="食品生产许可证有效期截止日期缺失，需要人工复核。",
+                details={},
+            ),
+        )
+        risk_level = RiskLevel.HIGH
+
+    deduped_reasons = list(dict.fromkeys(reason for reason in reasons if reason))
+    needs_manual_review = state.get("needs_manual_review", True) or bool(deduped_reasons)
+    summary = state.get("summary", "食品生产许可证 Skill 规则审核完成。")
+    if deduped_reasons:
+        summary = "食品生产许可证关键字段校验未通过，需要人工复核。"
     return {
         **state,
-        "risk_level": state.get("risk_level", RiskLevel.MEDIUM),
-        "needs_manual_review": state.get("needs_manual_review", True),
-        "summary": state.get("summary", "食品生产许可证 Skill 规则审核完成。"),
+        "rule_results": rule_results,
+        "risk_level": risk_level,
+        "needs_manual_review": needs_manual_review,
+        "manual_review_reasons": deduped_reasons,
+        "summary": summary,
     }
+
+
+def _upsert_rule_result(rule_results: list, replacement: RuleResult) -> list:
+    updated = []
+    replaced = False
+    for rule in rule_results:
+        rule_code = rule.get("rule_code") if isinstance(rule, dict) else rule.rule_code
+        if rule_code == replacement.rule_code:
+            updated.append(replacement)
+            replaced = True
+        else:
+            updated.append(rule)
+    if not replaced:
+        updated.append(replacement)
+    return updated
+
+
+def _normalize_credit_code(value) -> str:
+    return "".join(str(value or "").split()).upper()
+
+
+def _text(value) -> str:
+    return str(value or "").strip()
+
+
+def _max_risk(current: RiskLevel, candidate: RiskLevel) -> RiskLevel:
+    order = {
+        RiskLevel.NONE: 0,
+        RiskLevel.LOW: 1,
+        RiskLevel.MEDIUM: 2,
+        RiskLevel.HIGH: 3,
+    }
+    return candidate if order[candidate] > order.get(current, 0) else current
 
 
 def route_review(

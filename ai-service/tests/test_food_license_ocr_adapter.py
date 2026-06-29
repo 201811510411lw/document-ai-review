@@ -2,6 +2,7 @@ from app.tools.food_license_ocr_adapter import (
     FoodLicenseOcrTextParser,
     QwenOcrFoodLicenseAdapter,
     QwenOcrWithAliyunFallbackFoodLicenseAdapter,
+    food_license_qwen_ocr_prompt,
     validate_food_license_ocr_result,
 )
 from app.tools.vision_adapter import VisionInput
@@ -176,6 +177,152 @@ def test_food_license_ocr_text_parser_uses_license_prompt(monkeypatch):
     assert "不要把许可证编号" in prompt
     assert "输出要求" not in prompt
     assert "rule_results" not in prompt
+
+
+def test_food_license_prompt_maps_filing_date_to_valid_from():
+    prompt = food_license_qwen_ocr_prompt()
+
+    assert "备案日期" in prompt
+    assert "valid_from" in prompt
+
+
+def test_food_license_ocr_parser_maps_visible_filing_date_to_valid_from(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    class StubMessage:
+        content = (
+            '{"document_type":"食品经营许可证",'
+            '"subject_name":"东莞市嘉合信贸易有限公司",'
+            '"credit_code":"91441900MAK3M80N60",'
+            '"license_no":"JY14419082492249",'
+            '"备案日期":"2025年07月15日"}'
+        )
+
+    class StubChoice:
+        message = StubMessage()
+
+    class StubResponse:
+        choices = [StubChoice()]
+
+    class StubCompletions:
+        def create(self, **kwargs):
+            return StubResponse()
+
+    class StubChat:
+        completions = StubCompletions()
+
+    class StubOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = StubChat()
+
+    import app.tools.food_license_ocr_adapter as food_license_ocr_adapter
+
+    monkeypatch.setattr(food_license_ocr_adapter, "OpenAI", StubOpenAI, raising=False)
+    parser = FoodLicenseOcrTextParser(model="qwen-flash", base_url="https://example.test/v1")
+
+    result = parser.extract_text(
+        {
+            "text": "仅销售预包装食品经营者备案信息采集表\n备案日期 2025年07月15日",
+            "metadata": {"provider": "aliyun_ocr_text"},
+        }
+    )
+
+    assert result["structured_fields"]["valid_from"] == "2025年07月15日"
+
+
+def test_food_license_ocr_parser_maps_visible_valid_until_to_valid_to(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    class StubMessage:
+        content = (
+            '{"document_type":"食品经营许可证",'
+            '"subject_name":"上海奇梦生花文化发展有限公司",'
+            '"credit_code":"91310117MADWMPDC9C",'
+            '"license_no":"JY13101170360558",'
+            '"有效期至":"2030年04月08日"}'
+        )
+
+    class StubChoice:
+        message = StubMessage()
+
+    class StubResponse:
+        choices = [StubChoice()]
+
+    class StubCompletions:
+        def create(self, **kwargs):
+            return StubResponse()
+
+    class StubChat:
+        completions = StubCompletions()
+
+    class StubOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = StubChat()
+
+    import app.tools.food_license_ocr_adapter as food_license_ocr_adapter
+
+    monkeypatch.setattr(food_license_ocr_adapter, "OpenAI", StubOpenAI, raising=False)
+    parser = FoodLicenseOcrTextParser(model="qwen-flash", base_url="https://example.test/v1")
+
+    result = parser.extract_text(
+        {
+            "text": "食品经营许可证\n有效期至 2030年04月08日",
+            "metadata": {"provider": "aliyun_ocr_text"},
+        }
+    )
+
+    assert result["structured_fields"]["valid_to"] == "2030年04月08日"
+    assert result["structured_fields"].get("valid_from") is None
+
+
+def test_food_license_ocr_parser_uses_issue_date_when_valid_from_equals_valid_to(
+    monkeypatch,
+):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    class StubMessage:
+        content = (
+            '{"document_type":"食品经营许可证",'
+            '"subject_name":"广东轻上生物科技有限公司",'
+            '"credit_code":"91441322MA56KDA77Y",'
+            '"license_no":"JY14413220294510",'
+            '"valid_from":"2027年09月26日",'
+            '"valid_to":"2027年09月26日",'
+            '"签发日期":"2022年09月27日"}'
+        )
+
+    class StubChoice:
+        message = StubMessage()
+
+    class StubResponse:
+        choices = [StubChoice()]
+
+    class StubCompletions:
+        def create(self, **kwargs):
+            return StubResponse()
+
+    class StubChat:
+        completions = StubCompletions()
+
+    class StubOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = StubChat()
+
+    import app.tools.food_license_ocr_adapter as food_license_ocr_adapter
+
+    monkeypatch.setattr(food_license_ocr_adapter, "OpenAI", StubOpenAI, raising=False)
+    parser = FoodLicenseOcrTextParser(model="qwen-flash", base_url="https://example.test/v1")
+
+    result = parser.extract_text(
+        {
+            "text": "有效期至 2027年09月26日\n签发日期 2022年09月27日",
+            "metadata": {"provider": "aliyun_ocr_text"},
+        }
+    )
+
+    assert result["structured_fields"]["valid_from"] == "2022年09月27日"
+    assert result["structured_fields"]["valid_to"] == "2027年09月26日"
+    assert result["structured_fields"]["issue_date"] == "2022年09月27日"
 
 
 def test_qwen_food_license_adapter_calls_openai_compatible_multimodal_api(monkeypatch):
