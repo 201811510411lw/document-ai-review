@@ -101,7 +101,10 @@ class QwenOcrFoodProductionLicenseAdapter:
                         "page": page_number,
                         "raw_text": content_text,
                         "text": text,
-                        "fields": _sanitize_food_production_license_fields(fields or {}),
+                        "fields": _sanitize_food_production_license_fields(
+                            fields or {},
+                            source_text=text,
+                        ),
                         "is_food_production_license": _is_food_production_license_page(
                             fields or {},
                             text,
@@ -144,7 +147,10 @@ class QwenOcrFoodProductionLicenseAdapter:
                 "metadata": metadata,
             }
 
-        structured_fields = _sanitize_food_production_license_fields(selected["fields"])
+        structured_fields = _sanitize_food_production_license_fields(
+            selected["fields"],
+            source_text=selected["text"],
+        )
         structured_fields["source_page"] = selected["page"]
         return {
             "text": selected["text"],
@@ -203,6 +209,38 @@ class QwenOcrWithAliyunFallbackFoodProductionLicenseAdapter:
         fallback_ocr_result = self.fallback_adapter.extract_text(source)
         fallback_result = self.fallback_text_parser.extract_text(fallback_ocr_result)
         fallback_validation = validate_food_production_license_ocr_result(fallback_result)
+        missing_fields = _mergeable_missing_fields(
+            primary_validation.get("failure_reasons", [])
+        )
+        if missing_fields and _fallback_has_missing_fields(fallback_result, missing_fields):
+            merged_result = _merge_missing_fields(
+                primary_result,
+                fallback_result,
+                missing_fields=missing_fields,
+            )
+            return _with_fallback_metadata(
+                merged_result,
+                final_provider="qwen_ocr_with_aliyun_missing_field_merge",
+                primary_validation=primary_validation,
+                fallback_validation=fallback_validation,
+                fallback_used=True,
+                fallback_trigger=primary_validation["failure_reasons"][0],
+                primary_result=primary_result,
+                fallback_ocr_result=fallback_ocr_result,
+            )
+        if missing_fields and len(missing_fields) == len(
+            primary_validation.get("failure_reasons", [])
+        ):
+            return _with_fallback_metadata(
+                primary_result,
+                final_provider="qwen_ocr",
+                primary_validation=primary_validation,
+                fallback_validation=fallback_validation,
+                fallback_used=True,
+                fallback_trigger=primary_validation["failure_reasons"][0],
+                primary_result=primary_result,
+                fallback_ocr_result=fallback_ocr_result,
+            )
         return _with_fallback_metadata(
             fallback_result,
             final_provider=str(
@@ -320,7 +358,10 @@ class FoodProductionLicenseOcrTextParser:
             return {"text": document_text, "metadata": parsed_metadata}
         return {
             "text": document_text,
-            "structured_fields": _sanitize_food_production_license_fields(fields),
+            "structured_fields": _sanitize_food_production_license_fields(
+                fields,
+                source_text=document_text,
+            ),
             "metadata": parsed_metadata,
         }
 
@@ -345,6 +386,12 @@ def validate_food_production_license_ocr_result(result: dict[str, Any]) -> dict[
 
     if not _normalize_text(fields.get("license_no")):
         failure_reasons.append("license_no_missing")
+
+    if not _normalize_text(fields.get("legal_person")):
+        failure_reasons.append("legal_person_missing")
+
+    if not _string_list(fields.get("food_categories")):
+        failure_reasons.append("food_categories_missing")
 
     return {
         "passed": not failure_reasons,
@@ -432,7 +479,63 @@ def _with_fallback_metadata(
     return {**result, "metadata": metadata}
 
 
-def _sanitize_food_production_license_fields(fields: dict[str, Any]) -> dict[str, Any]:
+def _mergeable_missing_fields(failure_reasons: list[str]) -> list[str]:
+    mergeable = {
+        "legal_person_missing": "legal_person",
+        "food_categories_missing": "food_categories",
+    }
+    return [mergeable[reason] for reason in failure_reasons if reason in mergeable]
+
+
+def _fallback_has_missing_fields(
+    fallback_result: dict[str, Any],
+    missing_fields: list[str],
+) -> bool:
+    fallback_fields = dict(fallback_result.get("structured_fields") or {})
+    for field in missing_fields:
+        if field == "food_categories" and _string_list(fallback_fields.get(field)):
+            return True
+        if field != "food_categories" and _optional_text(fallback_fields.get(field)):
+            return True
+    return False
+
+
+def _merge_missing_fields(
+    primary_result: dict[str, Any],
+    fallback_result: dict[str, Any],
+    *,
+    missing_fields: list[str],
+) -> dict[str, Any]:
+    primary_fields = dict(primary_result.get("structured_fields") or {})
+    fallback_fields = dict(fallback_result.get("structured_fields") or {})
+    merged_fields = dict(primary_fields)
+    for field in missing_fields:
+        if field == "food_categories":
+            fallback_categories = _string_list(fallback_fields.get(field))
+            if fallback_categories:
+                merged_fields[field] = fallback_categories
+            continue
+        fallback_value = _optional_text(fallback_fields.get(field))
+        if fallback_value:
+            merged_fields[field] = fallback_value
+    metadata = dict(primary_result.get("metadata") or {})
+    metadata["merged_missing_fields"] = missing_fields
+    metadata["missing_fields_source"] = "fallback_ocr_text"
+    return {
+        **primary_result,
+        "structured_fields": _sanitize_food_production_license_fields(
+            merged_fields,
+            source_text=str(primary_result.get("text") or ""),
+        ),
+        "metadata": metadata,
+    }
+
+
+def _sanitize_food_production_license_fields(
+    fields: dict[str, Any],
+    *,
+    source_text: str = "",
+) -> dict[str, Any]:
     sanitized = dict(fields)
     for key, value in list(sanitized.items()):
         if isinstance(value, str) and value.strip().lower() in {
@@ -448,7 +551,61 @@ def _sanitize_food_production_license_fields(fields: dict[str, Any]) -> dict[str
             sanitized[key] = None
     if sanitized.get("document_type") == "食品生产许可证":
         sanitized["document_type"] = "food_production_license"
+    if not _optional_text(sanitized.get("legal_person")):
+        sanitized["legal_person"] = _first_optional_text(
+            sanitized,
+            (
+                "法定代表人",
+                "负责人",
+                "法定代表人/负责人",
+                "法定代表人（负责人）",
+                "负责人姓名",
+                "legalRepresentative",
+                "legal_representative",
+                "responsible_person",
+                "person_in_charge",
+            ),
+        )
+    if not _optional_text(sanitized.get("legal_person")):
+        sanitized["legal_person"] = _extract_legal_person_from_text(source_text)
+    if not _optional_text(sanitized.get("issue_date")):
+        sanitized["issue_date"] = _first_optional_text(
+            sanitized,
+            (
+                "签发日期",
+                "发证日期",
+                "核发日期",
+                "issueDate",
+                "issue_date",
+            ),
+        )
+    if not _optional_text(sanitized.get("valid_to")):
+        sanitized["valid_to"] = _first_optional_text(
+            sanitized,
+            (
+                "有效日期至",
+                "有效期至",
+                "有效期止",
+                "有效期限至",
+                "截止日期",
+                "到期日期",
+                "valid_until",
+                "valid_end",
+                "expiry_date",
+                "expiration_date",
+                "expire_date",
+            ),
+        )
+    issue_date = _optional_text(sanitized.get("issue_date"))
+    if issue_date:
+        valid_from = _optional_text(sanitized.get("valid_from"))
+        valid_to = _optional_text(sanitized.get("valid_to"))
+        if _should_move_valid_from_to_valid_to(valid_from, valid_to, issue_date):
+            sanitized["valid_to"] = valid_from
+        sanitized["valid_from"] = issue_date
     sanitized["food_categories"] = _string_list(sanitized.get("food_categories"))
+    if not sanitized["food_categories"]:
+        sanitized["food_categories"] = _extract_food_categories_from_text(source_text)
     for key in (
         "document_type",
         "producer_name",
@@ -509,6 +666,153 @@ def _item_to_text(value: Any) -> str:
 def _optional_text(value: Any) -> str | None:
     text = _item_to_text(value)
     return text or None
+
+
+def _first_optional_text(fields: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        text = _optional_text(fields.get(key))
+        if text:
+            return text
+    return None
+
+
+def _extract_legal_person_from_text(source_text: str) -> str | None:
+    if not source_text:
+        return None
+    compact = _compact_ocr_label_text(source_text)
+    label_pattern = r"(?:法定代表人|法定代表人/负责人|法定代表人负责人|负责人)"
+    stop_pattern = (
+        r"住[所址]|住所|生产地址|生产地|食品类别|许可证编号|统一社会信用代码|"
+        r"发证机关|发证日期|签发日期|有效日期至|有效期至|说明"
+    )
+    patterns = (
+        rf"{label_pattern}[(:：)]{{0,2}}(.{{1,24}}?)(?={stop_pattern}|$)",
+        rf"{label_pattern}[(:：)]{{0,2}}(.{{1,24}})",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, compact)
+        if not match:
+            continue
+        value = _clean_legal_person_text(match.group(1))
+        if value:
+            return value
+    return None
+
+
+def _compact_ocr_label_text(source_text: str) -> str:
+    text = unicodedata.normalize("NFKC", source_text)
+    text = re.sub(r"[ \t\r\f\v]+", "", text)
+    text = re.sub(r"\n+", "\n", text)
+    return text.replace("\n", "")
+
+
+def _clean_legal_person_text(value: str) -> str | None:
+    text = unicodedata.normalize("NFKC", value)
+    text = re.sub(r"[（(]负责人[）)]", "", text)
+    text = text.strip(" ：:;；,，。|/\\")
+    text = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff·.-]", "", text)
+    text = re.sub(
+        r"(住所|住址|生产地址|食品类别|许可证编号|统一社会信用代码|发证机关|发证日期|签发日期|有效日期至|有效期至|说明).*$",
+        "",
+        text,
+    )
+    if not text or text in {"负责人", "法定代表人"}:
+        return None
+    if len(text) > 12:
+        return None
+    return text
+
+
+def _extract_food_categories_from_text(source_text: str) -> list[str]:
+    if not source_text:
+        return []
+    compact = _compact_ocr_label_text(source_text)
+    label_pattern = r"(?:食品类别|食品生产类别|类别名称|生产范围|品种明细)"
+    stop_pattern = (
+        r"发证机关|发证日期|签发日期|有效日期至|有效期至|许可证编号|"
+        r"统一社会信用代码|说明|备注|二维码"
+    )
+    patterns = (
+        rf"{label_pattern}[(:：)]{{0,2}}(.{{1,80}}?)(?={stop_pattern}|$)",
+        rf"{label_pattern}[(:：)]{{0,2}}(.{{1,40}})",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, compact)
+        if not match:
+            continue
+        categories = _clean_food_categories_text(match.group(1))
+        if categories:
+            return categories
+    return []
+
+
+def _clean_food_categories_text(value: str) -> list[str]:
+    text = unicodedata.normalize("NFKC", value)
+    text = re.sub(
+        r"(发证机关|发证日期|签发日期|有效日期至|有效期至|许可证编号|统一社会信用代码|说明|备注|二维码).*$",
+        "",
+        text,
+    )
+    text = text.strip(" ：:;；,，。|/\\")
+    if not text:
+        return []
+    text = re.sub(r"\s+", "", text)
+    text = re.sub(r"[()（）【】\[\]{}]", "", text)
+    raw_items = re.split(r"[、,，;；/|]+", text)
+    items: list[str] = []
+    for item in raw_items:
+        cleaned = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff·.-]", "", item).strip()
+        if cleaned and cleaned not in {"食品类别", "类别名称", "生产范围", "品种明细"}:
+            items.append(cleaned)
+    return list(dict.fromkeys(items))
+
+
+def _should_move_valid_from_to_valid_to(
+    valid_from: Any,
+    valid_to: Any,
+    issue_date: Any,
+) -> bool:
+    normalized_valid_from = _normalize_date_value(valid_from)
+    normalized_issue_date = _normalize_date_value(issue_date)
+    if not normalized_valid_from or not normalized_issue_date:
+        return False
+    valid_to_text = _optional_text(valid_to) or ""
+    if valid_to_text and "长期" not in valid_to_text:
+        return False
+    try:
+        from_date = _date_from_iso_text(normalized_valid_from)
+        issue = _date_from_iso_text(normalized_issue_date)
+    except ValueError:
+        return False
+    return from_date > issue
+
+
+def _date_from_iso_text(value: str):
+    from datetime import date
+
+    return date.fromisoformat(value)
+
+
+def _normalize_date_value(value: Any) -> str:
+    text = _optional_text(value) or ""
+    if not text:
+        return ""
+    normalized = text.strip()
+    for suffix in ("日", "号"):
+        if normalized.endswith(suffix):
+            normalized = normalized[: -len(suffix)]
+    normalized = (
+        normalized.replace("年", "-")
+        .replace("月", "-")
+        .replace("/", "-")
+        .replace(".", "-")
+    )
+    parts = [part for part in normalized.split("-") if part]
+    if len(parts) == 3 and all(part.isdigit() for part in parts):
+        year, month, day = parts
+        if len(year) == 4:
+            return f"{year}-{int(month):02d}-{int(day):02d}"
+    return text
 
 
 def _select_food_production_license_page(

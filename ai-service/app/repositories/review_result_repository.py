@@ -39,6 +39,28 @@ BUSINESS_LICENSE_REVIEW_ROW_COLUMNS = """
 _REPOSITORY_CACHE: dict[tuple[Any, ...], "MySQLReviewResultRepository"] = {}
 _repository_cache_lock = Lock()
 
+_QC_PROJECTION_TABLES = (
+    "business_license_reviews",
+    "food_license_reviews",
+    "food_production_license_reviews",
+    "tobacco_license_reviews",
+    "tobacco_consistency_reviews",
+    "product_report_reviews",
+)
+
+_DOCUMENT_TYPE_PROJECTION_TABLES = {
+    "business_license": "business_license_reviews",
+    "food_license": "food_license_reviews",
+    "food_production_license": "food_production_license_reviews",
+    "tobacco_license": "tobacco_license_reviews",
+    "business_tobacco_consistency": "tobacco_consistency_reviews",
+    "product_report": "product_report_reviews",
+}
+
+
+def _projection_table_for_document_type(document_type: str) -> str | None:
+    return _DOCUMENT_TYPE_PROJECTION_TABLES.get(document_type)
+
 
 class _PooledConnection:
     def __init__(self, repository: "MySQLReviewResultRepository", connection) -> None:
@@ -86,6 +108,7 @@ class MySQLReviewResultRepository:
                         review_result.created_at.isoformat(),
                     ),
                 )
+                self._delete_stale_projection_rows(cursor, review_result)
                 self._save_business_license_projection(cursor, review_result)
                 self._save_food_license_projection(cursor, review_result)
                 self._save_food_production_license_projection(cursor, review_result)
@@ -776,6 +799,14 @@ class MySQLReviewResultRepository:
         }
 
     def get_qc_review_detail(self, task_id: str) -> dict[str, Any] | None:
+        payload = self.get_by_task_id(task_id)
+        if payload is not None:
+            detail = self._get_qc_review_detail_by_document_type(
+                task_id,
+                payload.document_type,
+            )
+            if detail is not None:
+                return detail
         business_license = self.get_business_license_snapshot(task_id)
         if business_license is not None:
             return _qc_business_license_detail(business_license)
@@ -794,6 +825,31 @@ class MySQLReviewResultRepository:
         product_report = self.get_product_report_snapshot(task_id)
         if product_report is not None:
             return _qc_product_report_detail(product_report)
+        return None
+
+    def _get_qc_review_detail_by_document_type(
+        self,
+        task_id: str,
+        document_type: str,
+    ) -> dict[str, Any] | None:
+        if document_type == "business_license":
+            snapshot = self.get_business_license_snapshot(task_id)
+            return _qc_business_license_detail(snapshot) if snapshot is not None else None
+        if document_type == "food_license":
+            snapshot = self.get_food_license_snapshot(task_id)
+            return _qc_food_license_detail(snapshot) if snapshot is not None else None
+        if document_type == "food_production_license":
+            snapshot = self.get_food_production_license_snapshot(task_id)
+            return _qc_food_production_license_detail(snapshot) if snapshot is not None else None
+        if document_type == "tobacco_license":
+            snapshot = self.get_tobacco_license_snapshot(task_id)
+            return _qc_tobacco_license_detail(snapshot) if snapshot is not None else None
+        if document_type == "business_tobacco_consistency":
+            snapshot = self.get_tobacco_consistency_snapshot(task_id)
+            return _qc_tobacco_consistency_detail(snapshot) if snapshot is not None else None
+        if document_type == "product_report":
+            snapshot = self.get_product_report_snapshot(task_id)
+            return _qc_product_report_detail(snapshot) if snapshot is not None else None
         return None
 
     def manual_review_qc_review(
@@ -1446,6 +1502,16 @@ class MySQLReviewResultRepository:
             """,
             _business_license_projection_values(projection),
         )
+
+    def _delete_stale_projection_rows(self, cursor, review_result: ReviewResult) -> None:
+        current_table = _projection_table_for_document_type(review_result.document_type)
+        for table in _QC_PROJECTION_TABLES:
+            if table == current_table:
+                continue
+            cursor.execute(
+                f"DELETE FROM {table} WHERE task_id = %s",
+                (review_result.task_id,),
+            )
 
     def _save_food_license_projection(self, cursor, review_result: ReviewResult) -> None:
         if review_result.document_type != "food_license":

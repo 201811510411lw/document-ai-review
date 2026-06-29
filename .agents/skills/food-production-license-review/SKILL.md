@@ -27,10 +27,10 @@ OCR/LLM 字段抽取只能依据证照图片、PDF 页面或 OCR 文本中的可
 - `credit_code`：统一社会信用代码。
 - `license_no`：许可证编号，通常以 `SC` 开头。
 - `production_address`：住所、生产地址或生产场所。
-- `legal_person`：法定代表人、负责人。
+- `legal_person`：法定代表人、负责人；常见标签为“法定代表人”“负责人”“法定代表人/负责人”。
 - `food_categories`：食品类别、品种明细、生产范围。
 - `valid_from`：有效期起始日期。
-- `valid_to`：有效期截止日期；长期、未识别到截止日期时按长期有效处理。
+- `valid_to`：有效期截止日期；常见标签为“有效期至”“有效日期至”；长期、未识别到截止日期时按长期有效处理。
 - `issue_authority`：发证机关。
 - `issue_date`：发证日期、签发日期。
 
