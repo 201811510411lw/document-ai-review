@@ -10,10 +10,8 @@ from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Requ
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from app.api.auth import login as api_v1_login
 from app.api.auth import me as api_v1_me
 from app.api.auth import require_web_console_user
-from app.api.auth import LoginRequest as ApiV1LoginRequest
 from app.api.business_license_reviews import (
     BusinessLicenseReviewReadRepository,
     get_review_read_repository,
@@ -23,12 +21,6 @@ from app.workflows.registry import review_graph_registry
 
 auth_router = APIRouter(prefix="/auth", tags=["wecom-frontend-auth"])
 api_router = APIRouter(prefix="/api", tags=["wecom-frontend"])
-
-
-class WecomFrontendLoginRequest(BaseModel):
-    code: str = ""
-    username: str | None = None
-    password: str | None = None
 
 
 class BatchQueryRequest(BaseModel):
@@ -78,31 +70,11 @@ def get_wecom_frontend_user(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    if authorization == "Bearer demo-token":
-        return {"username": "DemoUser", "display_name": "演示用户", "is_admin": True}
     return require_web_console_user(request=request, authorization=authorization)
-
-
-@auth_router.get("/corp-info")
-def corp_info() -> dict[str, str]:
-    return {"corp_id": ""}
-
-
-@auth_router.post("/login")
-def login(request: WecomFrontendLoginRequest) -> dict[str, Any]:
-    username = request.username or "reviewer"
-    password = request.password or "reviewer123"
-    payload = api_v1_login(ApiV1LoginRequest(username=username, password=password))
-    return {
-        "token": payload["access_token"],
-        "user": _frontend_user(payload["user"]),
-    }
 
 
 @auth_router.get("/profile")
 def profile(current_user: dict[str, Any] = Depends(get_wecom_frontend_user)) -> dict[str, Any]:
-    if current_user.get("username") == "DemoUser":
-        return _frontend_user(current_user)
     return _frontend_user(api_v1_me(current_user)["user"])
 
 

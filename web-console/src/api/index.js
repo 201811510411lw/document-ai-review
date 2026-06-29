@@ -1,8 +1,13 @@
 import http from './http'
 
 export const authApi = {
-  login(code) {
-    return http.post('/auth/login', { code })
+  providers() {
+    return http.get('/api/v1/auth/providers')
+  },
+  startSso(mode = 'work') {
+    return http.get('/api/v1/auth/sso/start', {
+      params: { provider: 'wecom', mode },
+    })
   },
   profile() {
     return http.get('/auth/profile')

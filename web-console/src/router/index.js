@@ -1,5 +1,6 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 
+import { useUserStore } from '@/store/user'
 import QueryPage from '@/views/QueryPage.vue'
 import DashboardPage from '@/views/DashboardPage.vue'
 import ReviewPage from '@/views/ReviewPage.vue'
@@ -102,16 +103,43 @@ const router = createRouter({
   routes,
 })
 
-// 登录守卫：未登录且非演示模式 → 跳转登录页
+let profilePromise = null
+let sessionVerified = false
+
+function loginRedirect(to) {
+  return {
+    path: '/login',
+    query: to.fullPath && to.fullPath !== '/login' ? { redirect: to.fullPath } : {},
+  }
+}
+
+async function verifySession() {
+  const userStore = useUserStore()
+  if (sessionVerified && userStore.user) return true
+
+  if (!profilePromise) {
+    profilePromise = userStore.fetchProfile()
+      .then(() => {
+        sessionVerified = true
+        return true
+      })
+      .catch(() => {
+        sessionVerified = false
+        userStore.logout()
+        return false
+      })
+      .finally(() => {
+        profilePromise = null
+      })
+  }
+  return profilePromise
+}
+
+// 登录守卫：每次进入业务页面都以后端真实会话为准。
 router.beforeEach(async (to) => {
   if (to.meta.noAuth) return true
 
-  const token = localStorage.getItem('auth_token')
-  const isDemo = localStorage.getItem('demo_mode') === 'true'
-  if (!token && !isDemo) {
-    return { path: '/login' }
-  }
-  return true
+  return (await verifySession()) ? true : loginRedirect(to)
 })
 
 export default router
