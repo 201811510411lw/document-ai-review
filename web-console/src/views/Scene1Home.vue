@@ -32,10 +32,32 @@
       </van-cell>
       <van-cell
         v-if="isAdmin"
-        title="📋 校验审核"
-        label="识别结果与数据库比对，低于 60% 需人工审核"
+        title="📋 营业执照审核"
+        label="营业执照识别结果与供应商主数据比对"
         is-link
-        @click="router.push('/review')"
+        @click="router.push('/review?document_type=business_license')"
+      >
+        <template #icon>
+          <van-icon name="records" class="cell-icon" />
+        </template>
+      </van-cell>
+      <van-cell
+        v-if="isAdmin"
+        title="🍽 食品经营许可证审核"
+        label="经营者名称、信用代码、经营项目、有效期校验"
+        is-link
+        @click="router.push('/review?document_type=food_license')"
+      >
+        <template #icon>
+          <van-icon name="records" class="cell-icon" />
+        </template>
+      </van-cell>
+      <van-cell
+        v-if="isAdmin"
+        title="🏭 食品生产许可证审核"
+        label="生产者名称、信用代码、食品类别、有效期校验"
+        is-link
+        @click="router.push('/review?document_type=food_production_license')"
       >
         <template #icon>
           <van-icon name="records" class="cell-icon" />

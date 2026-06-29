@@ -1,6 +1,7 @@
 import io
 import json
 import zipfile
+from datetime import date
 
 from fastapi.testclient import TestClient
 
@@ -843,6 +844,328 @@ def test_wecom_frontend_food_license_detail_uses_food_validation_fields(
     business_items = next(field for field in fields if field["field"] == "经营项目")
     assert business_items["recognized"] == "预包装食品销售、散装食品销售"
     assert business_items["match"] is True
+
+
+def test_wecom_frontend_food_license_subject_name_punctuation_matches(
+    tmp_path,
+    monkeypatch,
+):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+
+    class StubFoodLicenseFileAdapter:
+        def extract_text(self, source):
+            return {
+                "text": "",
+                "structured_fields": {
+                    "document_type": "food_license",
+                    "subject_name": "好麦多(上海)食品科技有限公司",
+                    "credit_code": "91310112MA1GD5WP62",
+                    "license_no": "JY13101120198903",
+                    "business_address": "上海市闵行区紫星路588号2幢8层17室",
+                    "legal_person": "赵孟龙",
+                    "business_items": ["食品销售经营者"],
+                    "valid_to": "2028-06-05",
+                },
+                "metadata": {"implementation_status": "stub"},
+            }
+
+    pdf_path = tmp_path / "food-license-subject-punctuation.pdf"
+    write_minimal_pdf(pdf_path, "embedded text should not be used")
+    monkeypatch.setattr(
+        food_license_nodes,
+        "food_license_file_adapter",
+        StubFoodLicenseFileAdapter(),
+    )
+    result = ReviewService(repository=repository).review_food_license(
+        ReviewInput(
+            file=ReviewDocumentInput(
+                local_path=str(pdf_path),
+                file_name="food-license-subject-punctuation.pdf",
+                mime_type="application/pdf",
+                document_format="pdf",
+            ),
+            supplier_name="好麦多（上海）食品科技有限公司",
+            supplier_credit_code="91310112MA1GD5WP62",
+            declared_document_type="food_license",
+        )
+    )
+    app.dependency_overrides[get_review_read_repository] = lambda: repository
+    client = TestClient(app)
+
+    response = client.get(
+        f"/api/review/{result.task_id}",
+        headers=business_license_auth_headers(client, monkeypatch),
+    )
+
+    assert response.status_code == 200
+    fields = response.json()["record"]["validation_fields"]
+    subject_name = next(field for field in fields if field["field"] == "经营者名称")
+    assert subject_name["recognized"] == "好麦多(上海)食品科技有限公司"
+    assert subject_name["expected"] == "好麦多（上海）食品科技有限公司"
+    assert subject_name["match"] is True
+
+
+def test_wecom_frontend_food_license_detail_uses_normalized_dates_for_comparison(
+    tmp_path,
+    monkeypatch,
+):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+
+    class StubFoodLicenseFileAdapter:
+        def extract_text(self, source):
+            return {
+                "text": "",
+                "structured_fields": {
+                    "document_type": "food_license",
+                    "subject_name": "成都示例食品有限公司",
+                    "credit_code": "91510100MA00000000",
+                    "license_no": "JY15101000000000",
+                    "business_address": "成都市示例区示例路 100 号",
+                    "legal_person": "李四",
+                    "business_items": ["预包装食品销售"],
+                    "valid_from": "2023年11月09日",
+                    "valid_to": "2028年11月08日",
+                },
+                "metadata": {"implementation_status": "stub"},
+            }
+
+    pdf_path = tmp_path / "food-license-date-format.pdf"
+    write_minimal_pdf(pdf_path, "embedded text should not be used")
+    monkeypatch.setattr(
+        food_license_nodes,
+        "food_license_file_adapter",
+        StubFoodLicenseFileAdapter(),
+    )
+    result = ReviewService(repository=repository).review_food_license(
+        ReviewInput(
+            file=ReviewDocumentInput(
+                local_path=str(pdf_path),
+                file_name="food-license-date-format.pdf",
+                mime_type="application/pdf",
+                document_format="pdf",
+            ),
+            supplier_name="成都示例食品有限公司",
+            supplier_credit_code="91510100MA00000000",
+            declared_document_type="food_license",
+        )
+    )
+    app.dependency_overrides[get_review_read_repository] = lambda: repository
+    client = TestClient(app)
+
+    response = client.get(
+        f"/api/review/{result.task_id}",
+        headers=business_license_auth_headers(client, monkeypatch),
+    )
+
+    assert response.status_code == 200
+    fields = response.json()["record"]["validation_fields"]
+    valid_from = next(field for field in fields if field["field"] == "有效期开始")
+    valid_to = next(field for field in fields if field["field"] == "有效期结束")
+    assert valid_from["recognized"] == "2023-11-09"
+    assert valid_from["expected"] == "2023-11-09"
+    assert valid_from["match"] is True
+    assert valid_to["recognized"] == "2028-11-08"
+    assert valid_to["expected"] == "2028-11-08"
+    assert valid_to["match"] is True
+
+
+def test_wecom_frontend_food_license_expired_valid_to_is_marked_unmatched(
+    tmp_path,
+    monkeypatch,
+):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+
+    class StubFoodLicenseFileAdapter:
+        def extract_text(self, source):
+            return {
+                "text": "",
+                "structured_fields": {
+                    "document_type": "food_license",
+                    "subject_name": "安徽元气森林销售有限公司",
+                    "credit_code": "91341102MA2U2C5A58",
+                    "license_no": "JY13411020046050",
+                    "business_address": "安徽省滁州市琅琊区琅琊经济开发区雷桥路2号办公楼202室",
+                    "legal_person": "张三",
+                    "business_items": ["食品销售经营者(批发)"],
+                    "valid_from": "2021-03-08",
+                    "valid_to": "2026-03-07",
+                },
+                "metadata": {"implementation_status": "stub"},
+            }
+
+    pdf_path = tmp_path / "food-license-expired-valid-to.pdf"
+    write_minimal_pdf(pdf_path, "embedded text should not be used")
+    monkeypatch.setattr(
+        food_license_nodes,
+        "_current_rule_date",
+        lambda: date(2026, 6, 29),
+    )
+    monkeypatch.setattr(
+        food_license_nodes,
+        "food_license_file_adapter",
+        StubFoodLicenseFileAdapter(),
+    )
+    result = ReviewService(repository=repository).review_food_license(
+        ReviewInput(
+            file=ReviewDocumentInput(
+                local_path=str(pdf_path),
+                file_name="food-license-expired-valid-to.pdf",
+                mime_type="application/pdf",
+                document_format="pdf",
+            ),
+            supplier_name="安徽元气森林销售有限公司",
+            supplier_credit_code="91341102MA2U2C5A58",
+            declared_document_type="food_license",
+        )
+    )
+    app.dependency_overrides[get_review_read_repository] = lambda: repository
+    client = TestClient(app)
+
+    response = client.get(
+        f"/api/review/{result.task_id}",
+        headers=business_license_auth_headers(client, monkeypatch),
+    )
+
+    assert response.status_code == 200
+    record = response.json()["record"]
+    valid_to = next(
+        field for field in record["validation_fields"] if field["field"] == "有效期结束"
+    )
+    assert valid_to["recognized"] == "2026-03-07"
+    assert valid_to["expected"] == "2026-03-07"
+    assert valid_to["match"] is False
+    assert valid_to["risk"] == "expired"
+    assert record["review_status"] == "pending"
+
+
+def test_wecom_frontend_food_license_detail_does_not_fallback_credit_code_to_recognized_value(
+    tmp_path,
+    monkeypatch,
+):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+
+    class StubFoodLicenseFileAdapter:
+        def extract_text(self, source):
+            return {
+                "text": "",
+                "structured_fields": {
+                    "document_type": "food_license",
+                    "subject_name": "东莞市华辉商贸有限公司",
+                    "credit_code": "91441900MA54XR353T",
+                    "license_no": "JY14419082492249",
+                    "business_address": "广东省东莞市寮步镇霞边元下路3号3栋101室",
+                    "legal_person": "徐巧君",
+                    "business_items": ["食品销售"],
+                    "valid_from": "2025-07-15",
+                },
+                "metadata": {"implementation_status": "stub"},
+            }
+
+    pdf_path = tmp_path / "food-license-empty-source-credit-code.pdf"
+    write_minimal_pdf(pdf_path, "embedded text should not be used")
+    monkeypatch.setattr(
+        food_license_nodes,
+        "food_license_file_adapter",
+        StubFoodLicenseFileAdapter(),
+    )
+    result = ReviewService(repository=repository).review_food_license(
+        ReviewInput(
+            file=ReviewDocumentInput(
+                local_path=str(pdf_path),
+                file_name="food-license-empty-source-credit-code.pdf",
+                mime_type="application/pdf",
+                document_format="pdf",
+            ),
+            supplier_name="东莞市华辉商贸有限公司",
+            supplier_credit_code="",
+            declared_document_type="food_license",
+            source={"source_payload": {"num": "1001010427202311270017"}},
+        )
+    )
+    app.dependency_overrides[get_review_read_repository] = lambda: repository
+    client = TestClient(app)
+
+    response = client.get(
+        f"/api/review/{result.task_id}",
+        headers=business_license_auth_headers(client, monkeypatch),
+    )
+
+    assert response.status_code == 200
+    record = response.json()["record"]
+    credit_code = next(
+        field for field in record["validation_fields"] if field["field"] == "统一社会信用代码"
+    )
+    assert credit_code["recognized"] == "91441900MA54XR353T"
+    assert credit_code["expected"] == ""
+    assert credit_code["match"] is False
+    assert record["match_ratio"] < 100
+
+
+def test_wecom_frontend_food_license_detail_uses_valid_source_payload_num_as_credit_code(
+    tmp_path,
+    monkeypatch,
+):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+
+    class StubFoodLicenseFileAdapter:
+        def extract_text(self, source):
+            return {
+                "text": "",
+                "structured_fields": {
+                    "document_type": "food_license",
+                    "subject_name": "上海清硕国际贸易有限公司",
+                    "credit_code": "91310116MA1J8TD79M",
+                    "license_no": "JY13101160340423",
+                    "business_address": "上海市金山区金山卫镇钱鑫路301号4075",
+                    "legal_person": "陈伟",
+                    "business_items": ["食品销售"],
+                    "valid_to": "2026-11-20",
+                },
+                "metadata": {"implementation_status": "stub"},
+            }
+
+    pdf_path = tmp_path / "food-license-source-payload-credit-code.pdf"
+    write_minimal_pdf(pdf_path, "embedded text should not be used")
+    monkeypatch.setattr(
+        food_license_nodes,
+        "food_license_file_adapter",
+        StubFoodLicenseFileAdapter(),
+    )
+    result = ReviewService(repository=repository).review_food_license(
+        ReviewInput(
+            file=ReviewDocumentInput(
+                local_path=str(pdf_path),
+                file_name="food-license-source-payload-credit-code.pdf",
+                mime_type="application/pdf",
+                document_format="pdf",
+            ),
+            supplier_name="上海清硕国际贸易有限公司",
+            supplier_credit_code="",
+            declared_document_type="food_license",
+            source={"source_payload": {"num": "91310116MA1J8TD79M"}},
+        )
+    )
+    app.dependency_overrides[get_review_read_repository] = lambda: repository
+    client = TestClient(app)
+
+    response = client.get(
+        f"/api/review/{result.task_id}",
+        headers=business_license_auth_headers(client, monkeypatch),
+    )
+
+    assert response.status_code == 200
+    record = response.json()["record"]
+    credit_code = next(
+        field for field in record["validation_fields"] if field["field"] == "统一社会信用代码"
+    )
+    assert credit_code["recognized"] == "91310116MA1J8TD79M"
+    assert credit_code["expected"] == "91310116MA1J8TD79M"
+    assert credit_code["match"] is True
 
 
 def test_wecom_frontend_food_production_detail_uses_production_validation_fields(

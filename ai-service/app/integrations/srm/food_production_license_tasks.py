@@ -6,6 +6,7 @@ from app.integrations.srm.document_records import (
     DocumentRecord,
     map_srm_certification_row,
 )
+from app.integrations.srm.document_type_evidence import resolve_srm_document_type
 from app.models import ReviewDocumentInput, ReviewInput
 
 
@@ -87,10 +88,11 @@ def fetch_food_production_license_source_tasks(
 
 
 def _to_review_input(record: DocumentRecord) -> ReviewInput:
+    document_type_evidence = resolve_srm_document_type(record)
     return ReviewInput(
         supplier_name=record.vendor_name or "",
         supplier_credit_code=_credit_code_or_empty(record.business_num),
-        declared_document_type="food_production_license",
+        declared_document_type=document_type_evidence.resolved_document_type,
         file=ReviewDocumentInput(
             file_uri=record.file_url,
             file_name=record.file_name,
@@ -103,6 +105,7 @@ def _to_review_input(record: DocumentRecord) -> ReviewInput:
             "document_category": record.document_category,
             "document_type_code": record.document_type_code,
             "file_store_key": record.file_store_key,
+            "document_type_evidence": document_type_evidence.as_source_dict(),
             "source_payload": record.source_payload,
         },
     )

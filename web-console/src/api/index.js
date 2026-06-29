@@ -87,6 +87,15 @@ export const reviewApi = {
   list(params) {
     return http.get('/api/review/list', { params })
   },
+  createFromSrm(documentType = 'business_license') {
+    const endpoints = {
+      business_license: '/api/v1/business-license/reviews/from-srm',
+      food_license: '/api/v1/food-license/reviews/from-srm',
+      food_production_license: '/api/v1/qc/food-production-license/reviews/from-srm',
+    }
+    const endpoint = endpoints[documentType] || endpoints.business_license
+    return http.post(endpoint)
+  },
   detail(id) {
     return http.get(`/api/review/${id}`)
   },

@@ -432,6 +432,52 @@ def _sanitize_food_license_fields(fields: dict[str, Any]) -> dict[str, Any]:
             sanitized[key] = None
     if sanitized.get("document_type") == "食品经营许可证":
         sanitized["document_type"] = "food_license"
+    elif sanitized.get("document_type") == "食品生产许可证":
+        sanitized["document_type"] = "food_production_license"
+    if not _optional_text(sanitized.get("issue_date")):
+        sanitized["issue_date"] = _first_optional_text(
+            sanitized,
+            (
+                "签发日期",
+                "发证日期",
+                "核发日期",
+                "issueDate",
+                "issue_date",
+            ),
+        )
+    if not _optional_text(sanitized.get("valid_from")):
+        sanitized["valid_from"] = _first_optional_text(
+            sanitized,
+            (
+                "备案日期",
+                "备案时间",
+                "filing_date",
+                "record_date",
+                "registration_date",
+                "record_time",
+            ),
+        )
+    if not _optional_text(sanitized.get("valid_to")):
+        sanitized["valid_to"] = _first_optional_text(
+            sanitized,
+            (
+                "有效期至",
+                "有效期止",
+                "有效期限至",
+                "截止日期",
+                "到期日期",
+                "valid_until",
+                "valid_end",
+                "expiry_date",
+                "expiration_date",
+                "expire_date",
+            ),
+        )
+    valid_from = _optional_text(sanitized.get("valid_from"))
+    valid_to = _optional_text(sanitized.get("valid_to"))
+    issue_date = _optional_text(sanitized.get("issue_date"))
+    if valid_from and valid_to and issue_date and _normalize_date_value(valid_from) == _normalize_date_value(valid_to):
+        sanitized["valid_from"] = issue_date
     sanitized["business_items"] = _string_list(sanitized.get("business_items"))
     for key in (
         "subject_name",
@@ -492,6 +538,36 @@ def _optional_text(value: Any) -> str | None:
     return text or None
 
 
+def _first_optional_text(fields: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        text = _optional_text(fields.get(key))
+        if text:
+            return text
+    return None
+
+
+def _normalize_date_value(value: Any) -> str:
+    text = _optional_text(value) or ""
+    if not text:
+        return ""
+    normalized = text.strip()
+    for suffix in ("日", "号"):
+        if normalized.endswith(suffix):
+            normalized = normalized[: -len(suffix)]
+    normalized = (
+        normalized.replace("年", "-")
+        .replace("月", "-")
+        .replace("/", "-")
+        .replace(".", "-")
+    )
+    parts = [part for part in normalized.split("-") if part]
+    if len(parts) == 3 and all(part.isdigit() for part in parts):
+        year, month, day = parts
+        if len(year) == 4:
+            return f"{year}-{int(month):02d}-{int(day):02d}"
+    return text
+
+
 def _select_food_license_page(page_results: list[dict[str, Any]]) -> dict[str, Any] | None:
     candidates = [item for item in page_results if item.get("is_food_license")]
     if not candidates:
@@ -502,6 +578,10 @@ def _select_food_license_page(page_results: list[dict[str, Any]]) -> dict[str, A
 def _is_food_license_page(fields: dict[str, Any], text: str) -> bool:
     compact = "".join((text or "").split())
     document_type = str(fields.get("document_type") or "").lower()
+    if document_type in {"food_production_license", "食品生产许可证"}:
+        return False
+    if "食品生产许可证" in compact:
+        return False
     if document_type in {"food_license", "食品经营许可证"}:
         return True
     if "食品经营许可证" in compact:

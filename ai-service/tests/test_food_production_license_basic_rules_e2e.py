@@ -11,6 +11,7 @@ BASE_FIELDS = {
     "producer_name": "成都示例食品生产有限公司",
     "credit_code": "91510100MA00000000",
     "license_no": "SC10151010000000",
+    "legal_person": "王波",
     "food_categories": ["糕点", "速冻食品"],
     "valid_to": "2028-06-05",
 }
@@ -186,6 +187,59 @@ def test_food_production_license_producer_name_mismatch_requires_review(
     assert payload["needs_manual_review"] is True
     assert payload["manual_review"]["reasons"] == ["生产者名称与来源信息不一致"]
     assert producer_rule["passed"] is False
+
+
+def test_food_production_license_credit_code_mismatch_requires_manual_review(
+    tmp_path,
+    monkeypatch,
+):
+    pdf_path = _write_pdf(tmp_path)
+    monkeypatch.setattr(
+        food_production_license_nodes,
+        "food_production_license_file_adapter",
+        StubFileAdapter({**BASE_FIELDS, "credit_code": "91321323314091953H"}),
+    )
+
+    result = ReviewService().review(
+        _review_input(pdf_path, supplier_credit_code="91321323314091953X"),
+        use_case_name="food_production_license",
+    )
+    payload = result.model_dump(mode="json")
+    credit_rule = _rule(payload, "FOOD_PRODUCTION_LICENSE_CREDIT_CODE_MATCH")
+
+    assert payload["risk_level"] == "HIGH"
+    assert payload["needs_manual_review"] is True
+    assert "统一社会信用代码与来源信息不一致" in payload["manual_review"]["reasons"]
+    assert credit_rule["passed"] is False
+
+
+def test_food_production_license_missing_visible_key_fields_requires_manual_review(
+    tmp_path,
+    monkeypatch,
+):
+    pdf_path = _write_pdf(tmp_path)
+    monkeypatch.setattr(
+        food_production_license_nodes,
+        "food_production_license_file_adapter",
+        StubFileAdapter(
+            {
+                **BASE_FIELDS,
+                "legal_person": None,
+                "valid_to": None,
+            }
+        ),
+    )
+
+    result = ReviewService().review(
+        _review_input(pdf_path),
+        use_case_name="food_production_license",
+    )
+    payload = result.model_dump(mode="json")
+
+    assert payload["risk_level"] == "HIGH"
+    assert payload["needs_manual_review"] is True
+    assert "负责人/法定代表人缺失" in payload["manual_review"]["reasons"]
+    assert "有效期截止日期缺失" in payload["manual_review"]["reasons"]
 
 
 def test_food_production_license_expired_is_high_risk(tmp_path, monkeypatch):

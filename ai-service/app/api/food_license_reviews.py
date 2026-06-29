@@ -3,6 +3,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.auth import require_web_console_user
+from app.api.business_license_reviews import _review_response
 from app.integrations.mysql_client import MySqlFetchClient, mysql_settings_from_env
 from app.integrations.srm.food_license_tasks import (
     FoodLicenseSourceTaskError,
@@ -105,7 +106,10 @@ def create_food_license_review_from_srm(
         )
 
     try:
-        result = service.review(task.review_input, use_case_name="food_license")
+        result = service.review(
+            task.review_input,
+            use_case_name=task.review_input.declared_document_type,
+        )
     except DocumentInputLimitError as error:
         raise HTTPException(
             status_code=400,
@@ -122,4 +126,4 @@ def create_food_license_review_from_srm(
                 "message": error.message,
             },
         ) from error
-    return result.model_dump(mode="json")
+    return _review_response(result)
