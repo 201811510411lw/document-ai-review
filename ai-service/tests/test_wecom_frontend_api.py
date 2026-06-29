@@ -240,7 +240,7 @@ def test_wecom_frontend_flagged_filter_returns_all_high_risk_records(tmp_path, m
     assert {record["review_status"] for record in payload["records"]} == {"flagged"}
 
 
-def test_wecom_frontend_accepts_demo_token_for_vue_demo_mode(monkeypatch):
+def test_wecom_frontend_rejects_removed_demo_token(monkeypatch):
     client = TestClient(app)
 
     profile_response = client.get("/auth/profile", headers={"Authorization": "Bearer demo-token"})
@@ -249,14 +249,8 @@ def test_wecom_frontend_accepts_demo_token_for_vue_demo_mode(monkeypatch):
         headers={"Authorization": "Bearer demo-token"},
     )
 
-    assert profile_response.status_code == 200
-    assert profile_response.json() == {
-        "user_id": "DemoUser",
-        "name": "演示用户",
-        "is_admin": True,
-    }
-    assert stats_response.status_code == 200
-    assert "data" in stats_response.json()
+    assert profile_response.status_code == 401
+    assert stats_response.status_code == 401
 
 
 def test_wecom_frontend_query_uses_real_qc_records(tmp_path, monkeypatch):
