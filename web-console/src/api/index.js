@@ -4,7 +4,10 @@ export const authApi = {
   providers() {
     return http.get('/api/v1/auth/providers')
   },
-  startSso(mode = 'work') {
+  login(username, password) {
+    return http.post('/api/v1/auth/login', { username, password })
+  },
+  startSso(mode = 'qr') {
     return http.get('/api/v1/auth/sso/start', {
       params: { provider: 'wecom', mode },
     })
@@ -97,6 +100,7 @@ export const reviewApi = {
       business_license: '/api/v1/business-license/reviews/from-srm',
       food_license: '/api/v1/food-license/reviews/from-srm',
       food_production_license: '/api/v1/qc/food-production-license/reviews/from-srm',
+      product_report: '/api/v1/qc/product-report/reviews/from-srm',
     }
     const endpoint = endpoints[documentType] || endpoints.business_license
     return http.post(endpoint)

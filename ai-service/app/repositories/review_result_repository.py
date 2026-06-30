@@ -1184,8 +1184,10 @@ class MySQLReviewResultRepository:
                         task_id VARCHAR(128) PRIMARY KEY,
                         source_record_id VARCHAR(255),
                         source_attachment_ref_id VARCHAR(255),
+                        source_url TEXT,
                         tenant VARCHAR(128),
                         document_type VARCHAR(64) NOT NULL,
+                        report_no VARCHAR(255),
                         product_name VARCHAR(512),
                         sample_name VARCHAR(512),
                         vendor_name VARCHAR(512),
@@ -1196,6 +1198,8 @@ class MySQLReviewResultRepository:
                         production_date VARCHAR(64),
                         issue_date VARCHAR(64),
                         sign_date VARCHAR(64),
+                        approval_date VARCHAR(64),
+                        valid_to VARCHAR(64),
                         inspection_conclusion TEXT,
                         inspection_result TEXT,
                         review_status VARCHAR(64) NOT NULL,
@@ -1226,6 +1230,10 @@ class MySQLReviewResultRepository:
                     "ALTER TABLE product_report_reviews ADD COLUMN manual_review_reviewer_id VARCHAR(128)",
                     "ALTER TABLE product_report_reviews ADD COLUMN manual_review_reviewer_username VARCHAR(128)",
                     "ALTER TABLE product_report_reviews ADD COLUMN manual_review_reviewed_at VARCHAR(64)",
+                    "ALTER TABLE product_report_reviews ADD COLUMN source_url TEXT",
+                    "ALTER TABLE product_report_reviews ADD COLUMN report_no VARCHAR(255)",
+                    "ALTER TABLE product_report_reviews ADD COLUMN approval_date VARCHAR(64)",
+                    "ALTER TABLE product_report_reviews ADD COLUMN valid_to VARCHAR(64)",
                 ):
                     _try_add_column(cursor, ddl)
                 cursor.execute(
@@ -1754,8 +1762,10 @@ class MySQLReviewResultRepository:
                 task_id,
                 source_record_id,
                 source_attachment_ref_id,
+                source_url,
                 tenant,
                 document_type,
+                report_no,
                 product_name,
                 sample_name,
                 vendor_name,
@@ -1766,6 +1776,8 @@ class MySQLReviewResultRepository:
                 production_date,
                 issue_date,
                 sign_date,
+                approval_date,
+                valid_to,
                 inspection_conclusion,
                 inspection_result,
                 review_status,
@@ -1778,12 +1790,14 @@ class MySQLReviewResultRepository:
                 created_at,
                 updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 source_record_id = VALUES(source_record_id),
                 source_attachment_ref_id = VALUES(source_attachment_ref_id),
+                source_url = VALUES(source_url),
                 tenant = VALUES(tenant),
                 document_type = VALUES(document_type),
+                report_no = VALUES(report_no),
                 product_name = VALUES(product_name),
                 sample_name = VALUES(sample_name),
                 vendor_name = VALUES(vendor_name),
@@ -1794,6 +1808,8 @@ class MySQLReviewResultRepository:
                 production_date = VALUES(production_date),
                 issue_date = VALUES(issue_date),
                 sign_date = VALUES(sign_date),
+                approval_date = VALUES(approval_date),
+                valid_to = VALUES(valid_to),
                 inspection_conclusion = VALUES(inspection_conclusion),
                 inspection_result = VALUES(inspection_result),
                 review_status = VALUES(review_status),
@@ -2229,6 +2245,7 @@ def _qc_tobacco_consistency_detail(snapshot: dict[str, Any]) -> dict[str, Any]:
 def _qc_product_report_detail(snapshot: dict[str, Any]) -> dict[str, Any]:
     row = _qc_product_report_row(snapshot)
     extracted_fields = {
+        "report_no": snapshot.get("report_no"),
         "product_name": snapshot.get("product_name"),
         "sample_name": snapshot.get("sample_name"),
         "vendor_name_extracted": snapshot.get("vendor_name_extracted"),
@@ -2238,6 +2255,8 @@ def _qc_product_report_detail(snapshot: dict[str, Any]) -> dict[str, Any]:
         "production_date": snapshot.get("production_date"),
         "issue_date": snapshot.get("issue_date"),
         "sign_date": snapshot.get("sign_date"),
+        "approval_date": snapshot.get("approval_date"),
+        "valid_to": snapshot.get("valid_to"),
         "inspection_conclusion": snapshot.get("inspection_conclusion"),
         "inspection_result": snapshot.get("inspection_result"),
         "inspection_items": snapshot.get("inspection_items", []),
@@ -2316,7 +2335,7 @@ def _document_type_label(document_type: str) -> str:
         "business_license": "营业执照",
         "food_license": "食品经营许可证",
         "food_production_license": "食品生产许可证",
-        "product_report": "产品报告",
+        "product_report": "商品报告",
         "tobacco_license": "烟草专卖零售许可证",
         "business_tobacco_consistency": "营业执照与烟草证一致性",
     }.get(document_type, document_type)
@@ -2785,12 +2804,15 @@ def _product_report_projection(review_result: ReviewResult) -> dict[str, Any]:
     extraction_metadata = dict(skill_result.get("extraction_metadata") or {})
     source_evidence = dict(skill_result.get("source_evidence") or {})
     source = dict(source_evidence.get("source") or {})
+    document_input = dict(skill_result.get("document_input") or {})
     return {
         "task_id": review_result.task_id,
         "source_record_id": source.get("record_id"),
         "source_attachment_ref_id": source.get("attachment_ref_id"),
+        "source_url": _source_url_from_document_input(document_input, source),
         "tenant": source.get("tenant"),
         "document_type": review_result.document_type,
+        "report_no": extracted_fields.get("report_no"),
         "product_name": extracted_fields.get("product_name"),
         "sample_name": extracted_fields.get("sample_name"),
         "vendor_name": source_evidence.get("supplier_name"),
@@ -2801,6 +2823,8 @@ def _product_report_projection(review_result: ReviewResult) -> dict[str, Any]:
         "production_date": extracted_fields.get("production_date"),
         "issue_date": extracted_fields.get("issue_date"),
         "sign_date": extracted_fields.get("sign_date"),
+        "approval_date": extracted_fields.get("approval_date"),
+        "valid_to": extracted_fields.get("valid_to"),
         "inspection_conclusion": extracted_fields.get("inspection_conclusion"),
         "inspection_result": extracted_fields.get("inspection_result"),
         "review_status": review_result.status.value,
@@ -2821,8 +2845,10 @@ def _product_report_projection_values(projection: dict[str, Any]) -> tuple[Any, 
         projection["task_id"],
         projection["source_record_id"],
         projection["source_attachment_ref_id"],
+        projection["source_url"],
         projection["tenant"],
         projection["document_type"],
+        projection["report_no"],
         projection["product_name"],
         projection["sample_name"],
         projection["vendor_name"],
@@ -2833,6 +2859,8 @@ def _product_report_projection_values(projection: dict[str, Any]) -> tuple[Any, 
         projection["production_date"],
         projection["issue_date"],
         projection["sign_date"],
+        projection["approval_date"],
+        projection["valid_to"],
         projection["inspection_conclusion"],
         projection["inspection_result"],
         projection["review_status"],
@@ -2845,6 +2873,19 @@ def _product_report_projection_values(projection: dict[str, Any]) -> tuple[Any, 
         projection["created_at"],
         projection["updated_at"],
     )
+
+
+def _source_url_from_document_input(
+    document_input: dict[str, Any],
+    source: dict[str, Any],
+) -> str | None:
+    source_url = document_input.get("source_url")
+    if source_url:
+        return source_url
+    source_payload = source.get("source_payload")
+    if isinstance(source_payload, dict):
+        return source_payload.get("url") or source_payload.get("t2.url")
+    return None
 
 
 def _is_today(value: Any) -> bool:

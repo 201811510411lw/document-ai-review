@@ -725,12 +725,17 @@ def _source_validation_fields(snapshot: dict[str, Any]) -> dict[str, Any]:
     return {
         "subject_name": source_evidence.get("supplier_name"),
         "producer_name": source_evidence.get("supplier_name"),
+        "entrusting_party": source_evidence.get("supplier_name"),
+        "manufacturer_name": source_evidence.get("supplier_name"),
         "credit_code": _source_credit_code(source_evidence, source),
     }
 
 
 def _requires_source_field(keys: tuple[str, ...]) -> bool:
-    return any(key in {"subject_name", "producer_name", "credit_code"} for key in keys)
+    return any(
+        key in {"subject_name", "producer_name", "entrusting_party", "manufacturer_name", "credit_code"}
+        for key in keys
+    )
 
 
 def _is_required_validation_field(
@@ -757,6 +762,21 @@ def _is_required_validation_field(
             "legal_person",
             "business_items",
             "valid_to",
+        }
+        return any(key in required_keys for key in keys)
+    if document_type == "product_report":
+        required_keys = {
+            "report_no",
+            "product_name",
+            "sample_name",
+            "entrusting_party",
+            "manufacturer_name",
+            "batch_no",
+            "production_date",
+            "issue_date",
+            "approval_date",
+            "valid_to",
+            "inspection_conclusion",
         }
         return any(key in required_keys for key in keys)
     return False
@@ -818,6 +838,19 @@ def _validation_field_specs(document_type: str | None) -> list[tuple[str, tuple[
             ("发证机关", ("issue_authority",)),
             ("签发日期", ("issue_date",)),
         ]
+    if document_type == "product_report":
+        return [
+            ("报告编号", ("report_no",)),
+            ("样品名称", ("sample_name", "product_name")),
+            ("委托单位", ("entrusting_party", "vendor_name_extracted")),
+            ("生产商", ("manufacturer_name",)),
+            ("批号", ("batch_no",)),
+            ("生产日期", ("production_date",)),
+            ("签发日期", ("issue_date", "sign_date")),
+            ("批准日期", ("approval_date",)),
+            ("有效截止日", ("valid_to",)),
+            ("检验结论", ("inspection_conclusion", "inspection_result")),
+        ]
     return [
         ("主体名称", ("subject_name",)),
         ("统一社会信用代码", ("credit_code",)),
@@ -862,13 +895,24 @@ def _field_values_match(
             return False
     if _is_date_field(keys):
         return _normalize_date_text(recognized) == _normalize_date_text(expected)
-    if any(key in {"subject_name", "producer_name"} for key in keys):
+    if any(key in {"subject_name", "producer_name", "entrusting_party", "manufacturer_name"} for key in keys):
         return _normalize_business_subject_name(recognized) == _normalize_business_subject_name(expected)
     return _display_field_value(recognized) == _display_field_value(expected)
 
 
 def _is_date_field(keys: tuple[str, ...]) -> bool:
-    return any(key in {"valid_from", "valid_to", "issue_date", "established_date"} for key in keys)
+    return any(
+        key in {
+            "valid_from",
+            "valid_to",
+            "issue_date",
+            "sign_date",
+            "approval_date",
+            "production_date",
+            "established_date",
+        }
+        for key in keys
+    )
 
 
 def _normalize_date_text(value: Any) -> str:
@@ -996,7 +1040,7 @@ def _document_type_label(document_type: str | None) -> str:
         "business_license": "营业执照",
         "food_license": "食品经营许可证",
         "food_production_license": "食品生产许可证",
-        "product_report": "产品报告",
+        "product_report": "商品报告",
         "tobacco_license": "烟草证",
         "business_tobacco_consistency": "营业执照与烟草证一致性",
     }.get(document_type or "", "营业执照")

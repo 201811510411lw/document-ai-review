@@ -302,8 +302,25 @@ QC 商品批次报告 / 第三方检验报告投影表。
 
 | 表 | 说明 |
 | --- | --- |
-| `product_report_reviews` | 保存商品名称、供应商、批号、生产日期、签发日期、检验结论、审核结论等 |
+| `product_report_reviews` | 保存商品名称、供应商、批号、生产日期、签发日期/批准日期、有效截止日、检验结论、审核结论等 |
 | `product_report_inspection_items` | 保存检验项目明细，主键为 `task_id + item_index` |
+
+产品报告首期来源为当前 SRM MySQL 商品维度材料：
+
+```sql
+select *
+from srm.certification t1
+left join srm.attachment t2 on t1.uuid = t2.refId
+where t2.tenant = '8560'
+  and t1.category = 'sku'
+  and t1.typeName = '产品报告'
+  and t1.deleted = 0
+  and t2.removed = 0
+```
+
+`typeName='产品报告'` 统一映射为 `declared_document_type='product_report'`，由 `qc_document_review` 处理。该来源属于商品维度材料，不与供应商证照 source task 混用命名或业务语义。
+
+产品报告有效期规则：优先使用报告中的签发日期/批准日期，计算 `有效截止日 = 签发日期或批准日期 + 180天`；`有效截止日 - 核验当天日期 < 0` 为已过期，`0..30` 天为三十天内即将过期，`>30` 天为未过期。
 
 #### `business_license_review_audit_events`
 
@@ -428,6 +445,7 @@ business_license capability 只负责营业执照单证审核。
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `POST` | `/api/v1/qc/food-production-license/reviews/from-srm` | 从 SRM 拉取一条食品生产许可证来源记录并审核 |
+| `POST` | `/api/v1/qc/product-report/reviews/from-srm` | 从 SRM 拉取一条商品产品报告 / 第三方检验报告来源记录并审核 |
 | `GET` | `/api/v1/qc/reviews` | 查询 QC 审核列表 |
 | `GET` | `/api/v1/qc/reviews/{task_id}` | 查询 QC 审核详情 |
 | `POST` | `/api/v1/qc/reviews/{task_id}/manual-review` | 提交 QC 人工复核 |
