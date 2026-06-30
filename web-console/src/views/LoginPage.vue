@@ -7,12 +7,43 @@
     </div>
 
     <div class="login-body">
+      <van-form class="password-form" @submit="handlePasswordLogin">
+        <van-field
+          v-model="username"
+          name="username"
+          label="账号"
+          placeholder="请输入账号"
+          autocomplete="username"
+          :rules="[{ required: true, message: '请输入账号' }]"
+        />
+        <van-field
+          v-model="password"
+          type="password"
+          name="password"
+          label="密码"
+          placeholder="请输入密码"
+          autocomplete="current-password"
+          :rules="[{ required: true, message: '请输入密码' }]"
+        />
+        <van-button
+          type="primary"
+          size="large"
+          block
+          :loading="passwordLoading"
+          native-type="submit"
+        >
+          账号密码登录
+        </van-button>
+      </van-form>
+
+      <div class="login-divider">或</div>
+
       <van-button
-        type="primary"
+        type="default"
         size="large"
-        round
-        :loading="loading"
-        @click="handleLogin"
+        block
+        :loading="ssoLoading"
+        @click="handleSsoLogin"
       >
         企业微信登录
       </van-button>
@@ -28,14 +59,18 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { authApi } from '@/api'
 import { showToast } from 'vant'
 
 const route = useRoute()
+const router = useRouter()
 const userStore = useUserStore()
-const loading = ref(false)
+const ssoLoading = ref(false)
+const passwordLoading = ref(false)
+const username = ref('reviewer')
+const password = ref('')
 const loginHint = ref('')
 
 onMounted(async () => {
@@ -56,14 +91,27 @@ onMounted(async () => {
   }
 })
 
-async function handleLogin() {
-  loading.value = true
+async function handlePasswordLogin() {
+  passwordLoading.value = true
   try {
-    const res = await authApi.startSso('work')
+    await userStore.login(username.value, password.value)
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/home'
+    await router.replace(redirect)
+  } catch (e) {
+    showToast(e.message || '账号或密码错误')
+  } finally {
+    passwordLoading.value = false
+  }
+}
+
+async function handleSsoLogin() {
+  ssoLoading.value = true
+  try {
+    const res = await authApi.startSso()
     window.location.href = res.redirect_url
   } catch (e) {
     showToast(e.message || '发起企业微信登录失败')
-    loading.value = false
+    ssoLoading.value = false
   }
 }
 </script>
@@ -92,7 +140,30 @@ async function handleLogin() {
 }
 .login-body {
   width: 100%;
-  max-width: 300px;
+  max-width: 360px;
+}
+.password-form {
+  display: grid;
+  gap: 12px;
+}
+.password-form :deep(.van-cell) {
+  border: 1px solid #ebedf0;
+  border-radius: 8px;
+}
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+  color: #969799;
+  font-size: 13px;
+}
+.login-divider::before,
+.login-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #ebedf0;
 }
 .login-hint {
   margin: 16px 0 0;

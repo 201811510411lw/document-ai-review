@@ -115,6 +115,7 @@ def _review_product_report(skill_name, payload):
         _rule("PRODUCT_REPORT_VENDOR_NAME_MATCH", "供应商名称匹配", bool(vendor) and _same(vendor, source.get("supplier_name")), RiskLevel.MEDIUM, {"field": "vendor_name", "expected": source.get("supplier_name"), "actual": vendor}),
         _rule("PRODUCT_REPORT_PRODUCT_NAME_PRESENT", "产品名存在", bool(product), RiskLevel.MEDIUM, {"field": "product_name", "actual": product}),
         _rule("PRODUCT_REPORT_BATCH_OR_PRODUCTION_DATE_PRESENT", "批次或生产日期存在", bool(fields.get("batch_no") or fields.get("production_date")), RiskLevel.MEDIUM, {"batch_number": fields.get("batch_no"), "production_date": fields.get("production_date")}),
+        _product_report_validity(fields.get("valid_to")),
         _rule("PRODUCT_REPORT_CONCLUSION_PASS", "结论正向/负向/不明确", positive, RiskLevel.HIGH if negative else RiskLevel.MEDIUM, {"conclusion": conclusion}),
     ]
     return _result(skill_name, rules, "产品检验报告规则校验通过", "产品检验报告存在高风险规则问题" if negative else "产品检验报告存在需要人工复核的规则问题")
@@ -128,6 +129,34 @@ def _food_validity(valid_to, current_date):
     except ValueError:
         return _rule("FOOD_LICENSE_VALIDITY_PERIOD", "有效期是否过期或三十天内临期", False, RiskLevel.MEDIUM, {"field": "valid_to", "actual": valid_to})
     return _rule("FOOD_LICENSE_VALIDITY_PERIOD", "有效期是否过期或三十天内临期", days > 30, RiskLevel.HIGH if days < 0 else RiskLevel.MEDIUM, {"field": "valid_to", "actual": valid_to, "days_until_expiry": days})
+
+
+def _product_report_validity(valid_to):
+    if not valid_to:
+        return _rule(
+            "PRODUCT_REPORT_VALIDITY_PERIOD",
+            "产品报告有效期是否过期或三十天内临期",
+            False,
+            RiskLevel.MEDIUM,
+            {"field": "valid_to", "valid_to": valid_to},
+        )
+    try:
+        days = (date.fromisoformat(str(valid_to)) - date(2026, 6, 29)).days
+    except ValueError:
+        return _rule(
+            "PRODUCT_REPORT_VALIDITY_PERIOD",
+            "产品报告有效期是否过期或三十天内临期",
+            False,
+            RiskLevel.MEDIUM,
+            {"field": "valid_to", "valid_to": valid_to},
+        )
+    return _rule(
+        "PRODUCT_REPORT_VALIDITY_PERIOD",
+        "产品报告有效期是否过期或三十天内临期",
+        days > 30,
+        RiskLevel.HIGH if days < 0 else RiskLevel.MEDIUM,
+        {"field": "valid_to", "valid_to": valid_to, "days_until_expiry": days},
+    )
 
 
 def _food_production_validity(valid_to, current_date):

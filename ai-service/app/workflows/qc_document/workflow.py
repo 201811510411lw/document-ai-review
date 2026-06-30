@@ -1,6 +1,8 @@
 from typing import Any
 
 from app.models import ManualReview, ManualReviewStatus, ReviewInputContext
+from app.tools.document_text_acquisition import acquire_document_text
+from app.tools.remote_document import RemoteDocumentDownloader
 from app.tools.skill_rule_review import (
     build_qc_document_skill_rule_review_adapter,
     load_skill_text,
@@ -11,14 +13,16 @@ from app.workflows.qc_document.product_report_extraction import (
 
 
 qc_document_skill_rule_review_adapter = build_qc_document_skill_rule_review_adapter()
+qc_document_remote_downloader = RemoteDocumentDownloader()
 
 
 def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any]:
     review_input = input_context.input
-    document_text = (review_input.ocr_text or "").strip()
-    if not document_text:
-        file_input = review_input.file or review_input.document
-        document_text = ((getattr(file_input, "stub_text", None) or "") if file_input else "").strip()
+    acquisition_result = acquire_document_text(
+        review_input,
+        downloader=qc_document_remote_downloader,
+    )
+    document_text = acquisition_result.document_text
 
     if review_input.declared_document_type != "product_report":
         return {
@@ -36,16 +40,14 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
             "capability_names": [],
             "document_type": review_input.declared_document_type or "qc_document",
             "skill_result": {
-                "document_input": {
-                    "input_type": "empty" if not document_text else "ocr_text",
-                },
+                "document_input": acquisition_result.document_input,
                 "document_classification": {
                     "document_type": "unknown",
                     "confidence": 0.0,
                     "reasons": ["declared_document_type 不在首期支持范围内"],
                 },
                 "extracted_fields": {},
-                "extraction_metadata": {},
+                "extraction_metadata": acquisition_result.extraction_metadata,
                 "source_evidence": {
                     "supplier_name": review_input.supplier_name,
                     "declared_document_type": review_input.declared_document_type,
@@ -71,16 +73,14 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
             "capability_names": ["product_report"],
             "document_type": "product_report",
             "skill_result": {
-                "document_input": {
-                    "input_type": "empty",
-                },
+                "document_input": acquisition_result.document_input,
                 "document_classification": {
                     "document_type": "unknown",
                     "confidence": 0.0,
                     "reasons": ["未获取到 OCR 文本或 stub_text"],
                 },
                 "extracted_fields": {},
-                "extraction_metadata": {},
+                "extraction_metadata": acquisition_result.extraction_metadata,
                 "source_evidence": {
                     "supplier_name": review_input.supplier_name,
                     "declared_document_type": review_input.declared_document_type,
@@ -89,6 +89,10 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
         }
 
     extracted_fields, extraction_metadata = extract_product_report_fields(document_text)
+    extraction_metadata = {
+        **acquisition_result.extraction_metadata,
+        **extraction_metadata,
+    }
     extracted_payload = extracted_fields.model_dump(mode="json")
     skill_name = "qc-document-review"
     rules_result = qc_document_skill_rule_review_adapter.review(
@@ -136,9 +140,7 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
         "capability_names": ["product_report"],
         "document_type": "product_report",
         "skill_result": {
-            "document_input": {
-                "input_type": "ocr_text",
-            },
+            "document_input": acquisition_result.document_input,
             "document_classification": {
                 "document_type": "product_report",
                 "confidence": 1.0,

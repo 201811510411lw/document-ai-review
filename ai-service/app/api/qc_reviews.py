@@ -12,6 +12,10 @@ from app.integrations.srm.food_production_license_tasks import (
     SqlFetchClient,
     fetch_one_food_production_license_source_task,
 )
+from app.integrations.srm.product_report_tasks import (
+    ProductReportSourceTaskError,
+    fetch_one_product_report_source_task,
+)
 from app.models import ReviewResult
 from app.repositories import build_review_result_repository_from_env
 from app.services.review_service import ReviewService, review_service
@@ -82,6 +86,10 @@ def get_food_production_license_srm_sql_client() -> SqlFetchClient:
     return MySqlFetchClient(mysql_settings_from_env("SRM_MYSQL"))
 
 
+def get_product_report_srm_sql_client() -> SqlFetchClient:
+    return MySqlFetchClient(mysql_settings_from_env("SRM_MYSQL"))
+
+
 @router.post("/food-production-license/reviews/from-srm")
 def create_food_production_license_review_from_srm(
     _current_user: dict[str, Any] = Depends(require_web_console_user),
@@ -113,6 +121,37 @@ def create_food_production_license_review_from_srm(
         task.review_input,
         use_case_name=task.review_input.declared_document_type,
     )
+    return _review_response(result)
+
+
+@router.post("/product-report/reviews/from-srm")
+def create_product_report_review_from_srm(
+    _current_user: dict[str, Any] = Depends(require_web_console_user),
+    sql_client: SqlFetchClient = Depends(get_product_report_srm_sql_client),
+    service: ReviewService = Depends(get_review_service),
+) -> dict[str, Any]:
+    try:
+        task = fetch_one_product_report_source_task(sql_client)
+    except ProductReportSourceTaskError as error:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": error.code,
+                "message": str(error),
+                "record_id": error.record_id,
+            },
+        ) from error
+
+    if task is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "PRODUCT_REPORT_SOURCE_RECORD_NOT_FOUND",
+                "message": "未找到可审核的产品报告来源记录",
+            },
+        )
+
+    result = service.review(task.review_input, use_case_name="qc_document_review")
     return _review_response(result)
 
 

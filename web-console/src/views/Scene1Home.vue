@@ -65,7 +65,18 @@
       </van-cell>
       <van-cell
         v-if="isAdmin"
-        title="📄 审核报告"
+        title="🧾 商品报告审核"
+        label="样品名称、委托单位、签发日期、检验结论校验"
+        is-link
+        @click="router.push('/review?document_type=product_report')"
+      >
+        <template #icon>
+          <van-icon name="description" class="cell-icon" />
+        </template>
+      </van-cell>
+      <van-cell
+        v-if="isAdmin"
+        title="📄 审核记录"
         label="查看已完成审核的记录和报告"
         is-link
         @click="router.push('/review')"
