@@ -425,6 +425,7 @@ def test_qc_review_list_and_detail_include_product_report_results(monkeypatch):
         ReviewInput(
             ocr_text="""
             产品检验报告
+            报告编号：BG-20260610-001
             样品名称：麻辣牛肉
             受检单位：成都示例食品有限公司
             生产单位：成都示例食品厂
@@ -462,16 +463,20 @@ def test_qc_review_list_and_detail_include_product_report_results(monkeypatch):
     assert list_response.status_code == 200
     row = list_response.json()["items"][0]
     assert row["document_type"] == "product_report"
-    assert row["document_type_label"] == "产品报告"
+    assert row["document_type_label"] == "商品报告"
     assert row["supplier_name"] == "成都示例食品有限公司"
     assert row["source_record_id"] == "SRM-PRODUCT-001"
+    assert row["source_url"] is None
 
     assert detail_response.status_code == 200
     detail = detail_response.json()
     assert detail["document_type"] == "product_report"
+    assert detail["extracted_fields"]["report_no"] == "BG-20260610-001"
     assert detail["extracted_fields"]["product_name"] == "麻辣牛肉"
     assert detail["extracted_fields"]["batch_no"] == "20260601-A"
     assert detail["extracted_fields"]["inspection_conclusion"] == "经检验，所检项目符合要求。"
+    assert detail["extracted_fields"]["valid_to"] == "2026-12-07"
+    assert detail["extracted_fields"]["approval_date"] is None
     assert detail["extracted_fields"]["inspection_items"] == [
         {"name": "菌落总数", "result": "120 CFU/g"}
     ]

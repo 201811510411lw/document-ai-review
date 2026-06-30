@@ -1,5 +1,19 @@
 # document-ai-review
 
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in GitHub Issues for `201811510411lw/document-ai-review`; use GitHub REST API instead of `gh`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the default triage labels, including `ready-for-agent` for AFK-ready work. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context repo. Use `README.md`, `docs/PRD.md`, `docs/SPEC.md`, `docs/API.md`, and relevant `.agents/skills/*/SKILL.md` as domain sources. See `docs/agents/domain.md`.
+
 ## 项目概述
 
 `document-ai-review` 是企业内部 AI 文档智能审核 demo，目标是把营业执照、食品证照、烟草证、QC 报告、合同等非结构化材料转为可抽取、可校验、可追溯、可人工复核的结构化审核结果。
@@ -70,7 +84,20 @@ document-ai-review/
 
 1. `business_license` 是第一条标准主线。
 2. `food_license` / `food_production_license` 已有基础流程和规则测试。
-3. `contract_review` 当前仍偏占位，后续再补标准业务 graph。
+3. `qc_document_review` 下一阶段优先打通 `product_report` 产品报告 / 第三方检验报告端到端闭环。
+4. `contract_review` 当前仍偏占位，后续再补标准业务 graph。
+
+### product_report 产品报告实现约定
+
+- 数据源使用当前 SRM MySQL：`srm.certification t1 left join srm.attachment t2 on t1.uuid = t2.refId`。
+- 首期只拉取 `t2.tenant='8560'`、`t1.category='sku'`、`t1.typeName='产品报告'`、`t1.deleted=0`、`t2.removed=0` 的记录。
+- `category='sku'` 表示商品维度材料，不要复用供应商证照 source task 的语义命名；新增或维护 `product_report` 专用 source task。
+- SRM `typeName='产品报告'` 统一映射为 `declared_document_type='product_report'`，由 `qc_document_review` use case 处理。
+- PDF 优先走远程文件下载和 PDF 文本层抽取；文本层缺失时再走 OCR / 视觉解析 adapter。不要只依赖 `ocr_text` 或 `file.stub_text` 完成真实链路。
+- 产品报告核心抽取字段包括：报告编号、样品名称/产品名称、委托单位/生产商、生产日期、签发日期/批准日期、检验结论、检验项目明细。
+- 第三方检验报告有效期按 `签发日期或批准日期 + 180 天` 计算；剩余天数 `<0` 为已过期，`0..30` 为三十天内即将过期，`>30` 为未过期。
+- 商品名称使用报告中的 `样品名称` / `产品名称` 与 SRM 商品名做模糊匹配；生产者名称使用 `委托单位` / `生产商` 与 SRM 供应商名称比对。
+- 最终通过/不通过/人工复核仍由确定性规则和 `RuleResult` 汇总，LLM 只可辅助抽取和结构化。
 
 ## 本地命令
 

@@ -28,6 +28,15 @@ export const useUserStore = defineStore('user', () => {
     return res
   }
 
+  async function login(username, password) {
+    const res = await authApi.login(username, password)
+    localStorage.setItem('auth_token', res.access_token)
+    localStorage.setItem('user_info', JSON.stringify(res.user))
+    token.value = res.access_token
+    user.value = res.user
+    return res.user
+  }
+
   function logout() {
     token.value = ''
     user.value = null
@@ -43,6 +52,7 @@ export const useUserStore = defineStore('user', () => {
     userId,
     userName,
     fetchProfile,
+    login,
     logout,
   }
 })

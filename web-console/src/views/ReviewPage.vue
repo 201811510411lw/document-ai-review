@@ -130,6 +130,12 @@ const documentTypeOptions = [
     shortLabel: '食品生产',
     subjectLabel: '生产者名称',
   },
+  {
+    value: 'product_report',
+    label: '商品报告',
+    shortLabel: '商品报告',
+    subjectLabel: '样品名称/供应商',
+  },
 ]
 
 const documentTypeMap = Object.fromEntries(documentTypeOptions.map(item => [item.value, item]))

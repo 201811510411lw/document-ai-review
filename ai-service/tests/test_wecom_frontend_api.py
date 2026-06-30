@@ -1234,6 +1234,62 @@ def test_wecom_frontend_food_production_detail_uses_production_validation_fields
     assert food_categories["match"] is True
 
 
+def test_wecom_frontend_product_report_detail_uses_product_report_validation_fields(
+    monkeypatch,
+):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    result = ReviewService(repository=repository).review(
+        ReviewInput(
+            ocr_text="""
+            产品检验报告
+            报告编号：BG-20260610-001
+            样品名称：麻辣牛肉
+            委托单位：成都示例食品有限公司
+            生产商：成都示例食品厂
+            批号：20260601-A
+            生产日期：2026年06月01日
+            签发日期：2026年06月10日
+            检验结论：经检验，所检项目符合要求。
+            """,
+            supplier_name="成都示例食品有限公司",
+            supplier_credit_code="",
+            declared_document_type="product_report",
+        ),
+        use_case_name="qc_document_review",
+    )
+    app.dependency_overrides[get_review_read_repository] = lambda: repository
+    client = TestClient(app)
+
+    response = client.get(
+        f"/api/review/{result.task_id}",
+        headers=business_license_auth_headers(client, monkeypatch),
+    )
+
+    assert response.status_code == 200
+    fields = response.json()["record"]["validation_fields"]
+    assert [field["field"] for field in fields] == [
+        "报告编号",
+        "样品名称",
+        "委托单位",
+        "生产商",
+        "批号",
+        "生产日期",
+        "签发日期",
+        "批准日期",
+        "有效截止日",
+        "检验结论",
+    ]
+    report_no = next(field for field in fields if field["field"] == "报告编号")
+    valid_to = next(field for field in fields if field["field"] == "有效截止日")
+    entrusting_party = next(field for field in fields if field["field"] == "委托单位")
+    assert report_no["recognized"] == "BG-20260610-001"
+    assert valid_to["recognized"] == "2026-12-07"
+    assert valid_to["match"] is True
+    assert entrusting_party["expected"] == "成都示例食品有限公司"
+    assert entrusting_party["match"] is True
+
+
 def test_wecom_frontend_food_production_detail_prefers_payload_document_type_over_stale_projection(
     tmp_path,
     monkeypatch,

@@ -47,12 +47,16 @@ def test_mysql_repository_saves_product_report_projection_and_items(monkeypatch)
     assert snapshot["source_attachment_ref_id"] == "att-001"
     assert snapshot["tenant"] == "8560"
     assert snapshot["product_name"] == "麻辣牛肉"
+    assert snapshot["report_no"] == "BG-20260610-001"
     assert snapshot["vendor_name"] == "成都示例食品有限公司"
     assert snapshot["vendor_name_extracted"] == "成都示例食品有限公司"
     assert snapshot["manufacturer_name"] == "成都示例食品厂"
     assert snapshot["batch_no"] == "20260601-A"
     assert snapshot["production_date"] == "2026-06-01"
     assert snapshot["issue_date"] == "2026-06-10"
+    assert snapshot["approval_date"] is None
+    assert snapshot["valid_to"] == "2026-12-07"
+    assert snapshot["source_url"] is None
     assert snapshot["review_status"] == "REVIEWED"
     assert snapshot["risk_level"] == "NONE"
     assert snapshot["needs_manual_review"] is False

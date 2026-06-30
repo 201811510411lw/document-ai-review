@@ -23,7 +23,6 @@ from app.integrations.wecom.client import (
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 SESSION_COOKIE_NAME = "document_ai_review_session"
-_sso_states: dict[str, dict[str, Any]] = {}
 
 
 class LoginRequest(BaseModel):
@@ -192,23 +191,44 @@ def _valid_credentials(username: str, password: str) -> bool:
 
 
 def _create_sso_state(provider: str) -> str:
-    state = token_urlsafe(24)
-    _sso_states[state] = {
-        "provider": provider,
-        "expires_at": int(time()) + 600,
-    }
-    return state
+    payload = f"{int(time()) + 600}.{provider}.{token_urlsafe(8)}"
+    payload_part = _encode(payload.encode("utf-8"))
+    return f"{payload_part}.{_signature(payload_part)[:16]}"
 
 
 def _consume_sso_state(provider: str, state: str | None) -> bool:
     if not state:
         return False
-    record = _sso_states.pop(state, None)
+    return _consume_short_sso_state(provider, state) or _consume_legacy_signed_sso_state(
+        provider,
+        state,
+    )
+
+
+def _consume_short_sso_state(provider: str, state: str) -> bool:
+    payload_part, separator, signature = state.partition(".")
+    if not separator or not payload_part or not signature:
+        return False
+    if len(signature) != 16 or not compare_digest(signature, _signature(payload_part)[:16]):
+        return False
+    try:
+        expires_at, state_provider, _nonce = (
+            urlsafe_b64decode(_pad_base64(payload_part)).decode("utf-8").split(".", 2)
+        )
+    except (ValueError, TypeError):
+        return False
+    if state_provider != provider:
+        return False
+    if int(expires_at or 0) < int(time()):
+        return False
+    return True
+
+
+def _consume_legacy_signed_sso_state(provider: str, state: str) -> bool:
+    record = _verify_token(state)
     if record is None:
         return False
     if record.get("provider") != provider:
-        return False
-    if int(record.get("expires_at") or 0) < int(time()):
         return False
     return True
 
