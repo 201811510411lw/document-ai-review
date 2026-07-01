@@ -76,9 +76,11 @@ const loginHint = ref('')
 onMounted(async () => {
   userStore.logout()
 
+  let wecomConfigured = false
   try {
     const providers = await authApi.providers()
     const wecom = providers.providers?.find((item) => item.id === 'wecom')
+    wecomConfigured = !!wecom?.configured
     if (wecom && !wecom.configured) {
       loginHint.value = wecom.status || '企业微信登录未配置'
     }
@@ -88,6 +90,11 @@ onMounted(async () => {
 
   if (route.query.error) {
     showToast(`登录失败: ${route.query.error}`)
+    return
+  }
+
+  if (wecomConfigured && isWecomWorkbench() && !recentlyAttemptedAutoSso()) {
+    await startWecomWorkbenchSso()
   }
 })
 
@@ -113,6 +120,31 @@ async function handleSsoLogin() {
     showToast(e.message || '发起企业微信登录失败')
     ssoLoading.value = false
   }
+}
+
+async function startWecomWorkbenchSso() {
+  ssoLoading.value = true
+  markAutoSsoAttempted()
+  try {
+    const res = await authApi.startSso('work')
+    window.location.href = res.redirect_url
+  } catch (e) {
+    loginHint.value = e.message || '发起企业微信自动登录失败'
+    ssoLoading.value = false
+  }
+}
+
+function isWecomWorkbench() {
+  return /wxwork/i.test(navigator.userAgent || '')
+}
+
+function recentlyAttemptedAutoSso() {
+  const attemptedAt = Number(sessionStorage.getItem('wecom_auto_sso_attempted_at') || 0)
+  return attemptedAt > 0 && Date.now() - attemptedAt < 60_000
+}
+
+function markAutoSsoAttempted() {
+  sessionStorage.setItem('wecom_auto_sso_attempted_at', String(Date.now()))
 }
 </script>
 
