@@ -77,7 +77,7 @@ def test_wecom_sso_callback_sets_session_cookie(monkeypatch):
     )
 
     assert response.status_code == 302
-    assert response.headers["location"] == "/reviews"
+    assert response.headers["location"] == "/#/review"
     assert "document_ai_review_session" in response.headers["set-cookie"]
 
     me = client.get("/api/v1/auth/me")
@@ -107,7 +107,7 @@ def test_wecom_sso_callback_survives_missing_process_memory_state(monkeypatch):
     )
 
     assert response.status_code == 302
-    assert response.headers["location"] == "/reviews"
+    assert response.headers["location"] == "/#/review"
     assert "document_ai_review_session" in response.headers["set-cookie"]
 
 
@@ -138,7 +138,7 @@ def test_wecom_sso_callback_accepts_legacy_signed_state_during_rollout(monkeypat
     )
 
     assert response.status_code == 302
-    assert response.headers["location"] == "/reviews"
+    assert response.headers["location"] == "/#/review"
     assert "document_ai_review_session" in response.headers["set-cookie"]
 
 
@@ -170,4 +170,4 @@ def test_wecom_sso_callback_without_code_or_state_returns_to_workbench(monkeypat
     )
 
     assert response.status_code == 302
-    assert response.headers["location"] == "/reviews"
+    assert response.headers["location"] == "/#/review"

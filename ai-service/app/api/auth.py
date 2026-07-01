@@ -274,8 +274,8 @@ def _wecom_api_http_exception(error: WecomApiError) -> HTTPException:
 def _post_login_redirect_url() -> str:
     base_url = settings.web_console_base_url.strip().rstrip("/")
     if base_url:
-        return f"{base_url}/reviews"
-    return "/reviews"
+        return f"{base_url}/#/review"
+    return "/#/review"
 
 
 def _sign_token(payload: dict[str, Any]) -> str:

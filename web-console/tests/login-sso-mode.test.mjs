@@ -19,12 +19,17 @@ assert.match(
 assert.match(
   loginPageSource,
   /authApi\.startSso\(\)/,
-  'Login page should use the default desktop QR login mode',
+  'Manual login button should use the default desktop QR login mode',
 )
-assert.doesNotMatch(
+assert.match(
   loginPageSource,
   /authApi\.startSso\('work'\)/,
-  'Login page should not force in-WeCom OAuth mode for desktop login',
+  'Login page should automatically use in-WeCom OAuth mode inside WeCom workbench',
+)
+assert.match(
+  loginPageSource,
+  /navigator\.userAgent/,
+  'Login page should detect the WeCom workbench browser before auto SSO',
 )
 assert.match(
   apiSource,
