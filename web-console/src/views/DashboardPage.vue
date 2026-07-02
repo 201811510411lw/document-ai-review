@@ -4,19 +4,19 @@
 
     <!-- 统计卡片 -->
     <div class="stats-row">
-      <div class="stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+      <div class="stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);cursor:pointer;" @click="filterExpire = ''">
         <div class="stat-num">{{ stats.total || 0 }}</div>
         <div class="stat-label">总证照数</div>
       </div>
-      <div class="stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+      <div class="stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);cursor:pointer;" @click="filterExpire = 'expiring'">
         <div class="stat-num">{{ stats.expiring || 0 }}</div>
         <div class="stat-label">临期</div>
       </div>
-      <div class="stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+      <div class="stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);cursor:pointer;" @click="filterExpire = ''">
         <div class="stat-num">{{ stats.valid || 0 }}</div>
         <div class="stat-label">正常</div>
       </div>
-      <div class="stat-card" style="background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%);">
+      <div class="stat-card" style="background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%);cursor:pointer;" @click="filterExpire = 'expired'">
         <div class="stat-num">{{ stats.expired || 0 }}</div>
         <div class="stat-label">已过期</div>
       </div>
@@ -40,20 +40,20 @@
         <span class="report-time">{{ dailyReport.date || todayStr }}</span>
       </div>
 
-      <div v-if="dailyReport.expiring?.length" class="report-section">
+      <div v-if="dailyReport.expiring?.length && (!filterExpire || filterExpire === 'expiring')" class="report-section">
         <div class="section-label warning">⚠️ 即将过期（{{ dailyReport.expiring.length }} 条）</div>
         <div v-for="r in dailyReport.expiring.slice(0, 10)" :key="r.id" class="report-item" @click="goToQuery(r.company_name)">
           <span class="item-name">{{ r.company_name }}</span>
-          <span class="item-detail">{{ r.license_type }} · 到期 {{ r.expire_date }} · 剩余 {{ r.expire_days_remaining }} 天</span>
+          <span class="item-detail">{{ r.license_type }} · 到期 {{ r.expire_date || '未知' }}{{ r.expire_days_remaining !== null && r.expire_days_remaining !== undefined ? ' · 剩余 ' + r.expire_days_remaining + ' 天' : '' }}</span>
         </div>
         <div v-if="dailyReport.expiring.length > 10" class="more-link">还有 {{ dailyReport.expiring.length - 10 }} 条...</div>
       </div>
 
-      <div v-if="dailyReport.expired?.length" class="report-section">
+      <div v-if="dailyReport.expired?.length && (!filterExpire || filterExpire === 'expired')" class="report-section">
         <div class="section-label danger">❌ 已过期（{{ dailyReport.expired.length }} 条）</div>
         <div v-for="r in dailyReport.expired.slice(0, 5)" :key="r.id" class="report-item" @click="goToQuery(r.company_name)">
           <span class="item-name">{{ r.company_name }}</span>
-          <span class="item-detail">{{ r.license_type }} · {{ r.expire_date }} 过期</span>
+          <span class="item-detail">{{ r.license_type }} · {{ r.expire_date || '未知日期' }} 过期</span>
         </div>
       </div>
     </div>
@@ -94,6 +94,8 @@ const dailyReport = ref(null)
 const loading = ref(true)
 const todayStr = new Date().toISOString().slice(0, 10)
 
+const filterExpire = ref('')
+
 const typeDistribution = computed(() => {
   const rows = stats.value.type_distribution || []
   const max = Math.max(...rows.map(i => i.count), 1)
@@ -102,12 +104,21 @@ const typeDistribution = computed(() => {
 
 onMounted(async () => {
   try {
-    const [statsRes, dailyRes] = await Promise.all([
-      dashboardApi.stats(),
-      dashboardApi.daily(),
-    ])
-    stats.value = statsRes.data || statsRes
-    dailyReport.value = dailyRes.data || dailyRes
+    const dailyRes = await dashboardApi.daily()
+    const data = dailyRes.data || dailyRes
+    dailyReport.value = data
+
+    const expiring = data.expiring || []
+    const expired = data.expired || []
+    // 卡片统计和日报数据同源
+    stats.value = {
+      total: expiring.length + expired.length,
+      expiring: expiring.length,
+      expired: expired.length,
+      valid: 0,
+      unknown: 0,
+      type_distribution: [],
+    }
   } catch (e) {
     showToast('加载失败: ' + e.message)
   } finally {

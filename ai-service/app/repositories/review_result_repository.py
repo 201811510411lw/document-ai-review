@@ -31,6 +31,8 @@ BUSINESS_LICENSE_REVIEW_ROW_COLUMNS = """
     risk_level,
     needs_manual_review,
     summary,
+    extracted_fields_json,
+    normalized_fields_json,
     created_at,
     updated_at,
     manual_review_decision
@@ -968,10 +970,13 @@ class MySQLReviewResultRepository:
                         subject_name,
                         credit_code,
                         license_no,
+                        valid_to,
                         review_status,
                         risk_level,
                         needs_manual_review,
                         summary,
+                        extracted_fields_json,
+                        normalized_fields_json,
                         created_at,
                         updated_at
                     FROM food_license_reviews
@@ -993,6 +998,8 @@ class MySQLReviewResultRepository:
                         risk_level,
                         needs_manual_review,
                         summary,
+                        extracted_fields_json,
+                        normalized_fields_json,
                         created_at,
                         updated_at
                     FROM food_production_license_reviews
@@ -1012,6 +1019,7 @@ class MySQLReviewResultRepository:
                         document_type,
                         subject_name,
                         license_no,
+                        valid_to,
                         review_status,
                         risk_level,
                         needs_manual_review,
@@ -1055,6 +1063,7 @@ class MySQLReviewResultRepository:
                         sample_name,
                         vendor_name,
                         vendor_name_extracted,
+                        valid_to,
                         review_status,
                         risk_level,
                         needs_manual_review,
@@ -1964,6 +1973,9 @@ def _qc_business_license_row(row: dict[str, Any]) -> dict[str, Any]:
         "source_record_id": item.get("source_record_id"),
         "source_attachment_ref_id": item.get("source_attachment_ref_id"),
         "source_url": item.get("source_url"),
+        "valid_to": item.get("valid_to"),
+        "extracted_fields": loads(item.get("extracted_fields_json") or "{}"),
+        "normalized_fields": loads(item.get("normalized_fields_json") or "{}"),
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
     }
@@ -1994,6 +2006,9 @@ def _qc_product_report_row(row: dict[str, Any]) -> dict[str, Any]:
         "source_record_id": item.get("source_record_id"),
         "source_attachment_ref_id": item.get("source_attachment_ref_id"),
         "source_url": item.get("source_url"),
+        "valid_to": item.get("valid_to"),
+        "extracted_fields": loads(item.get("extracted_fields_json") or "{}"),
+        "normalized_fields": loads(item.get("normalized_fields_json") or "{}"),
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
     }
@@ -2018,6 +2033,9 @@ def _qc_food_license_row(row: dict[str, Any]) -> dict[str, Any]:
         "source_record_id": item.get("source_record_id"),
         "source_attachment_ref_id": item.get("source_attachment_ref_id"),
         "source_url": item.get("source_url"),
+        "valid_to": item.get("valid_to"),
+        "extracted_fields": loads(item.get("extracted_fields_json") or "{}"),
+        "normalized_fields": loads(item.get("normalized_fields_json") or "{}"),
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
     }
@@ -2042,6 +2060,9 @@ def _qc_food_production_license_row(row: dict[str, Any]) -> dict[str, Any]:
         "source_record_id": item.get("source_record_id"),
         "source_attachment_ref_id": item.get("source_attachment_ref_id"),
         "source_url": item.get("source_url"),
+        "valid_to": item.get("valid_to"),
+        "extracted_fields": loads(item.get("extracted_fields_json") or "{}"),
+        "normalized_fields": loads(item.get("normalized_fields_json") or "{}"),
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
     }
@@ -2090,6 +2111,9 @@ def _qc_tobacco_consistency_row(row: dict[str, Any]) -> dict[str, Any]:
         "source_record_id": item.get("source_record_id"),
         "source_attachment_ref_id": item.get("source_attachment_ref_id"),
         "source_url": item.get("source_url"),
+        "valid_to": item.get("valid_to"),
+        "extracted_fields": loads(item.get("extracted_fields_json") or "{}"),
+        "normalized_fields": loads(item.get("normalized_fields_json") or "{}"),
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
     }

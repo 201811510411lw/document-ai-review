@@ -8,3 +8,5 @@ ai-service/.env
 app-config/app.yaml
 app-config/*.local.env
 app-config/*.local.yaml
+frontend/
+web-console/node_modules/
