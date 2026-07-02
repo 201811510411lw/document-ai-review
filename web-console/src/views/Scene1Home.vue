@@ -32,57 +32,13 @@
       </van-cell>
       <van-cell
         v-if="isAdmin"
-        title="📋 营业执照审核"
-        label="营业执照识别结果与供应商主数据比对"
-        is-link
-        @click="router.push('/review?document_type=business_license')"
-      >
-        <template #icon>
-          <van-icon name="records" class="cell-icon" />
-        </template>
-      </van-cell>
-      <van-cell
-        v-if="isAdmin"
-        title="🍽 食品经营许可证审核"
-        label="经营者名称、信用代码、经营项目、有效期校验"
-        is-link
-        @click="router.push('/review?document_type=food_license')"
-      >
-        <template #icon>
-          <van-icon name="records" class="cell-icon" />
-        </template>
-      </van-cell>
-      <van-cell
-        v-if="isAdmin"
-        title="🏭 食品生产许可证审核"
-        label="生产者名称、信用代码、食品类别、有效期校验"
-        is-link
-        @click="router.push('/review?document_type=food_production_license')"
-      >
-        <template #icon>
-          <van-icon name="records" class="cell-icon" />
-        </template>
-      </van-cell>
-      <van-cell
-        v-if="isAdmin"
-        title="🧾 商品报告审核"
-        label="样品名称、委托单位、签发日期、检验结论校验"
-        is-link
-        @click="router.push('/review?document_type=product_report')"
-      >
-        <template #icon>
-          <van-icon name="description" class="cell-icon" />
-        </template>
-      </van-cell>
-      <van-cell
-        v-if="isAdmin"
-        title="📄 审核记录"
-        label="查看已完成审核的记录和报告"
+        title="📋 供应商及商品证照"
+        label="营业执照、食品经营许可证、食品生产许可证、商品报告的统一校验审核"
         is-link
         @click="router.push('/review')"
       >
         <template #icon>
-          <van-icon name="description" class="cell-icon" />
+          <van-icon name="records" class="cell-icon" />
         </template>
       </van-cell>
       <van-cell
