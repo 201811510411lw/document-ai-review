@@ -15,6 +15,17 @@
       </template>
     </van-search>
 
+    <!-- 类型筛选 -->
+    <div class="type-filter-row">
+      <span
+        v-for="t in typeOptions"
+        :key="t.value"
+        class="type-chip"
+        :class="{ active: queryType === t.value }"
+        @click="queryType = t.value; if (keyword) handleSearch()"
+      >{{ t.label }}</span>
+    </div>
+
     <!-- 批量查询入口 -->
     <van-cell-group inset class="batch-section">
       <van-cell title="批量查询" icon="records" is-link @click="showBatchInput = true" />
@@ -158,11 +169,20 @@ import CertResultCard from '@/components/CertResultCard.vue'
 const route = useRoute()
 const router = useRouter()
 const keyword = ref('')
+const queryType = ref('')
 const searchResult = ref(null)
 const loading = ref(false)
 const listLoading = ref(false)
 const listFinished = ref(false)
 const recentList = ref(getSearchHistory())
+
+const typeOptions = [
+  { value: '', label: '全部' },
+  { value: 'business_license', label: '营业执照' },
+  { value: 'food_license', label: '食品经营' },
+  { value: 'food_production_license', label: '食品生产' },
+  { value: 'product_report', label: '商品报告' },
+]
 
 // 批量查询
 const showBatchInput = ref(false)
@@ -198,7 +218,10 @@ async function handleSearch() {
   recentList.value = getSearchHistory()
 
   try {
-    const res = await queryApi.single({ keyword: keyword.value.trim() })
+    const res = await queryApi.single({
+      keyword: keyword.value.trim(),
+      document_type: queryType.value,
+    })
     if (res.records?.length === 1) {
       searchResult.value = { type: 'single', data: res.records[0] }
     } else {
@@ -383,4 +406,24 @@ function handleExportCsv() {
   border-bottom: 1px solid #ebedf0;
 }
 .preview-row:last-child { border-bottom: none; }
+.type-filter-row {
+  display: flex;
+  gap: 6px;
+  padding: 0 16px 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.type-chip {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 14px;
+  background: #f5f6f8;
+  color: #646566;
+  cursor: pointer;
+}
+.type-chip.active {
+  background: #1989fa;
+  color: #fff;
+}
 </style>

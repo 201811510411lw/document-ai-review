@@ -19,8 +19,9 @@
           <p class="scene-desc">QC 证照及批次报告审核</p>
           <div class="scene-stats">
             <span class="stat-tag primary">待审核 {{ scene1Stats.pending || 0 }}</span>
-            <span class="stat-tag success">有效 {{ scene1Stats.valid || 0 }}</span>
+            <span class="stat-tag warning">临期 {{ scene1Stats.expiring || 0 }}</span>
             <span class="stat-tag danger">过期 {{ scene1Stats.expired || 0 }}</span>
+            <span class="stat-tag muted">共 {{ scene1Stats.total || 0 }} 条</span>
           </div>
         </div>
         <van-icon name="arrow" color="#dcdee0" />
@@ -80,14 +81,16 @@ const tobaccoStats = ref({})
 const contractStats = ref({})
 
 onMounted(async () => {
-  // 并行加载三个场景的统计数据
   try {
-    const [statsRes, reviewRes] = await Promise.all([
-      dashboardApi.stats(),
-      import('@/api').then(m => m.reviewApi.list({ review_status: 'pending', limit: 1 })),
-    ])
-    scene1Stats.value = statsRes.data || statsRes
-    scene1Stats.value.pending = reviewRes.stats?.pending || 0
+    const statsRes = await dashboardApi.stats()
+    const data = statsRes.data || statsRes
+    scene1Stats.value = {
+      total: data.total || 0,
+      valid: data.valid || 0,
+      expiring: data.expiring || 0,
+      expired: data.expired || 0,
+      pending: data.pending_manual_review || 0,
+    }
   } catch {
     // 静默
   }

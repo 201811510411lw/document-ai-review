@@ -33,6 +33,7 @@ BUSINESS_LICENSE_REVIEW_ROW_COLUMNS = """
     summary,
     extracted_fields_json,
     normalized_fields_json,
+    rule_results_json,
     created_at,
     updated_at,
     manual_review_decision
@@ -977,6 +978,7 @@ class MySQLReviewResultRepository:
                         summary,
                         extracted_fields_json,
                         normalized_fields_json,
+                        rule_results_json,
                         created_at,
                         updated_at
                     FROM food_license_reviews
@@ -1000,6 +1002,7 @@ class MySQLReviewResultRepository:
                         summary,
                         extracted_fields_json,
                         normalized_fields_json,
+                        rule_results_json,
                         created_at,
                         updated_at
                     FROM food_production_license_reviews
@@ -1024,6 +1027,9 @@ class MySQLReviewResultRepository:
                         risk_level,
                         needs_manual_review,
                         summary,
+                        extracted_fields_json,
+                        normalized_fields_json,
+                        rule_results_json,
                         created_at,
                         updated_at
                     FROM tobacco_license_reviews
@@ -1044,6 +1050,7 @@ class MySQLReviewResultRepository:
                         risk_level,
                         needs_manual_review,
                         summary,
+                        rule_results_json,
                         created_at,
                         updated_at
                     FROM tobacco_consistency_reviews
@@ -1056,22 +1063,190 @@ class MySQLReviewResultRepository:
                         task_id,
                         source_record_id,
                         source_attachment_ref_id,
-                        NULL AS source_url,
+                        source_url,
                         tenant,
                         document_type,
                         product_name,
                         sample_name,
                         vendor_name,
                         vendor_name_extracted,
+                        entrusting_party,
+                        manufacturer_name,
+                        batch_no,
+                        production_date,
+                        issue_date,
+                        sign_date,
+                        approval_date,
+                        valid_to,
+                        inspection_conclusion,
+                        inspection_result,
+                        review_status,
+                        risk_level,
+                        needs_manual_review,
+                        summary,
+                        rule_results_json,
+                        created_at,
+                        updated_at
+                    FROM product_report_reviews
+                    """
+                )
+                rows.extend(_qc_product_report_row(row) for row in cursor.fetchall())
+        return rows
+
+    def list_qc_reviews_created_since(self, since_date: str) -> list[dict[str, Any]]:
+        """只查询指定日期之后创建的记录，支持日报等场景避免全表扫描。"""
+        rows: list[dict[str, Any]] = []
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT {BUSINESS_LICENSE_REVIEW_ROW_COLUMNS}
+                    FROM business_license_reviews
+                    WHERE created_at >= %s
+                    """,
+                    (since_date,),
+                )
+                rows.extend(_qc_business_license_row(row) for row in cursor.fetchall())
+                cursor.execute(
+                    """
+                    SELECT
+                        task_id,
+                        source_record_id,
+                        source_attachment_ref_id,
+                        source_url,
+                        tenant,
+                        document_type,
+                        subject_name,
+                        credit_code,
+                        license_no,
                         valid_to,
                         review_status,
                         risk_level,
                         needs_manual_review,
                         summary,
+                        extracted_fields_json,
+                        normalized_fields_json,
+                        rule_results_json,
+                        created_at,
+                        updated_at
+                    FROM food_license_reviews
+                    WHERE created_at >= %s
+                    """,
+                    (since_date,),
+                )
+                rows.extend(_qc_food_license_row(row) for row in cursor.fetchall())
+                cursor.execute(
+                    """
+                    SELECT
+                        task_id,
+                        source_record_id,
+                        source_attachment_ref_id,
+                        source_url,
+                        tenant,
+                        document_type,
+                        supplier_name,
+                        credit_code,
+                        review_status,
+                        risk_level,
+                        needs_manual_review,
+                        summary,
+                        extracted_fields_json,
+                        normalized_fields_json,
+                        rule_results_json,
+                        created_at,
+                        updated_at
+                    FROM food_production_license_reviews
+                    WHERE created_at >= %s
+                    """,
+                    (since_date,),
+                )
+                rows.extend(
+                    _qc_food_production_license_row(row) for row in cursor.fetchall()
+                )
+                cursor.execute(
+                    """
+                    SELECT
+                        task_id,
+                        source_record_id,
+                        source_attachment_ref_id,
+                        source_url,
+                        tenant,
+                        document_type,
+                        subject_name,
+                        license_no,
+                        valid_to,
+                        review_status,
+                        risk_level,
+                        needs_manual_review,
+                        summary,
+                        extracted_fields_json,
+                        normalized_fields_json,
+                        rule_results_json,
+                        created_at,
+                        updated_at
+                    FROM tobacco_license_reviews
+                    WHERE created_at >= %s
+                    """,
+                    (since_date,),
+                )
+                rows.extend(_qc_tobacco_license_row(row) for row in cursor.fetchall())
+                cursor.execute(
+                    """
+                    SELECT
+                        task_id,
+                        source_record_id,
+                        source_attachment_ref_id,
+                        source_url,
+                        tenant,
+                        document_type,
+                        subject_name,
+                        review_status,
+                        risk_level,
+                        needs_manual_review,
+                        summary,
+                        rule_results_json,
+                        created_at,
+                        updated_at
+                    FROM tobacco_consistency_reviews
+                    WHERE created_at >= %s
+                    """,
+                    (since_date,),
+                )
+                rows.extend(_qc_tobacco_consistency_row(row) for row in cursor.fetchall())
+                cursor.execute(
+                    """
+                    SELECT
+                        task_id,
+                        source_record_id,
+                        source_attachment_ref_id,
+                        source_url,
+                        tenant,
+                        document_type,
+                        product_name,
+                        sample_name,
+                        vendor_name,
+                        vendor_name_extracted,
+                        entrusting_party,
+                        manufacturer_name,
+                        batch_no,
+                        production_date,
+                        issue_date,
+                        sign_date,
+                        approval_date,
+                        valid_to,
+                        inspection_conclusion,
+                        inspection_result,
+                        review_status,
+                        risk_level,
+                        needs_manual_review,
+                        summary,
+                        rule_results_json,
                         created_at,
                         updated_at
                     FROM product_report_reviews
-                    """
+                    WHERE created_at >= %s
+                    """,
+                    (since_date,),
                 )
                 rows.extend(_qc_product_report_row(row) for row in cursor.fetchall())
         return rows
@@ -1976,6 +2151,7 @@ def _qc_business_license_row(row: dict[str, Any]) -> dict[str, Any]:
         "valid_to": item.get("valid_to"),
         "extracted_fields": loads(item.get("extracted_fields_json") or "{}"),
         "normalized_fields": loads(item.get("normalized_fields_json") or "{}"),
+        "rule_results": loads(item.get("rule_results_json") or "[]"),
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
     }
@@ -2007,8 +2183,36 @@ def _qc_product_report_row(row: dict[str, Any]) -> dict[str, Any]:
         "source_attachment_ref_id": item.get("source_attachment_ref_id"),
         "source_url": item.get("source_url"),
         "valid_to": item.get("valid_to"),
-        "extracted_fields": loads(item.get("extracted_fields_json") or "{}"),
-        "normalized_fields": loads(item.get("normalized_fields_json") or "{}"),
+        "extracted_fields": {
+            "report_no": item.get("report_no"),
+            "product_name": item.get("product_name"),
+            "sample_name": item.get("sample_name"),
+            "vendor_name_extracted": item.get("vendor_name_extracted"),
+            "entrusting_party": item.get("entrusting_party"),
+            "manufacturer_name": item.get("manufacturer_name"),
+            "batch_no": item.get("batch_no"),
+            "production_date": item.get("production_date"),
+            "issue_date": item.get("issue_date"),
+            "sign_date": item.get("sign_date"),
+            "approval_date": item.get("approval_date"),
+            "valid_to": item.get("valid_to"),
+            "inspection_conclusion": item.get("inspection_conclusion"),
+            "inspection_result": item.get("inspection_result"),
+        },
+        "normalized_fields": {
+            "report_no": item.get("report_no"),
+            "product_name": item.get("product_name"),
+            "sample_name": item.get("sample_name"),
+            "entrusting_party": item.get("entrusting_party"),
+            "manufacturer_name": item.get("manufacturer_name"),
+            "batch_no": item.get("batch_no"),
+            "production_date": item.get("production_date"),
+            "issue_date": item.get("issue_date"),
+            "approval_date": item.get("approval_date"),
+            "valid_to": item.get("valid_to"),
+            "inspection_conclusion": item.get("inspection_conclusion"),
+        },
+        "rule_results": loads(item.get("rule_results_json") or "[]"),
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
     }
@@ -2036,6 +2240,7 @@ def _qc_food_license_row(row: dict[str, Any]) -> dict[str, Any]:
         "valid_to": item.get("valid_to"),
         "extracted_fields": loads(item.get("extracted_fields_json") or "{}"),
         "normalized_fields": loads(item.get("normalized_fields_json") or "{}"),
+        "rule_results": loads(item.get("rule_results_json") or "[]"),
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
     }
@@ -2063,6 +2268,7 @@ def _qc_food_production_license_row(row: dict[str, Any]) -> dict[str, Any]:
         "valid_to": item.get("valid_to"),
         "extracted_fields": loads(item.get("extracted_fields_json") or "{}"),
         "normalized_fields": loads(item.get("normalized_fields_json") or "{}"),
+        "rule_results": loads(item.get("rule_results_json") or "[]"),
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
     }
@@ -2071,13 +2277,15 @@ def _qc_food_production_license_row(row: dict[str, Any]) -> dict[str, Any]:
 def _qc_tobacco_license_row(row: dict[str, Any]) -> dict[str, Any]:
     item = dict(row)
     item["needs_manual_review"] = bool(item["needs_manual_review"])
+    extracted = loads(item.get("extracted_fields_json") or "{}")
+    normalized = loads(item.get("normalized_fields_json") or "{}")
     return {
         "task_id": item["task_id"],
         "use_case_name": "tobacco_license",
         "document_type": "tobacco_license",
         "document_type_label": _document_type_label("tobacco_license"),
         "supplier_name": item.get("subject_name"),
-        "credit_code": None,
+        "credit_code": extracted.get("credit_code") or None,
         "review_status": item.get("review_status"),
         "review_status_label": _review_status_label(item.get("review_status") or ""),
         "risk_level": item.get("risk_level"),
@@ -2087,6 +2295,10 @@ def _qc_tobacco_license_row(row: dict[str, Any]) -> dict[str, Any]:
         "source_record_id": item.get("source_record_id"),
         "source_attachment_ref_id": item.get("source_attachment_ref_id"),
         "source_url": item.get("source_url"),
+        "valid_to": item.get("valid_to"),
+        "extracted_fields": extracted,
+        "normalized_fields": normalized,
+        "rule_results": loads(item.get("rule_results_json") or "[]"),
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
     }
@@ -2111,9 +2323,10 @@ def _qc_tobacco_consistency_row(row: dict[str, Any]) -> dict[str, Any]:
         "source_record_id": item.get("source_record_id"),
         "source_attachment_ref_id": item.get("source_attachment_ref_id"),
         "source_url": item.get("source_url"),
-        "valid_to": item.get("valid_to"),
-        "extracted_fields": loads(item.get("extracted_fields_json") or "{}"),
-        "normalized_fields": loads(item.get("normalized_fields_json") or "{}"),
+        "valid_to": None,
+        "extracted_fields": {},
+        "normalized_fields": {},
+        "rule_results": loads(item.get("rule_results_json") or "[]"),
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
     }
