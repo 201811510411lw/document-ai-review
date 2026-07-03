@@ -2,6 +2,13 @@
   <div class="contract-page">
     <van-nav-bar title="合同审查报告" left-arrow @click-left="router.push('/home')" />
 
+    <van-notice-bar
+      text="合同审查功能暂未上线，敬请期待"
+      left-icon="info-o"
+      color="#969799"
+      background="#f5f6f8"
+    />
+
     <!-- 统计 -->
     <div class="stats-row">
       <div class="stat-card" @click="filterLevel = ''">

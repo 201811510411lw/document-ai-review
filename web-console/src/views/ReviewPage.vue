@@ -64,32 +64,39 @@
       left-icon="info-o"
     />
 
-    <!-- 列表 -->
-    <div v-if="records.length" class="record-list">
-      <div
-        v-for="r in records"
-        :key="r.id"
-        class="record-card"
-        @click="goToDetail(r.id)"
+    <!-- 列表（分页加载） -->
+    <div v-if="displayRecords.length" class="record-list">
+      <van-list
+        v-model:loading="listLoading"
+        :finished="listFinished"
+        finished-text="已全部展示"
+        @load="onLoadMore"
       >
-        <div class="card-top">
-          <span class="company-name">{{ r.company_name }}</span>
-          <van-tag :type="statusTagType(r.review_status)" size="small">
-            {{ statusText(r.review_status) }}
-          </van-tag>
+        <div
+          v-for="r in displayRecords"
+          :key="r.id"
+          class="record-card"
+          @click="goToDetail(r.id)"
+        >
+          <div class="card-top">
+            <span class="company-name">{{ r.company_name }}</span>
+            <van-tag :type="statusTagType(r.review_status)" size="small">
+              {{ statusText(r.review_status) }}
+            </van-tag>
+          </div>
+          <div class="card-meta">
+            <span>{{ r.license_type || currentDocument.label || '未识别' }}</span>
+            <span class="sep">|</span>
+            <span>匹配率: {{ formatRatio(r.match_ratio) }}</span>
+            <span class="sep">|</span>
+            <span>{{ r.expire_date || '无到期日' }}</span>
+          </div>
+          <div class="card-bottom">
+            <span class="batch-no">批次: {{ r.created_at?.slice(0, 10) || '-' }}</span>
+            <van-icon name="arrow" />
+          </div>
         </div>
-        <div class="card-meta">
-          <span>{{ r.license_type || currentDocument.label || '未识别' }}</span>
-          <span class="sep">|</span>
-          <span>匹配率: {{ formatRatio(r.match_ratio) }}</span>
-          <span class="sep">|</span>
-          <span>{{ r.expire_date || '无到期日' }}</span>
-        </div>
-        <div class="card-bottom">
-          <span class="batch-no">批次: {{ r.created_at?.slice(0, 10) || '-' }}</span>
-          <van-icon name="arrow" />
-        </div>
-      </div>
+      </van-list>
     </div>
 
     <van-empty v-else-if="!loading" description="暂无校验记录" />
@@ -113,6 +120,11 @@ const creating = ref(false)
 const keyword = ref('')
 const filterStatus = ref('')
 const activeDocumentType = ref('')
+// 分页状态
+const displayRecords = ref([])
+const listLoading = ref(false)
+const listFinished = ref(false)
+const pageSize = 20
 
 const documentTypeOptions = [
   {
@@ -153,17 +165,16 @@ const currentDocument = computed(() => documentTypeMap[documentType.value])
 let isMounted = false
 
 onMounted(() => {
+  isMounted = true
   // 优先从 sessionStorage 恢复上次的 tab，避免返回后跳回营业执照
   const saved = sessionStorage.getItem('review_doc_type')
   if (saved && !route.query.document_type) {
     router.replace({ path: '/review', query: { document_type: saved } })
-    return
   }
   if (route.query.document_type) {
     sessionStorage.setItem('review_doc_type', route.query.document_type)
   }
   activeDocumentType.value = documentType.value
-  isMounted = true
   loadList()
 })
 
@@ -179,6 +190,8 @@ watch(documentType, (value) => {
 
 async function loadList() {
   loading.value = true
+  displayRecords.value = []
+  listFinished.value = false
   try {
     const res = await reviewApi.list({
       review_status: filterStatus.value,
@@ -188,10 +201,30 @@ async function loadList() {
     })
     records.value = res.records || []
     stats.value = res.stats || {}
+    // 首次显示前 pageSize 条
+    displayRecords.value = records.value.slice(0, pageSize)
+    if (records.value.length <= pageSize) {
+      listFinished.value = true
+    }
   } catch (e) {
     showToast('加载失败')
   } finally {
     loading.value = false
+  }
+}
+
+function onLoadMore() {
+  const current = displayRecords.value.length
+  const next = current + pageSize
+  if (current >= records.value.length) {
+    listFinished.value = true
+    listLoading.value = false
+    return
+  }
+  displayRecords.value = records.value.slice(0, next)
+  listLoading.value = false
+  if (next >= records.value.length) {
+    listFinished.value = true
   }
 }
 

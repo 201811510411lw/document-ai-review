@@ -2,6 +2,13 @@
   <div class="tobacco-page">
     <van-nav-bar title="烟草证比对报告" left-arrow @click-left="router.push('/home')" />
 
+    <van-notice-bar
+      text="烟草证比对功能暂未上线，敬请期待"
+      left-icon="info-o"
+      color="#969799"
+      background="#f5f6f8"
+    />
+
     <!-- 统计 -->
     <div class="stats-row">
       <div class="stat-card" @click="filterResult = ''">

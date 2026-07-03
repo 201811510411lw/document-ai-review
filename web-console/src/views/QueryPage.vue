@@ -36,7 +36,7 @@
     <div v-if="searchResult !== null" class="result-section">
       <!-- 单条结果 -->
       <div v-if="searchResult.type === 'single'" class="result-card">
-        <cert-result-card :record="searchResult.data" />
+        <cert-result-card :record="searchResult.data" :keyword="keyword" />
       </div>
 
       <!-- 批量结果 -->
@@ -74,11 +74,15 @@
           :finished="listFinished"
           finished-text="已全部展示"
         >
-          <cert-result-card
-            v-for="item in searchResult.records"
-            :key="item.id"
-            :record="item"
-          />
+          <template v-if="searchResult.records.length">
+            <cert-result-card
+              v-for="item in searchResult.records"
+              :key="item.id"
+              :record="item"
+              :keyword="keyword"
+            />
+          </template>
+          <van-empty v-else description="未找到匹配的记录" />
         </van-list>
       </div>
     </div>
@@ -213,6 +217,8 @@ onMounted(() => {
 async function handleSearch() {
   if (!keyword.value.trim()) return
   loading.value = true
+  listLoading.value = false
+  listFinished.value = false
   searchResult.value = null
   addSearchHistory(keyword.value.trim())
   recentList.value = getSearchHistory()
@@ -230,10 +236,13 @@ async function handleSearch() {
         records: res.records || [],
         stats: res.stats || { found: 0, expiring: 0, expired: 0, missing: 0 },
       }
+      // 一次加载完所有数据，无需增量加载
+      listFinished.value = true
     }
   } catch (e) {
     showToast(e.message)
     searchResult.value = { type: 'batch', records: [], stats: { found: 0, expiring: 0, expired: 0, missing: 0 } }
+    listFinished.value = true
   } finally {
     loading.value = false
   }
@@ -262,6 +271,7 @@ async function handleBatchQuery() {
       records: res.records || [],
       stats: res.stats || { found: 0, expiring: 0, expired: 0, missing: 0 },
     }
+    listFinished.value = true
   } catch (e) {
     showToast(e.message)
   } finally {
@@ -288,13 +298,13 @@ async function handleExcelUpload() {
     excelPreview.value = res.preview || []
     excelColumns.value = res.columns || []
 
+    searchResult.value = {
+      type: 'batch',
+      records: res.records || [],
+      stats: res.stats || { found: 0, expiring: 0, expired: 0, missing: 0 },
+    }
+    listFinished.value = true
     if (res.records?.length) {
-      // 直接有结果
-      searchResult.value = {
-        type: 'batch',
-        records: res.records,
-        stats: res.stats || { found: 0, expiring: 0, expired: 0, missing: 0 },
-      }
       showExcelUpload.value = false
     }
   } catch (e) {

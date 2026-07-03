@@ -35,8 +35,8 @@
       background="#ecf5ff"
     />
 
-    <!-- 今日日报 -->
-    <div class="section-title">今日日报</div>
+    <!-- 每日日报 -->
+    <div class="section-title">每日日报</div>
     <div v-if="dailyReport" class="daily-report">
       <div class="report-header">
         <van-icon name="notes-o" size="20" color="#1989fa" />
@@ -221,22 +221,24 @@ function goToQuery(companyName) {
 .dashboard-page { padding-bottom: 16px; }
 .stats-scroll {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
   padding: 12px 16px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scroll-snap-type: x mandatory;
 }
-.stats-scroll::-webkit-scrollbar { display: none; }
 .stat-card {
-  flex-shrink: 0;
-  scroll-snap-align: start;
+  flex: 1 1 calc(33.33% - 8px);
+  min-width: 100px;
   border-radius: 10px;
-  padding: 14px 20px;
+  padding: 14px 8px;
   color: #fff;
   text-align: center;
   cursor: pointer;
-  min-width: 90px;
+}
+@media (min-width: 768px) {
+  .stat-card {
+    flex: 1;
+    min-width: 0;
+  }
 }
 .stat-num { font-size: 28px; font-weight: 700; }
 .stat-label { font-size: 12px; opacity: 0.9; margin-top: 4px; }

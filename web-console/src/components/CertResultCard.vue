@@ -8,7 +8,9 @@
     </div>
 
     <div class="card-body">
-      <h3 class="company-name">{{ record.company_name }}</h3>
+      <h3 class="company-name" v-html="highlightText(record.company_name)"></h3>
+      <div v-if="keyword && record.company_name && record.company_name.toLowerCase().includes(keyword.toLowerCase())" class="match-hint">🔍 公司名称匹配</div>
+      <div v-else-if="keyword && record.credit_code && record.credit_code.toLowerCase().includes(keyword.toLowerCase())" class="match-hint">🔍 信用代码匹配</div>
       <div class="info-grid">
         <div class="info-item">
           <span class="label">证照类型</span>
@@ -57,6 +59,18 @@
       <span v-if="!hasFile" class="no-file-hint">未查询到相应证照文件</span>
     </div>
 
+    <!-- 时间信息 -->
+    <div class="time-info">
+      <div class="time-row">
+        <span class="time-label">📤 SRM上传</span>
+        <span class="time-value">{{ record.source_created_at ? String(record.source_created_at).substring(0,10) : '未记录' }}</span>
+      </div>
+      <div class="time-row">
+        <span class="time-label">📋 审核时间</span>
+        <span class="time-value">{{ record.created_at ? String(record.created_at).substring(0,10) : '未记录' }}</span>
+      </div>
+    </div>
+
     <!-- 操作菜单 -->
     <van-action-sheet v-model:show="showActions" :actions="actions" @select="onAction" />
   </div>
@@ -69,18 +83,34 @@ import { showToast } from 'vant'
 
 const props = defineProps({
   record: { type: Object, required: true },
+  keyword: { type: String, default: '' },
 })
+
+function highlightText(text) {
+  if (!props.keyword || !text) return text
+  const str = String(text)
+  const kw = props.keyword.trim()
+  if (!kw) return str
+  const index = str.toLowerCase().indexOf(kw.toLowerCase())
+  if (index === -1) return str
+  return str.slice(0, index) + '<mark class="kw-highlight">' + str.slice(index, index + kw.length) + '</mark>' + str.slice(index + kw.length)
+}
 
 const showActions = ref(false)
 const openingCert = ref(false)
 const downloadingCert = ref(false)
 
 const statusInfo = computed(() => {
-  // 无证照文件时左上角标识改为未知
+  // 无证照文件 → 显示"无附件"
   if (!props.record.source_file_url) {
-    return EXPIRE_STATUS_MAP.unknown
+    return { icon: '📄', text: '无附件', color: '#c8c9cc' }
   }
-  return EXPIRE_STATUS_MAP[props.record.expire_status] || EXPIRE_STATUS_MAP.unknown
+  // 有文件但到期未知 → 显示"到期未知"
+  if (props.record.expire_status === 'unknown') {
+    return { icon: '❓', text: '到期未知', color: '#969799' }
+  }
+  // 有文件且有效期明确 → 显示有效期状态
+  return EXPIRE_STATUS_MAP[props.record.expire_status] || { icon: '❓', text: '到期未知', color: '#969799' }
 })
 
 const hasFile = computed(() => !!props.record.source_file_url)
@@ -189,5 +219,44 @@ function copyName() {
   font-size: 12px;
   color: #c8c9cc;
   margin-left: 4px;
+}
+.upload-time {
+  font-size: 11px;
+  color: #969799;
+  padding: 4px 0 0;
+  border-top: 1px dashed #f0f0f0;
+  margin-top: 4px;
+}
+.time-info {
+  font-size: 11px;
+  padding: 4px 0 0;
+  border-top: 1px dashed #f0f0f0;
+  margin-top: 4px;
+}
+.time-row {
+  display: flex;
+  align-items: baseline;
+  padding: 1px 0;
+}
+.time-label {
+  color: #969799;
+  display: inline-block;
+  min-width: 8em;
+  flex-shrink: 0;
+}
+.time-value { color: #646566; }
+/* 无附件时按钮灰显 */
+.van-button--disabled { opacity: 0.4 !important; }
+.match-hint {
+  font-size: 11px;
+  color: #1989fa;
+  margin-bottom: 6px;
+}
+:deep(.kw-highlight) {
+  background: #fff3cd;
+  padding: 0 2px;
+  border-radius: 2px;
+  color: #ee0a24;
+  font-weight: 600;
 }
 </style>

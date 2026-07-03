@@ -83,9 +83,27 @@
 
     <van-dialog v-model:show="showHelp" title="使用帮助" :confirm-button-text="'关闭'">
       <div class="help-content">
-        <p>证照查询支持按公司名称、统一社会信用代码和来源记录搜索。</p>
-        <p>效期看板基于当前审核结果统计正常、临期和异常记录。</p>
-        <p>系统管理中的批量导入当前仅解析预览，不会自动入库。</p>
+        <h4>🔍 证照查询</h4>
+        <p>支持按公司名称、统一社会信用代码搜索证照。支持单个查询、批量文本查询和上传 Excel 查询。</p>
+        <h4>📊 效期看板</h4>
+        <p>按证照到期状态分类展示：<span class="hl-green">正常</span>（剩余&gt;30天）、<span class="hl-orange">临期</span>（≤30天）、<span class="hl-red">已过期</span>。点击统计卡片可筛选对应状态。</p>
+        <h4>✅ 校验审核（管理员）</h4>
+        <p>列表展示各证照的 LLM 识别结果与数据库字段的比对：</p>
+        <ul>
+          <li><b>匹配率</b>：所有校验字段中，识别值与数据库值一致的比例</li>
+          <li><b>字段覆盖率</b>：OCR 成功识别出值的字段占总字段的比例</li>
+          <li><b>核验结果</b>：系统自动判断通过/不通过，不通过项默认展开显示</li>
+          <li><b>状态说明</b>：待审核 → 已认可（人工确认结果正确）/ 已标记异常（人工标记有误）</li>
+        </ul>
+        <h4>📋 证照状态说明</h4>
+        <ul>
+          <li><span class="hl-green">有效</span>：证照在有效期内且剩余天数 &gt; 30</li>
+          <li><span class="hl-orange">临期</span>：证照即将到期（剩余 ≤30 天）</li>
+          <li><span class="hl-red">已过期</span>：证照已超过有效期</li>
+          <li><span class="hl-gray">未识别</span>：未上传证照文件或未识别到有效期</li>
+        </ul>
+        <h4>⚙️ 系统管理（管理员）</h4>
+        <p>日报推送管理、证照类型管理、数据导出。批量导入仅做解析预览，不会自动入库。</p>
       </div>
     </van-dialog>
   </div>
@@ -200,11 +218,30 @@ function submitFeedback() {
 }
 .help-content {
   padding: 16px 20px;
+  text-align: left;
+}
+.help-content h4 {
+  font-size: 14px;
+  margin: 12px 0 4px;
+  color: #323233;
 }
 .help-content p {
-  margin: 8px 0;
+  margin: 4px 0 8px;
   color: #646566;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 1.6;
 }
+.help-content ul {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+}
+.help-content li {
+  font-size: 13px;
+  color: #646566;
+  line-height: 1.7;
+}
+.hl-green { color: #07c160; font-weight: 600; }
+.hl-orange { color: #ff976a; font-weight: 600; }
+.hl-red { color: #ee0a24; font-weight: 600; }
+.hl-gray { color: #969799; font-weight: 600; }
 </style>

@@ -15,6 +15,7 @@ from app.services.wecom_notifications import notification_details_json
 BUSINESS_LICENSE_REVIEW_ROW_COLUMNS = """
     task_id,
     source_record_id,
+    source_created_at,
     source_attachment_ref_id,
     source_url,
     tenant,
@@ -964,6 +965,7 @@ class MySQLReviewResultRepository:
                     SELECT
                         task_id,
                         source_record_id,
+                        source_created_at,
                         source_attachment_ref_id,
                         source_url,
                         tenant,
@@ -990,6 +992,7 @@ class MySQLReviewResultRepository:
                     SELECT
                         task_id,
                         source_record_id,
+                        source_created_at,
                         source_attachment_ref_id,
                         source_url,
                         tenant,
@@ -1016,6 +1019,7 @@ class MySQLReviewResultRepository:
                     SELECT
                         task_id,
                         source_record_id,
+                        source_created_at,
                         source_attachment_ref_id,
                         source_url,
                         tenant,
@@ -1041,6 +1045,7 @@ class MySQLReviewResultRepository:
                     SELECT
                         task_id,
                         source_record_id,
+                        source_created_at,
                         source_attachment_ref_id,
                         source_url,
                         tenant,
@@ -1062,6 +1067,7 @@ class MySQLReviewResultRepository:
                     SELECT
                         task_id,
                         source_record_id,
+                        source_created_at,
                         source_attachment_ref_id,
                         source_url,
                         tenant,
@@ -1112,6 +1118,7 @@ class MySQLReviewResultRepository:
                     SELECT
                         task_id,
                         source_record_id,
+                        source_created_at,
                         source_attachment_ref_id,
                         source_url,
                         tenant,
@@ -1140,6 +1147,7 @@ class MySQLReviewResultRepository:
                     SELECT
                         task_id,
                         source_record_id,
+                        source_created_at,
                         source_attachment_ref_id,
                         source_url,
                         tenant,
@@ -1168,6 +1176,7 @@ class MySQLReviewResultRepository:
                     SELECT
                         task_id,
                         source_record_id,
+                        source_created_at,
                         source_attachment_ref_id,
                         source_url,
                         tenant,
@@ -1195,6 +1204,7 @@ class MySQLReviewResultRepository:
                     SELECT
                         task_id,
                         source_record_id,
+                        source_created_at,
                         source_attachment_ref_id,
                         source_url,
                         tenant,
@@ -1218,6 +1228,7 @@ class MySQLReviewResultRepository:
                     SELECT
                         task_id,
                         source_record_id,
+                        source_created_at,
                         source_attachment_ref_id,
                         source_url,
                         tenant,
@@ -1311,6 +1322,7 @@ class MySQLReviewResultRepository:
                     "ALTER TABLE business_license_reviews ADD COLUMN manual_review_reviewer_id VARCHAR(128)",
                     "ALTER TABLE business_license_reviews ADD COLUMN manual_review_reviewer_username VARCHAR(128)",
                     "ALTER TABLE business_license_reviews ADD COLUMN manual_review_reviewed_at VARCHAR(64)",
+                    "ALTER TABLE business_license_reviews ADD COLUMN source_created_at VARCHAR(64)",
                 ):
                     _try_add_column(cursor, ddl)
                 cursor.execute(
@@ -1418,6 +1430,7 @@ class MySQLReviewResultRepository:
                     "ALTER TABLE product_report_reviews ADD COLUMN report_no VARCHAR(255)",
                     "ALTER TABLE product_report_reviews ADD COLUMN approval_date VARCHAR(64)",
                     "ALTER TABLE product_report_reviews ADD COLUMN valid_to VARCHAR(64)",
+                    "ALTER TABLE product_report_reviews ADD COLUMN source_created_at VARCHAR(64)",
                 ):
                     _try_add_column(cursor, ddl)
                 cursor.execute(
@@ -1463,6 +1476,10 @@ class MySQLReviewResultRepository:
                     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
                     """
                 )
+                for ddl in (
+                    "ALTER TABLE food_license_reviews ADD COLUMN source_created_at VARCHAR(64)",
+                ):
+                    _try_add_column(cursor, ddl)
                 cursor.execute(
                     """
                     CREATE TABLE IF NOT EXISTS food_production_license_reviews (
@@ -1498,6 +1515,10 @@ class MySQLReviewResultRepository:
                     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
                     """
                 )
+                for ddl in (
+                    "ALTER TABLE food_production_license_reviews ADD COLUMN source_created_at VARCHAR(64)",
+                ):
+                    _try_add_column(cursor, ddl)
                 cursor.execute(
                     """
                     CREATE TABLE IF NOT EXISTS tobacco_license_reviews (
@@ -1536,6 +1557,10 @@ class MySQLReviewResultRepository:
                     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
                     """
                 )
+                for ddl in (
+                    "ALTER TABLE tobacco_license_reviews ADD COLUMN source_created_at VARCHAR(64)",
+                ):
+                    _try_add_column(cursor, ddl)
                 cursor.execute(
                     """
                     CREATE TABLE IF NOT EXISTS tobacco_consistency_reviews (
@@ -1569,6 +1594,10 @@ class MySQLReviewResultRepository:
                     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
                     """
                 )
+                for ddl in (
+                    "ALTER TABLE tobacco_consistency_reviews ADD COLUMN source_created_at VARCHAR(64)",
+                ):
+                    _try_add_column(cursor, ddl)
                 cursor.execute(
                     """
                     CREATE TABLE IF NOT EXISTS product_report_inspection_items (
@@ -1641,6 +1670,7 @@ class MySQLReviewResultRepository:
             INSERT INTO business_license_reviews (
                 task_id,
                 source_record_id,
+                source_created_at,
                 source_attachment_ref_id,
                 source_url,
                 tenant,
@@ -1665,9 +1695,10 @@ class MySQLReviewResultRepository:
                 created_at,
                 updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 source_record_id = VALUES(source_record_id),
+                source_created_at = VALUES(source_created_at),
                 source_attachment_ref_id = VALUES(source_attachment_ref_id),
                 source_url = VALUES(source_url),
                 tenant = VALUES(tenant),
@@ -1715,6 +1746,7 @@ class MySQLReviewResultRepository:
             INSERT INTO food_license_reviews (
                 task_id,
                 source_record_id,
+                source_created_at,
                 source_attachment_ref_id,
                 source_url,
                 tenant,
@@ -1741,9 +1773,10 @@ class MySQLReviewResultRepository:
                 created_at,
                 updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 source_record_id = VALUES(source_record_id),
+                source_created_at = VALUES(source_created_at),
                 source_attachment_ref_id = VALUES(source_attachment_ref_id),
                 source_url = VALUES(source_url),
                 tenant = VALUES(tenant),
@@ -1783,6 +1816,7 @@ class MySQLReviewResultRepository:
             INSERT INTO food_production_license_reviews (
                 task_id,
                 source_record_id,
+                source_created_at,
                 source_attachment_ref_id,
                 source_url,
                 tenant,
@@ -1801,9 +1835,10 @@ class MySQLReviewResultRepository:
                 created_at,
                 updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 source_record_id = VALUES(source_record_id),
+                source_created_at = VALUES(source_created_at),
                 source_attachment_ref_id = VALUES(source_attachment_ref_id),
                 source_url = VALUES(source_url),
                 tenant = VALUES(tenant),
@@ -1835,6 +1870,7 @@ class MySQLReviewResultRepository:
             INSERT INTO tobacco_license_reviews (
                 task_id,
                 source_record_id,
+                source_created_at,
                 source_attachment_ref_id,
                 source_url,
                 tenant,
@@ -1857,9 +1893,10 @@ class MySQLReviewResultRepository:
                 created_at,
                 updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 source_record_id = VALUES(source_record_id),
+                source_created_at = VALUES(source_created_at),
                 source_attachment_ref_id = VALUES(source_attachment_ref_id),
                 source_url = VALUES(source_url),
                 tenant = VALUES(tenant),
@@ -1895,6 +1932,7 @@ class MySQLReviewResultRepository:
             INSERT INTO tobacco_consistency_reviews (
                 task_id,
                 source_record_id,
+                source_created_at,
                 source_attachment_ref_id,
                 source_url,
                 tenant,
@@ -1912,9 +1950,10 @@ class MySQLReviewResultRepository:
                 created_at,
                 updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 source_record_id = VALUES(source_record_id),
+                source_created_at = VALUES(source_created_at),
                 source_attachment_ref_id = VALUES(source_attachment_ref_id),
                 source_url = VALUES(source_url),
                 tenant = VALUES(tenant),
@@ -1945,6 +1984,7 @@ class MySQLReviewResultRepository:
             INSERT INTO product_report_reviews (
                 task_id,
                 source_record_id,
+                source_created_at,
                 source_attachment_ref_id,
                 source_url,
                 tenant,
@@ -1974,9 +2014,10 @@ class MySQLReviewResultRepository:
                 created_at,
                 updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 source_record_id = VALUES(source_record_id),
+                source_created_at = VALUES(source_created_at),
                 source_attachment_ref_id = VALUES(source_attachment_ref_id),
                 source_url = VALUES(source_url),
                 tenant = VALUES(tenant),
@@ -2146,6 +2187,7 @@ def _qc_business_license_row(row: dict[str, Any]) -> dict[str, Any]:
         "needs_manual_review": item.get("needs_manual_review"),
         "summary": item.get("summary"),
         "source_record_id": item.get("source_record_id"),
+        "source_created_at": item.get("source_created_at"),
         "source_attachment_ref_id": item.get("source_attachment_ref_id"),
         "source_url": item.get("source_url"),
         "valid_to": item.get("valid_to"),
@@ -2180,6 +2222,7 @@ def _qc_product_report_row(row: dict[str, Any]) -> dict[str, Any]:
         "needs_manual_review": item.get("needs_manual_review"),
         "summary": item.get("summary"),
         "source_record_id": item.get("source_record_id"),
+        "source_created_at": item.get("source_created_at"),
         "source_attachment_ref_id": item.get("source_attachment_ref_id"),
         "source_url": item.get("source_url"),
         "valid_to": item.get("valid_to"),
@@ -2235,6 +2278,7 @@ def _qc_food_license_row(row: dict[str, Any]) -> dict[str, Any]:
         "needs_manual_review": item.get("needs_manual_review"),
         "summary": item.get("summary"),
         "source_record_id": item.get("source_record_id"),
+        "source_created_at": item.get("source_created_at"),
         "source_attachment_ref_id": item.get("source_attachment_ref_id"),
         "source_url": item.get("source_url"),
         "valid_to": item.get("valid_to"),
@@ -2263,6 +2307,7 @@ def _qc_food_production_license_row(row: dict[str, Any]) -> dict[str, Any]:
         "needs_manual_review": item.get("needs_manual_review"),
         "summary": item.get("summary"),
         "source_record_id": item.get("source_record_id"),
+        "source_created_at": item.get("source_created_at"),
         "source_attachment_ref_id": item.get("source_attachment_ref_id"),
         "source_url": item.get("source_url"),
         "valid_to": item.get("valid_to"),
@@ -2293,6 +2338,7 @@ def _qc_tobacco_license_row(row: dict[str, Any]) -> dict[str, Any]:
         "needs_manual_review": item.get("needs_manual_review"),
         "summary": item.get("summary"),
         "source_record_id": item.get("source_record_id"),
+        "source_created_at": item.get("source_created_at"),
         "source_attachment_ref_id": item.get("source_attachment_ref_id"),
         "source_url": item.get("source_url"),
         "valid_to": item.get("valid_to"),
@@ -2321,6 +2367,7 @@ def _qc_tobacco_consistency_row(row: dict[str, Any]) -> dict[str, Any]:
         "needs_manual_review": item.get("needs_manual_review"),
         "summary": item.get("summary"),
         "source_record_id": item.get("source_record_id"),
+        "source_created_at": item.get("source_created_at"),
         "source_attachment_ref_id": item.get("source_attachment_ref_id"),
         "source_url": item.get("source_url"),
         "valid_to": None,
@@ -2712,6 +2759,7 @@ def _business_license_projection(review_result: ReviewResult) -> dict[str, Any]:
     return {
         "task_id": review_result.task_id,
         "source_record_id": source.get("record_id"),
+        "source_created_at": _source_payload_value(source, "created"),
         "source_attachment_ref_id": source.get("attachment_ref_id"),
         "source_url": document_input.get("source_url"),
         "tenant": source.get("tenant"),
@@ -2742,6 +2790,7 @@ def _business_license_projection_values(projection: dict[str, Any]) -> tuple[Any
     return (
         projection["task_id"],
         projection["source_record_id"],
+        projection["source_created_at"],
         projection["source_attachment_ref_id"],
         projection["source_url"],
         projection["tenant"],
@@ -2779,6 +2828,7 @@ def _food_license_projection(review_result: ReviewResult) -> dict[str, Any]:
     return {
         "task_id": review_result.task_id,
         "source_record_id": source.get("record_id"),
+        "source_created_at": _source_payload_value(source, "created"),
         "source_attachment_ref_id": source.get("attachment_ref_id"),
         "source_url": document_input.get("source_url"),
         "tenant": source.get("tenant"),
@@ -2811,6 +2861,7 @@ def _food_license_projection_values(projection: dict[str, Any]) -> tuple[Any, ..
     return (
         projection["task_id"],
         projection["source_record_id"],
+        projection["source_created_at"],
         projection["source_attachment_ref_id"],
         projection["source_url"],
         projection["tenant"],
@@ -2850,6 +2901,7 @@ def _food_production_license_projection(review_result: ReviewResult) -> dict[str
     return {
         "task_id": review_result.task_id,
         "source_record_id": source.get("record_id"),
+        "source_created_at": _source_payload_value(source, "created"),
         "source_attachment_ref_id": source.get("attachment_ref_id"),
         "source_url": (
             document_input.get("source_url")
@@ -2882,6 +2934,7 @@ def _food_production_license_projection_values(projection: dict[str, Any]) -> tu
     return (
         projection["task_id"],
         projection["source_record_id"],
+        projection["source_created_at"],
         projection["source_attachment_ref_id"],
         projection["source_url"],
         projection["tenant"],
@@ -2931,6 +2984,7 @@ def _tobacco_license_projection(review_result: ReviewResult) -> dict[str, Any]:
     return {
         "task_id": review_result.task_id,
         "source_record_id": source.get("record_id"),
+        "source_created_at": _source_payload_value(source, "created"),
         "source_attachment_ref_id": source.get("attachment_ref_id"),
         "source_url": document_input.get("source_url"),
         "tenant": source.get("tenant"),
@@ -2959,6 +3013,7 @@ def _tobacco_license_projection_values(projection: dict[str, Any]) -> tuple[Any,
     return (
         projection["task_id"],
         projection["source_record_id"],
+        projection["source_created_at"],
         projection["source_attachment_ref_id"],
         projection["source_url"],
         projection["tenant"],
@@ -2993,6 +3048,7 @@ def _tobacco_consistency_projection(review_result: ReviewResult) -> dict[str, An
     return {
         "task_id": review_result.task_id,
         "source_record_id": source.get("record_id"),
+        "source_created_at": _source_payload_value(source, "created"),
         "source_attachment_ref_id": source.get("attachment_ref_id"),
         "source_url": source_evidence.get("source_url"),
         "tenant": source.get("tenant"),
@@ -3016,6 +3072,7 @@ def _tobacco_consistency_projection_values(projection: dict[str, Any]) -> tuple[
     return (
         projection["task_id"],
         projection["source_record_id"],
+        projection["source_created_at"],
         projection["source_attachment_ref_id"],
         projection["source_url"],
         projection["tenant"],
@@ -3045,6 +3102,7 @@ def _product_report_projection(review_result: ReviewResult) -> dict[str, Any]:
     return {
         "task_id": review_result.task_id,
         "source_record_id": source.get("record_id"),
+        "source_created_at": _source_payload_value(source, "created"),
         "source_attachment_ref_id": source.get("attachment_ref_id"),
         "source_url": _source_url_from_document_input(document_input, source),
         "tenant": source.get("tenant"),
@@ -3081,6 +3139,7 @@ def _product_report_projection_values(projection: dict[str, Any]) -> tuple[Any, 
     return (
         projection["task_id"],
         projection["source_record_id"],
+        projection["source_created_at"],
         projection["source_attachment_ref_id"],
         projection["source_url"],
         projection["tenant"],
