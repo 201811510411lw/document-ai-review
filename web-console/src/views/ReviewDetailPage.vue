@@ -7,12 +7,42 @@
     </div>
 
     <template v-if="record">
+      <!-- 核验结果横幅 -->
+      <div v-if="verificationResult" class="verify-banner" :class="verificationResult.result">
+        <van-icon :name="verificationResult.result === 'pass' ? 'success' : 'cross'" :size="18" />
+        <span class="verify-text">
+          {{ verificationResult.result === 'pass' ? '核验通过' : '核验未通过' }}
+        </span>
+        <span v-if="verificationResult.failed_items?.length" class="verify-detail">
+          （{{ verificationResult.failed_items.length }} 项不匹配）
+        </span>
+        <van-icon
+          v-if="verificationResult.failed_items?.length"
+          :name="showFailDetails ? 'arrow-up' : 'arrow-down'"
+          class="toggle-icon"
+          @click="showFailDetails = !showFailDetails"
+        />
+      </div>
+      <!-- 失败详情展开 -->
+      <div v-if="showFailDetails && verificationResult?.failed_items?.length" class="fail-details">
+        <div v-for="item in verificationResult.failed_items" :key="item.field" class="fail-item">
+          <van-icon name="cross" color="#ee0a24" size="14" />
+          <span class="fail-field">{{ item.field }}</span>
+          <span class="fail-reason">{{ item.reason }}</span>
+        </div>
+      </div>
+
       <!-- 头部信息 -->
       <div class="detail-header">
         <h2 class="company-name">{{ record.company_name }}</h2>
-        <div class="ratio-bar">
-          <div class="ratio-label">匹配率</div>
-          <div class="ratio-value" :class="ratioClass">{{ formatRatio(record.match_ratio) }}</div>
+        <div class="meta-row">
+          <span class="meta-label">{{ record.license_type }}</span>
+          <span class="meta-sep">|</span>
+          <span class="meta-label">匹配率</span>
+          <span class="ratio-value" :class="ratioClass">{{ formatRatio(record.match_ratio) }}</span>
+          <span v-if="record.field_coverage" class="coverage-badge">
+            字段 {{ record.field_coverage.coverage }}%
+          </span>
         </div>
         <van-tag :type="statusTagType" size="medium">{{ statusText }}</van-tag>
         <div v-if="manualReviewReasons.length" class="review-reasons">
@@ -28,24 +58,45 @@
       <!-- 字段比对 -->
       <div class="section-title">字段比对</div>
       <div class="field-list">
-        <div v-for="(field, idx) in validationFields" :key="idx" class="field-item">
-          <div class="field-name">{{ field.field }}</div>
-          <div class="field-values">
-            <div class="value-row">
-              <span class="value-label">识别值</span>
-              <span class="value-text" :class="valueClass(field, 'recognized')">
-                {{ field.recognized || '-' }}
-              </span>
-              <van-icon v-if="field.missing_recognized" name="warning-o" color="#ee0a24" />
-              <van-icon v-else-if="!field.match" name="cross" color="#ee0a24" />
-              <van-icon v-else name="check" color="#07c160" />
-            </div>
-            <div class="value-row">
-              <span class="value-label">数据库</span>
-              <span class="value-text" :class="valueClass(field, 'expected')">
-                {{ field.expected || '-' }}
-              </span>
-              <van-icon v-if="field.missing_expected" name="warning-o" color="#ee0a24" />
+        <div v-for="(group, gIdx) in fieldGroups" :key="gIdx" class="field-group">
+          <div class="group-title">{{ group.label }}</div>
+          <div v-for="(field, idx) in group.fields" :key="idx" class="field-item">
+            <div class="field-name">{{ field.field }}</div>
+            <div class="field-values">
+              <!-- 识别值 = 数据库值 => 显示"一致" -->
+              <div v-if="field.recognized && field.expected && field.recognized === field.expected" class="value-row match-row">
+                <van-icon name="check" color="#07c160" size="14" />
+                <span class="value-text">{{ field.recognized }}</span>
+              </div>
+              <!-- 识别值 != 数据库值 => 两行对比 -->
+              <template v-else-if="field.recognized && field.expected && field.recognized !== field.expected">
+                <div class="value-row mismatch-row">
+                  <span class="value-label">识别值</span>
+                  <span class="value-text mismatch">{{ field.recognized }}</span>
+                  <van-icon name="cross" color="#ee0a24" size="14" />
+                </div>
+                <div class="value-row">
+                  <span class="value-label">数据库</span>
+                  <span class="value-text" style="color:#07c160">{{ field.expected }}</span>
+                  <van-icon name="check" color="#07c160" size="14" />
+                </div>
+              </template>
+              <!-- 只有识别值（无数据库对照） -->
+              <div v-else-if="field.recognized && !field.expected" class="value-row">
+                <van-icon name="check" color="#07c160" size="14" />
+                <span class="value-text">{{ field.recognized }}</span>
+              </div>
+              <!-- 只有数据库值 -->
+              <div v-else-if="field.expected && !field.recognized" class="value-row">
+                <span class="value-label">数据库</span>
+                <span class="value-text">{{ field.expected }}</span>
+                <van-icon name="warning-o" color="#ff976a" size="14" />
+              </div>
+              <!-- 都为空 -->
+              <div v-else class="value-row empty-row">
+                <van-icon name="info-o" color="#969799" size="14" />
+                <span class="value-text empty">{{ field.missing_recognized ? '未识别到' : '-' }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -87,7 +138,6 @@
         </div>
       </div>
 
-      <!-- 已审核状态提示 -->
       <div v-else class="action-section">
         <div class="already-reviewed">
           <van-icon :name="record.review_status === 'confirmed' ? 'success' : 'warning'" />
@@ -112,9 +162,44 @@ const loading = ref(true)
 const submitting = ref(false)
 const openingSourceFile = ref(false)
 const comment = ref('')
+const showFailDetails = ref(true)
 
-const validationFields = computed(() => {
-  return record.value?.validation_fields || []
+const verificationResult = computed(() => {
+  return record.value?.verification_result || null
+})
+
+const fieldGroups = computed(() => {
+  const allFields = record.value?.validation_fields || []
+  if (!allFields.length) return []
+
+  // 按字段名分组
+  const groups = []
+  const typeFields = []
+  const infoFields = []
+  const validityFields = []
+  const otherFields = []
+
+  for (const f of allFields) {
+    const name = f.field || ''
+    if (name.includes('证照类型') || name.includes('文档类型')) {
+      typeFields.push(f)
+    } else if (name.includes('有效期') || name.includes('效期') || name.includes('到期')) {
+      validityFields.push(f)
+    } else if (name.includes('名称') || name.includes('代码') || name.includes('信用') ||
+               name.includes('法人') || name.includes('负责') || name.includes('住所') ||
+               name.includes('经营') || name.includes('地址') || name.includes('编号')) {
+      infoFields.push(f)
+    } else {
+      otherFields.push(f)
+    }
+  }
+
+  if (typeFields.length) groups.push({ label: '证照类型', fields: typeFields })
+  if (infoFields.length) groups.push({ label: '企业信息', fields: infoFields })
+  if (validityFields.length) groups.push({ label: '有效期', fields: validityFields })
+  if (otherFields.length) groups.push({ label: '其他', fields: otherFields })
+
+  return groups
 })
 
 const manualReviewReasons = computed(() => {
@@ -161,13 +246,6 @@ onMounted(async () => {
 function formatRatio(val) {
   if (val === null || val === undefined) return '-'
   return Math.round(val) + '%'
-}
-
-function valueClass(field, side) {
-  return {
-    mismatch: !field.match,
-    missing: side === 'recognized' ? field.missing_recognized : field.missing_expected,
-  }
 }
 
 function openSourceFile() {
@@ -227,18 +305,80 @@ async function handleFlag() {
 <style scoped>
 .detail-page { padding-bottom: 32px; }
 .page-loading { display: flex; justify-content: center; padding: 60px; }
+
+/* 核验结果横幅 */
+.verify-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  margin: 0 0 2px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.verify-banner.pass {
+  background: #e8fae8;
+  color: #07c160;
+}
+.verify-banner.fail {
+  background: #ffeeed;
+  color: #ee0a24;
+}
+.verify-detail {
+  font-weight: 400;
+  font-size: 13px;
+  opacity: 0.8;
+}
+.toggle-icon {
+  margin-left: auto;
+  cursor: pointer;
+  font-size: 16px;
+}
+.fail-details {
+  background: #fff2f0;
+  margin: 0 0 2px;
+  padding: 8px 16px 12px;
+  border-bottom: 1px solid #ffccc7;
+}
+.fail-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  margin-top: 6px;
+}
+.fail-field {
+  font-weight: 600;
+  color: #323233;
+  min-width: 80px;
+}
+.fail-reason {
+  color: #ee0a24;
+  font-size: 12px;
+}
+
+/* 头部 */
 .detail-header {
   background: #fff;
-  padding: 20px 16px;
-  margin-bottom: 12px;
+  padding: 16px;
+  margin-bottom: 8px;
 }
-.company-name { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
-.ratio-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.ratio-label { font-size: 13px; color: #969799; }
-.ratio-value { font-size: 22px; font-weight: 700; }
+.company-name { font-size: 18px; font-weight: 600; margin: 0 0 6px; }
+.meta-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 13px; }
+.meta-label { color: #969799; }
+.meta-sep { color: #dcdee0; }
+.ratio-value { font-size: 20px; font-weight: 700; }
 .ratio-good { color: #07c160; }
 .ratio-ok { color: #ff976a; }
 .ratio-bad { color: #ee0a24; }
+.coverage-badge {
+  font-size: 11px;
+  color: #969799;
+  background: #f5f6f8;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 400;
+}
 .review-reasons { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .review-reason {
   width: fit-content;
@@ -252,21 +392,42 @@ async function handleFlag() {
   line-height: 1.4;
 }
 .comment { margin-top: 8px; font-size: 13px; color: #ee0a24; background: #fff2f0; padding: 6px 10px; border-radius: 4px; }
+
 .section-title {
   font-size: 14px; font-weight: 600; color: #323233;
-  padding: 16px 16px 8px;
+  padding: 14px 16px 8px;
 }
-.field-list { margin: 0 16px; background: #fff; border-radius: 8px; overflow: hidden; }
+
+/* 字段分组 */
+.field-group {
+  margin: 0 12px 8px;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #969799;
+  padding: 10px 14px 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
 .field-item {
-  padding: 12px 16px;
+  padding: 8px 14px;
   border-bottom: 1px solid #f5f6f8;
 }
-.field-name { font-size: 13px; font-weight: 600; color: #646566; margin-bottom: 6px; }
-.value-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; font-size: 13px; }
-.value-label { font-size: 11px; color: #969799; width: 40px; flex-shrink: 0; }
-.value-text { flex: 1; color: #323233; }
-.value-text.mismatch { color: #ee0a24; text-decoration: line-through; }
-.value-text.missing { color: #ee0a24; font-weight: 700; text-decoration: none; }
+.field-item:last-child { border-bottom: none; }
+.field-name { font-size: 12px; font-weight: 500; color: #969799; margin-bottom: 3px; }
+.value-row { display: flex; align-items: center; gap: 5px; font-size: 13px; padding: 2px 0; }
+.value-label { font-size: 11px; color: #969799; width: 44px; flex-shrink: 0; }
+.value-text { color: #323233; flex: 1; }
+.value-text.mismatch { color: #ee0a24; }
+.value-text.empty { color: #969799; font-style: italic; }
+.match-row { color: #07c160; }
+.mismatch-row { color: #ee0a24; }
+.empty-row { color: #969799; }
+
 .file-section { margin: 0 16px; background: #fff; border-radius: 8px; padding: 16px; }
 .no-file { color: #969799; font-size: 13px; }
 .action-section { margin: 0 16px; }

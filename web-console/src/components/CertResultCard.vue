@@ -33,26 +33,28 @@
 
     <div class="card-footer">
       <van-button
-        v-if="record.source_file_url"
         size="small"
         plain
-        type="primary"
+        :type="hasFile ? 'primary' : 'default'"
         icon="eye-o"
         round
+        :disabled="!hasFile"
         @click.stop="previewCert"
       >
         查看证照
       </van-button>
       <van-button
-        v-if="record.source_file_url"
         size="small"
         plain
+        :type="hasFile ? 'primary' : 'default'"
         icon="down"
         round
+        :disabled="!hasFile"
         @click.stop="downloadSingle"
       >
         下载
       </van-button>
+      <span v-if="!hasFile" class="no-file-hint">未查询到相应证照文件</span>
     </div>
 
     <!-- 操作菜单 -->
@@ -74,8 +76,14 @@ const openingCert = ref(false)
 const downloadingCert = ref(false)
 
 const statusInfo = computed(() => {
+  // 无证照文件时左上角标识改为未知
+  if (!props.record.source_file_url) {
+    return EXPIRE_STATUS_MAP.unknown
+  }
   return EXPIRE_STATUS_MAP[props.record.expire_status] || EXPIRE_STATUS_MAP.unknown
 })
+
+const hasFile = computed(() => !!props.record.source_file_url)
 
 const actions = [
   { name: '查看证照', value: 'preview' },
@@ -174,5 +182,12 @@ function copyName() {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid #f5f6f8;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.no-file-hint {
+  font-size: 12px;
+  color: #c8c9cc;
+  margin-left: 4px;
 }
 </style>

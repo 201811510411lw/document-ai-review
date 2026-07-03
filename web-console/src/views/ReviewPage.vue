@@ -40,16 +40,19 @@
       @search="loadList"
     />
 
-    <div class="toolbar">
-      <van-button
-        type="primary"
-        size="small"
-        icon="plus"
-        :loading="creating"
-        @click="createReviewFromSrm"
-      >
-        从 SRM 发起{{ currentDocument.label }}审核
-      </van-button>
+    <!-- 当前筛选指示 -->
+    <div v-if="filterStatus || keyword" class="filter-bar">
+      <div class="filter-tags">
+        <span v-if="filterStatus" class="filter-tag">
+          {{ filterStatus === 'pending' ? '待审核' : filterStatus === 'confirmed' ? '已认可' : '已标记' }}
+          <van-icon name="cross" @click="filterStatus = ''" />
+        </span>
+        <span v-if="keyword" class="filter-tag">
+          "{{ keyword }}"
+          <van-icon name="cross" @click="keyword = ''; loadList()" />
+        </span>
+      </div>
+      <span v-if="stats.total !== undefined" class="result-count">{{ stats.total }} 条结果</span>
     </div>
 
     <!-- 待审核提示 -->
@@ -147,17 +150,31 @@ const documentType = computed(() => {
 
 const currentDocument = computed(() => documentTypeMap[documentType.value])
 
+let isMounted = false
+
 onMounted(() => {
+  // 优先从 sessionStorage 恢复上次的 tab，避免返回后跳回营业执照
+  const saved = sessionStorage.getItem('review_doc_type')
+  if (saved && !route.query.document_type) {
+    router.replace({ path: '/review', query: { document_type: saved } })
+    return
+  }
+  if (route.query.document_type) {
+    sessionStorage.setItem('review_doc_type', route.query.document_type)
+  }
   activeDocumentType.value = documentType.value
+  isMounted = true
   loadList()
 })
 
-watch(filterStatus, () => loadList())
+watch(filterStatus, () => {
+  if (isMounted) loadList()
+})
 
 watch(documentType, (value) => {
   activeDocumentType.value = value
   filterStatus.value = ''
-  loadList()
+  if (isMounted) loadList()
 })
 
 async function loadList() {
@@ -180,7 +197,8 @@ async function loadList() {
 
 function switchDocumentType(name) {
   if (name === documentType.value) return
-  router.replace({
+  sessionStorage.setItem('review_doc_type', name)
+  router.push({
     path: '/review',
     query: { document_type: name },
   })
@@ -283,5 +301,37 @@ function statusText(status) {
   border-top: 1px solid #f5f6f8;
   font-size: 12px;
   color: #969799;
+}
+/* 筛选栏 */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 16px;
+  background: #f7f8fa;
+}
+.filter-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.filter-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: #e8f0fe;
+  color: #1989fa;
+}
+.filter-tag .van-icon {
+  font-size: 12px;
+  cursor: pointer;
+}
+.result-count {
+  font-size: 12px;
+  color: #969799;
+  white-space: nowrap;
 }
 </style>

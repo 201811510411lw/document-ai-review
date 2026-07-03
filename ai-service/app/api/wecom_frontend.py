@@ -1,13 +1,16 @@
 import csv
 import io
 import json
+import os
 import zipfile
 from datetime import date, datetime
 from typing import Any
+from urllib.parse import urlparse
 from xml.etree import ElementTree
 
+import httpx
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 from app.api.auth import me as api_v1_me
@@ -15,6 +18,12 @@ from app.api.auth import require_web_console_user
 from app.api.business_license_reviews import (
     BusinessLicenseReviewReadRepository,
     get_review_read_repository,
+)
+from app.services.validation_service import (
+    compute_field_coverage,
+    compute_match_ratio,
+    compute_validation_fields,
+    compute_verification_result,
 )
 from app.workflows.registry import review_graph_registry
 
@@ -86,6 +95,7 @@ def dashboard_stats(
     payload = repository.list_qc_reviews(page=1, page_size=1)
     records = _all_qc_records(repository)
     metrics = _frontend_record_metrics(records)
+    workbench = _frontend_workbench_stats(records)
     total = int(payload.get("total") or 0)
     return {
         "data": {
@@ -95,6 +105,7 @@ def dashboard_stats(
             "expiring_soon": metrics["expiring"],
             "expired": metrics["expired"],
             "unknown": metrics["unknown"],
+            "pending_manual_review": workbench["pending"],
             "batches": 0,
             "type_distribution": metrics["type_distribution"],
         }
@@ -106,13 +117,25 @@ def dashboard_daily(
     _current_user: dict[str, Any] = Depends(get_wecom_frontend_user),
     repository: FrontendRepository = Depends(get_review_read_repository),
 ) -> dict[str, Any]:
-    records = _all_qc_records(repository)
+    today = date.today()
+    yesterday = (today - __import__("datetime").timedelta(days=1)).isoformat()
+    # 昨日新增：只查询昨天创建的记录（走 SQL 层面 created_at 过滤）
+    yesterday_rows = repository.list_qc_reviews_created_since(yesterday)
+    yesterday_records = [_frontend_qc_record(row) for row in yesterday_rows]
+    # 全部记录：用于展示当前效期概览
+    all_records = _all_qc_records(repository)
     return {
         "data": {
-            "date": date.today().isoformat(),
-            "expiring": [row for row in records if row["expire_status"] == "expiring_soon"],
-            "expired": [row for row in records if row["expire_status"] == "expired"],
-            "report_text": "基于当前审核结果投影表生成。",
+            "date": today.isoformat(),
+            "new_uploads": {
+                "total": len(yesterday_records),
+                "valid": [r for r in yesterday_records if r["expire_status"] == "valid"],
+                "expiring": [r for r in yesterday_records if r["expire_status"] == "expiring_soon"],
+                "expired": [r for r in yesterday_records if r["expire_status"] == "expired"],
+                "unknown": [r for r in yesterday_records if r["expire_status"] == "unknown"],
+            },
+            "all_records": all_records,
+            "report_text": "昨日上传证照效期 + 当前全部记录效期概览",
         }
     }
 
@@ -209,6 +232,29 @@ def flag_review(
     return {"status": "ok", "record": _frontend_qc_record(snapshot)}
 
 
+@api_router.get("/proxy/file")
+def proxy_file(
+    url: str = Query(..., description="文件直链 URL"),
+    _current_user: dict[str, Any] = Depends(get_wecom_frontend_user),
+) -> Response:
+    """代理下载外部存储文件，解决跨域/HTTPS 混合内容问题。"""
+    parsed = urlparse(url)
+    if not parsed.scheme or not parsed.netloc:
+        raise HTTPException(status_code=400, detail="无效的文件地址")
+    try:
+        with httpx.Client(timeout=30, follow_redirects=True) as client:
+            resp = client.get(url)
+            resp.raise_for_status()
+            content_type = resp.headers.get("content-type", "application/octet-stream")
+            return Response(content=resp.content, media_type=content_type)
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="文件下载超时")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=502, detail=f"源站返回 {e.response.status_code}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"文件下载失败: {str(e)}")
+
+
 @api_router.post("/query")
 def query_single(
     request: dict[str, Any] | None = None,
@@ -216,7 +262,9 @@ def query_single(
     repository: FrontendRepository = Depends(get_review_read_repository),
 ) -> dict[str, Any]:
     keyword = str((request or {}).get("keyword") or "").strip()
-    records = _filter_frontend_records(_all_qc_records(repository), [keyword] if keyword else [])
+    document_type = str((request or {}).get("document_type") or "").strip() or None
+    records = _all_qc_records(repository, document_type=document_type)
+    records = _filter_frontend_records(records, [keyword] if keyword else [])
     return {"records": records, "stats": _search_stats(records, 1 if keyword else 0)}
 
 
@@ -504,12 +552,47 @@ def _frontend_qc_record(
     *,
     force_status: str | None = None,
 ) -> dict[str, Any]:
+    # ★ 改：优先取 normalized 格式（2024-11-14），再取原始格式（2024年11月14日）
+    normalized = row.get("normalized_fields") or {}
+    extracted = row.get("extracted_fields") or {}
     valid_to = _first_text(
+        normalized.get("valid_to") if isinstance(normalized, dict) else None,
+        extracted.get("valid_to") if isinstance(extracted, dict) else None,
         row.get("valid_to"),
-        (row.get("normalized_fields") or {}).get("valid_to")
-        if isinstance(row.get("normalized_fields"), dict)
-        else None,
     )
+    # ★ 无证照文件时，不展示到期相关数据
+    if not row.get("source_url"):
+        expire_date = ""
+        expire_status = "unknown"
+        expire_days = None
+    else:
+        expire_days = _days_remaining(valid_to)
+        expire_date = _normalize_date_text(valid_to) if valid_to else ""
+        if expire_days is not None:
+            if expire_days <= 0:
+                expire_status = "expired"
+            elif expire_days <= 30:
+                expire_status = "expiring_soon"
+            else:
+                expire_status = "valid"
+        else:
+            # valid_to 缺失时检查 LLM 有效期规则结果
+            rule_results = row.get("rule_results") or []
+            validity_passed = any(
+                r.get("passed") is True and "VALID" in str(r.get("rule_code", "")).upper()
+                for r in rule_results
+            )
+            if validity_passed:
+                expire_status = "valid"
+            else:
+                expire_status = _risk_to_expire_status(row.get("risk_level"))
+    validation_fields = _validation_fields(row)
+    product_name = ""
+    sample_name = ""
+    extracted = row.get("extracted_fields") or {}
+    if isinstance(extracted, dict):
+        product_name = str(extracted.get("product_name") or extracted.get("sample_name") or "")
+        sample_name = str(extracted.get("sample_name") or "")
     return {
         "id": row.get("task_id"),
         "company_name": row.get("supplier_name") or row.get("business_name") or "未识别主体名称",
@@ -517,29 +600,36 @@ def _frontend_qc_record(
         "document_type": row.get("document_type") or "",
         "credit_code": row.get("credit_code") or "",
         "legal_person": row.get("legal_person") or "",
-        "expire_date": valid_to or "",
-        "expire_status": _risk_to_expire_status(row.get("risk_level")),
-        "expire_days_remaining": _days_remaining(valid_to),
+        "expire_date": expire_date,
+        "expire_status": expire_status,
+        "expire_days_remaining": expire_days,
         "risk_level": row.get("risk_level") or "",
         "risk_level_label": row.get("risk_level_label") or "",
-        "match_ratio": _match_ratio(row, validation_fields=_validation_fields(row)),
+        "match_ratio": _match_ratio(row, validation_fields=validation_fields),
+        "field_coverage": compute_field_coverage(validation_fields),
+        "verification_result": compute_verification_result(validation_fields),
         "review_status": force_status or _current_review_status_to_frontend(row),
         "created_at": row.get("created_at") or row.get("updated_at") or "",
         "source_file_url": row.get("source_url") or "",
         "source_file_name": _source_file_name(row),
         "source_record_id": row.get("source_record_id") or "",
         "summary": row.get("summary") or "",
+        "product_name": product_name,
+        "sample_name": sample_name,
     }
 
 
 def _frontend_qc_detail(detail: dict[str, Any], payload: dict[str, Any] | None) -> dict[str, Any]:
     record = _frontend_qc_record(detail)
     validation_fields = _validation_fields(detail)
+    verification_result = compute_verification_result(validation_fields)
     record.update(
         {
             "review_comment": (detail.get("manual_review") or {}).get("comment") or "",
             "match_ratio": _match_ratio(detail, validation_fields=validation_fields),
+            "field_coverage": compute_field_coverage(validation_fields),
             "validation_fields": validation_fields,
+            "verification_result": verification_result,
             "raw_payload": payload or {},
             "rule_results": detail.get("rule_results") or [],
             "extracted_fields": detail.get("extracted_fields") or {},
@@ -587,6 +677,8 @@ def _filter_frontend_records(records: list[dict[str, Any]], terms: list[str]) ->
                 "document_type",
                 "source_record_id",
                 "summary",
+                "product_name",
+                "sample_name",
             )
         ).lower()
         if any(term in haystack for term in normalized_terms) and record["id"] not in seen:
@@ -662,43 +754,7 @@ def _frontend_review_detail(snapshot: dict[str, Any], payload: dict[str, Any] | 
 
 
 def _validation_fields(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
-    extracted = dict(snapshot.get("extracted_fields") or {})
-    normalized = dict(snapshot.get("normalized_fields") or {})
-    source_fields = _source_validation_fields(snapshot)
-    document_type = snapshot.get("document_type")
-    fields = _validation_field_specs(document_type)
-    validation_fields = []
-    for label, keys in fields:
-        recognized = _recognized_field_value(extracted, normalized, keys)
-        expected = _first_field_value(source_fields, keys)
-        if expected is None and not _requires_source_field(keys):
-            expected = _first_field_value(normalized, keys)
-        risk = _validation_field_risk(keys, recognized)
-        required = _is_required_validation_field(document_type, keys)
-        missing_recognized = required and not _display_field_value(recognized)
-        missing_expected = _requires_source_field(keys) and not _display_field_value(expected)
-        validation_fields.append(
-            {
-            "field": label,
-            "recognized": _display_field_value(recognized),
-            "expected": _display_field_value(expected),
-            "match": (
-                not missing_recognized
-                and not missing_expected
-                and _field_values_match(
-                    document_type,
-                    keys,
-                    recognized,
-                    expected,
-                )
-            ),
-            "risk": risk,
-            "required": required,
-            "missing_recognized": missing_recognized,
-            "missing_expected": missing_expected,
-        }
-        )
-    return validation_fields
+    return compute_validation_fields(snapshot, snapshot.get("document_type") or "")
 
 
 def _recognized_field_value(
@@ -1000,7 +1056,7 @@ def _current_review_status_to_frontend(row: dict[str, Any]) -> str | None:
         return "confirmed"
     mapped = {
         "PENDING_MANUAL_REVIEW": "pending",
-        "REVIEWED": None,
+        "REVIEWED": "confirmed",
         "FAILED": "flagged",
     }
     if row.get("risk_level") == "HIGH" and status != "PENDING_MANUAL_REVIEW":
@@ -1021,18 +1077,18 @@ def _match_ratio(
     *,
     validation_fields: list[dict[str, Any]] | None = None,
 ) -> int:
-    fields = validation_fields or _validation_fields(row)
-    if not fields:
-        return 0
-    has_any_value = any(
-        field.get("recognized") not in (None, "")
-        or field.get("expected") not in (None, "")
-        for field in fields
-    )
-    if not has_any_value:
-        return 0
-    matched = sum(1 for field in fields if field.get("match") is True)
-    return round((matched / len(fields)) * 100)
+    fields = validation_fields or compute_validation_fields(row, row.get("document_type") or "")
+    return compute_match_ratio(fields, row.get("risk_level") or "")
+
+
+def _risk_to_match_ratio(risk_level: str | None) -> int:
+    if risk_level == "HIGH":
+        return 45
+    if risk_level == "MEDIUM":
+        return 72
+    if risk_level == "LOW":
+        return 96
+    return 96
 
 
 def _document_type_label(document_type: str | None) -> str:
@@ -1193,8 +1249,16 @@ def _missing_terms(terms: list[str], records: list[dict[str, Any]]) -> list[dict
 def _days_remaining(valid_to: str | None) -> int | None:
     if not valid_to:
         return None
+    # 支持中文日期格式（如 2024年11月14日）和标准格式（2024-11-14）
+    # 长期、永久、无固定期限 → 返回大正数表示长期有效
+    text = str(valid_to).strip()
+    if any(kw in text for kw in ("长期", "永久", "无固定期限", "2099")):
+        return 9999
+    normalized = _normalize_date_text(text)
+    if not normalized:
+        return None
     try:
-        end_date = date.fromisoformat(str(valid_to)[:10])
+        end_date = date.fromisoformat(normalized[:10])
     except ValueError:
         return None
     return (end_date - date.today()).days
