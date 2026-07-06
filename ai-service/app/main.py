@@ -15,12 +15,42 @@ from app.api.wecom_frontend import auth_router as wecom_frontend_auth_router
 from app.api.qc_reviews import router as qc_reviews_router
 from app.api.wecom_notifications import router as wecom_notifications_router
 from app.core.config import settings
+from app.integrations.mysql_client import mysql_settings_from_env
+from app.repositories import build_review_result_repository_from_env
+from app.services.review_service import ReviewService
+from app.services.scheduled_review_service import DailyReviewScheduler
 
 
 app = FastAPI(
     title=settings.app_name,
     version=settings.api_version,
 )
+
+_scheduler: DailyReviewScheduler | None = None
+
+
+@app.on_event("startup")
+def start_scheduler():
+    global _scheduler
+    try:
+        srm_settings = mysql_settings_from_env("SRM_MYSQL")
+        review_db_settings = mysql_settings_from_env("REVIEW_RESULT_MYSQL")
+        _scheduler = DailyReviewScheduler(
+            srm_settings=srm_settings,
+            review_db_settings=review_db_settings,
+        )
+        _scheduler.start()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("定时调度器启动失败（不影响 API）: %s", e)
+
+
+@app.on_event("shutdown")
+def stop_scheduler():
+    global _scheduler
+    if _scheduler:
+        _scheduler.stop()
+        _scheduler = None
 
 app.add_middleware(
     CORSMiddleware,

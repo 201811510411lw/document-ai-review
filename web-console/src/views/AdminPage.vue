@@ -99,10 +99,12 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { adminApi, dashboardApi } from '@/api'
 import { downloadBlob } from '@/utils'
 import { showToast, showLoadingToast, closeToast, showConfirmDialog } from 'vant'
 
+const router = useRouter()
 const notifyUsers = ref([])
 const newUserId = ref('')
 const showUserManager = ref(false)

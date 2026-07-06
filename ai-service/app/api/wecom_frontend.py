@@ -305,7 +305,7 @@ def query_download(
 ) -> Response:
     ids = [str(item).strip() for item in (request or {}).get("ids", []) if str(item).strip()]
     selected = [record for record in _all_qc_records(repository) if record["id"] in set(ids)]
-    records = [record for record in selected if record.get("source_file_url")]
+    with_attachment = [record for record in selected if record.get("source_file_url")]
     missing_attachment_records = [
         {"id": record["id"], "company_name": record["company_name"], "reason": "缺少 source_file_url"}
         for record in selected
@@ -317,21 +317,45 @@ def query_download(
             "manifest.json",
             json.dumps(
                 {
-                    "records": records,
+                    "records": with_attachment,
                     "missing_attachment_records": missing_attachment_records,
                 },
                 ensure_ascii=False,
                 indent=2,
             ),
         )
-        archive.writestr(
-            "README.txt",
-            "当前 demo 不代理下载外部证照原文件。本压缩包包含可追溯记录和原始文件 URL。",
-        )
+        # 实际下载证照原文件加入压缩包
+        download_errors = []
+        with httpx.Client(timeout=60, follow_redirects=True) as client:
+            for record in with_attachment:
+                url = record.get("source_file_url", "")
+                company_name = record.get("company_name", "未知")
+                doc_type = record.get("license_type", "证照")
+                try:
+                    resp = client.get(url)
+                    resp.raise_for_status()
+                    # 从 URL 推断扩展名
+                    ext = ".bin"
+                    if "." in url:
+                        url_path = url.rsplit("?", 1)[0]
+                        candidate = url_path.rsplit(".", 1)[-1].lower()
+                        if candidate in ("jpg", "jpeg", "png", "gif", "bmp", "pdf", "doc", "docx", "xls", "xlsx"):
+                            ext = f".{candidate}"
+                    filename = f"{company_name}_{doc_type}{ext}"
+                    archive.writestr(filename, resp.content)
+                except Exception as exc:
+                    download_errors.append(
+                        {"id": record["id"], "company_name": company_name, "error": str(exc)}
+                    )
+        if download_errors:
+            archive.writestr(
+                "download_errors.json",
+                json.dumps(download_errors, ensure_ascii=False, indent=2),
+            )
     return Response(
         content=buffer.getvalue(),
         media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="certificates.zip"'},
+        headers={"Content-Disposition": 'attachment; filename="certificates_download.zip"'},
     )
 
 
@@ -487,6 +511,124 @@ async def import_preview(
     }
 
 
+@api_router.post("/admin/trigger-daily-sync")
+def trigger_daily_sync(
+    request: dict[str, Any] | None = None,
+    _current_user: dict[str, Any] = Depends(get_wecom_frontend_user),
+) -> dict[str, Any]:
+    """手动触发每日自动审核同步（管理员用，用于测试或补跑）"""
+    from app.integrations.mysql_client import mysql_settings_from_env
+    from app.services.review_service import ReviewService
+    from app.repositories import build_review_result_repository_from_env
+    from app.services.scheduled_review_service import run_daily_sync, MySqlFetchClient
+    since = str((request or {}).get("since_date") or "").strip() or None
+    srm_client = MySqlFetchClient(mysql_settings_from_env("SRM_MYSQL"))
+    review_db_client = MySqlFetchClient(mysql_settings_from_env("REVIEW_RESULT_MYSQL"))
+    review_service = ReviewService(repository=build_review_result_repository_from_env())
+    progress = run_daily_sync(srm_client, review_db_client, review_service, since_date=since)
+    return {
+        "status": "ok",
+        "message": f"同步完成: 新增{progress.new}, 跳过{progress.skipped}, 成功{progress.succeeded}, 失败{progress.failed}",
+        "progress": {
+            "total": progress.total,
+            "skipped": progress.skipped,
+            "new": progress.new,
+            "succeeded": progress.succeeded,
+            "failed": progress.failed,
+            "errors": progress.errors[:10],
+        },
+    }
+
+
+@api_router.post("/admin/backfill-source-created-at")
+def backfill_source_created_at(
+    _current_user: dict[str, Any] = Depends(get_wecom_frontend_user),
+) -> dict[str, Any]:
+    """回填现有记录的 source_created_at（从 review_results 主表 JSON 解析）"""
+    import json
+    from app.integrations.mysql_client import mysql_settings_from_env, MySqlFetchClient
+
+    settings = mysql_settings_from_env("REVIEW_RESULT_MYSQL")
+    client = MySqlFetchClient(settings)
+
+    PROJECTION_TABLES = [
+        "business_license_reviews", "food_license_reviews",
+        "food_production_license_reviews", "product_report_reviews",
+        "tobacco_license_reviews", "tobacco_consistency_reviews",
+    ]
+
+    rows = client.fetch_all(
+        "SELECT task_id, payload_json FROM review_results WHERE payload_json IS NOT NULL"
+    )
+    updated = 0
+    skipped = 0
+    not_found_table = 0
+    errors = []
+
+    for row in rows:
+        task_id = row["task_id"]
+        try:
+            payload = json.loads(row["payload_json"]) if isinstance(row["payload_json"], str) else row["payload_json"]
+        except Exception:
+            errors.append(task_id)
+            continue
+
+        skill_result = payload.get("skill_result") or {}
+        source_evidence = skill_result.get("source_evidence") or {}
+        source = source_evidence.get("source") or {}
+        source_payload = source.get("source_payload") or {}
+        created = source_payload.get("created") or source.get("created")
+        if not created:
+            skipped += 1
+            continue
+
+        created_str = str(created)[:19]
+        found_table = None
+
+        # 找到 task_id 所在的表
+        for table in PROJECTION_TABLES:
+            try:
+                sql = f"SELECT COUNT(*) AS cnt FROM {table} WHERE task_id = '{task_id.replace(chr(39), chr(39)*2)}'"
+                check = client.fetch_all(sql)
+                if check and check[0].get("cnt", 0) > 0:
+                    found_table = table
+                    break
+            except Exception:
+                continue
+
+        if not found_table:
+            not_found_table += 1
+            continue
+
+        # 现在更新并提交
+        try:
+            conn = client._connect()
+            t = found_table
+            tid = task_id.replace(chr(39), chr(39)*2)
+            cs = created_str.replace(chr(39), chr(39)*2)
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"UPDATE {t} SET source_created_at = %s "
+                    f"WHERE task_id = %s AND (source_created_at IS NULL OR source_created_at = '')",
+                    (created_str, task_id)
+                )
+                if cur.rowcount > 0:
+                    conn.commit()
+                    updated += 1
+                else:
+                    skipped += 1
+        except Exception as e:
+            errors.append(f"{task_id}: {e}")
+
+    return {
+        "status": "ok",
+        "message": f"回填完成: 更新 {updated} 条, 跳过 {skipped} 条, 未找到表 {not_found_table} 条, 错误 {len(errors)} 条",
+        "updated": updated,
+        "skipped": skipped,
+        "errors": len(errors),
+    }
+
+
 @api_router.get("/tobacco/reports")
 def tobacco_reports() -> dict[str, Any]:
     return {"records": [], "stats": {"total": 0, "passed": 0, "failed": 0, "pending": 0}}
@@ -584,8 +726,12 @@ def _frontend_qc_record(
             )
             if validity_passed:
                 expire_status = "valid"
+                # 如果日期为空但 LLM 判定有效（如"长期"），显示"长期有效"
+                if not expire_date:
+                    expire_date = "长期有效"
             else:
-                expire_status = _risk_to_expire_status(row.get("risk_level"))
+                # 既无日期数据也无 LLM 结果 → 未知（不要按风险等级推断过期）
+                expire_status = "unknown"
     validation_fields = _validation_fields(row)
     product_name = ""
     sample_name = ""
@@ -593,13 +739,33 @@ def _frontend_qc_record(
     if isinstance(extracted, dict):
         product_name = str(extracted.get("product_name") or extracted.get("sample_name") or "")
         sample_name = str(extracted.get("sample_name") or "")
+    company_name = (
+        row.get("supplier_name")
+        or row.get("business_name")
+        or ""
+    )
+    if not company_name:
+        # fallback：从 validation_fields 找主体名称类字段
+        for vf in validation_fields:
+            fname = vf.get("field", "")
+            if any(kw in fname for kw in ("主体名称", "经营者名称", "生产者名称", "供应商名称", "名称")):
+                candidate = vf.get("recognized") or vf.get("expected") or ""
+                candidate = str(candidate).strip()
+                if candidate and candidate != "未识别":
+                    company_name = candidate
+                    break
+    if not company_name and isinstance(extracted, dict):
+        # fallback 2：从 OCR 提取结果
+        company_name = str(extracted.get("subject_name") or extracted.get("producer_name") or extracted.get("vendor_name") or "")
+    if not company_name:
+        company_name = "未识别主体名称"
     return {
         "id": row.get("task_id"),
-        "company_name": row.get("supplier_name") or row.get("business_name") or "未识别主体名称",
+        "company_name": company_name,
         "license_type": row.get("document_type_label") or _document_type_label(row.get("document_type")),
         "document_type": row.get("document_type") or "",
         "credit_code": row.get("credit_code") or "",
-        "legal_person": row.get("legal_person") or "",
+        "legal_person": row.get("legal_person") or (extracted.get("legal_person") if isinstance(extracted, dict) else "") or "",
         "expire_date": expire_date,
         "expire_status": expire_status,
         "expire_days_remaining": expire_days,
@@ -613,6 +779,7 @@ def _frontend_qc_record(
         "source_file_url": row.get("source_url") or "",
         "source_file_name": _source_file_name(row),
         "source_record_id": row.get("source_record_id") or "",
+        "source_created_at": row.get("source_created_at") or "",
         "summary": row.get("summary") or "",
         "product_name": product_name,
         "sample_name": sample_name,
@@ -717,12 +884,8 @@ def _frontend_workbench_stats(records: list[dict[str, Any]]) -> dict[str, int]:
     return {
         "total": len(records),
         "pending": sum(1 for row in records if row.get("review_status") == "pending"),
-        "confirmed": sum(1 for row in records if row.get("review_status") != "pending"),
-        "flagged": sum(
-            1
-            for row in records
-            if row.get("review_status") == "flagged" or row.get("risk_level") == "HIGH"
-        ),
+        "confirmed": sum(1 for row in records if row.get("review_status") == "confirmed"),
+        "flagged": sum(1 for row in records if row.get("review_status") == "flagged"),
     }
 
 
