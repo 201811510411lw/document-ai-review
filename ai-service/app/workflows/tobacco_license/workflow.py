@@ -207,7 +207,7 @@ def route_after_risk(state: TobaccoLicenseWorkflowState) -> str:
 def run_tobacco_license_workflow(
     input_context: ReviewInputContext,
 ) -> TobaccoLicenseWorkflowState:
-    return tobacco_license_graph.invoke({"input_context": input_context})
+    return _get_tobacco_license_graph().invoke({"input_context": input_context})
 
 
 def _review_rules(
@@ -290,4 +290,11 @@ def _manual_reason(rule: RuleResult) -> str:
     return f"{rule.details.get('field')} 缺失"
 
 
-tobacco_license_graph = build_tobacco_license_graph()
+_tobacco_license_graph: Any = None
+
+
+def _get_tobacco_license_graph():
+    global _tobacco_license_graph
+    if _tobacco_license_graph is None:
+        _tobacco_license_graph = build_tobacco_license_graph()
+    return _tobacco_license_graph

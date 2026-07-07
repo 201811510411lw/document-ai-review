@@ -10,3 +10,8 @@ app-config/*.local.env
 app-config/*.local.yaml
 frontend/
 web-console/node_modules/
+web-console/.vite
+ci-config/secret*.env
+
+# 二进制安装包
+tesseract-installer.exe

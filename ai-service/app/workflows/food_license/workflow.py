@@ -1,3 +1,5 @@
+from typing import Any
+
 from langgraph.graph import END, START, StateGraph
 
 from app.models import ReviewInputContext
@@ -34,10 +36,17 @@ def build_food_license_graph():
     return graph.compile()
 
 
-food_license_graph = build_food_license_graph()
+_food_license_graph = None
+
+
+def _get_food_license_graph():
+    global _food_license_graph
+    if _food_license_graph is None:
+        _food_license_graph = build_food_license_graph()
+    return _food_license_graph
 
 
 def run_food_license_workflow(
     input_context: ReviewInputContext,
 ) -> FoodLicenseWorkflowState:
-    return food_license_graph.invoke({"input_context": input_context})
+    return _get_food_license_graph().invoke({"input_context": input_context})

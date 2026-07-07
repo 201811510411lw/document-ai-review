@@ -1,3 +1,5 @@
+from typing import Any
+
 from langgraph.graph import END, START, StateGraph
 
 from app.models import ReviewInputContext
@@ -74,10 +76,17 @@ def build_business_license_graph():
     return graph.compile()
 
 
-business_license_graph = build_business_license_graph()
+_business_license_graph: Any = None
+
+
+def _get_business_license_graph():
+    global _business_license_graph
+    if _business_license_graph is None:
+        _business_license_graph = build_business_license_graph()
+    return _business_license_graph
 
 
 def run_business_license_workflow(
     input_context: ReviewInputContext,
 ) -> BusinessLicenseWorkflowState:
-    return business_license_graph.invoke({"input_context": input_context})
+    return _get_business_license_graph().invoke({"input_context": input_context})

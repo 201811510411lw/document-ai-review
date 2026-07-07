@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 from app.models import ManualReview, ManualReviewStatus, ReviewInputContext
@@ -6,14 +7,102 @@ from app.tools.remote_document import RemoteDocumentDownloader
 from app.tools.skill_rule_review import (
     build_qc_document_skill_rule_review_adapter,
     load_skill_text,
+    parse_json_object,
 )
 from app.workflows.qc_document.product_report_extraction import (
+    ProductReportExtractedFields,
     extract_product_report_fields,
+    _valid_to as _product_report_valid_to,
 )
 
 
 qc_document_skill_rule_review_adapter = build_qc_document_skill_rule_review_adapter()
 qc_document_remote_downloader = RemoteDocumentDownloader()
+
+
+def _product_report_vision_fallback(
+    review_input: Any,
+    downloader: RemoteDocumentDownloader,
+) -> dict[str, Any]:
+    """当文本提取没有捞到签发日期时，用 Qwen Vision 直接从 PDF 图片中识别。"""
+    file_input = getattr(review_input, "file", None) or getattr(
+        review_input, "document", None
+    )
+    if file_input is None:
+        return {}
+    file_uri = getattr(file_input, "file_uri", None)
+    if not file_uri:
+        return {}
+
+    try:
+        remote_doc = downloader.download(file_uri)
+    except Exception:
+        return {}
+    if not remote_doc or not remote_doc.content:
+        return {}
+
+    # PDF/图片 → base64 data URL
+    try:
+        from app.tools.qwen_ocr_adapter import (
+            _create_chat_completion_content,
+            _source_page_data_urls,
+        )
+
+        page_data_urls = _source_page_data_urls(
+            remote_doc.content, remote_doc.mime_type or "image/png"
+        )
+    except Exception:
+        return {}
+    if not page_data_urls:
+        return {}
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    base_url = os.environ.get("OPENAI_BASE_URL")
+    model = (
+        os.environ.get("FOOD_LICENSE_QWEN_OCR_MODEL")
+        or os.environ.get("BUSINESS_LICENSE_QWEN_OCR_MODEL", "")
+    )
+    if not api_key or not model:
+        return {}
+
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=api_key, base_url=base_url, timeout=90)
+    except Exception:
+        return {}
+
+    prompt = (
+        "你是商品报告 OCR 字段抽取器。请根据图片中的可见文字抽取字段。\n"
+        "只输出 JSON 对象，不要输出 Markdown。\n"
+        "字段包括：issue_date（签发日期，格式 YYYY-MM-DD）。\n"
+        "注意：签发日期通常在检验结论区域的右下角，即使有印章遮挡也要尽力识别。\n"
+        "完全无法确定时输出 null。"
+    )
+
+    # 只取第一页（签发日期一般就在第一页）
+    try:
+        content_text, _ = _create_chat_completion_content(
+            client=client,
+            model=model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": page_data_urls[0]}},
+                    ],
+                }
+            ],
+            max_attempts=2,
+        )
+    except Exception:
+        return {}
+
+    fields = parse_json_object(content_text) or {}
+    if not fields.get("issue_date"):
+        return {}
+    return fields
 
 
 def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any]:
@@ -93,6 +182,26 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
         **acquisition_result.extraction_metadata,
         **extraction_metadata,
     }
+
+    # ⭐ 视觉兜底：文本提取没捞到到期日时，用 Qwen Vision 从 PDF 图片直接识别签发日期
+    if not extracted_fields.valid_to:
+        ocr_fields = _product_report_vision_fallback(review_input, qc_document_remote_downloader)
+        if ocr_fields.get("issue_date"):
+            new_valid_to = _product_report_valid_to(ocr_fields["issue_date"])
+            if new_valid_to:
+                extracted_fields = ProductReportExtractedFields(
+                    **{
+                        **extracted_fields.model_dump(),
+                        "issue_date": ocr_fields["issue_date"],
+                        "sign_date": ocr_fields["issue_date"],
+                        "valid_to": new_valid_to,
+                    }
+                )
+                extraction_metadata["vision_fallback"] = {
+                    "source": "qwen_ocr",
+                    "issue_date": ocr_fields["issue_date"],
+                }
+
     extracted_payload = extracted_fields.model_dump(mode="json")
     skill_name = "qc-document-review"
     rules_result = qc_document_skill_rule_review_adapter.review(
