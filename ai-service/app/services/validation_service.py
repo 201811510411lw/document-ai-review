@@ -293,12 +293,32 @@ def compute_validation_fields(
 ) -> list[dict[str, Any]]:
     """计算校验字段列表，供前端展示。
 
-    优先使用 LLM 的 rule_results，降级使用字段比对。
+    以 _VALIDATION_FIELD_SPECS 定义的字段清单为基础，
+    有 rule_results 时在其上叠加覆盖，确保所有字段都能展示。
     """
+    # 1) 先拿字段规格清单作为基线
+    fields = _field_comparison(detail, document_type)
+    seen_fields: set[str] = {f["field"] for f in fields}
+
+    # 2) 有 LLM 规则结果时，叠加覆盖
     rule_results = detail.get("rule_results") or []
     if rule_results:
-        return _from_rule_results(rule_results, detail)
-    return _field_comparison(detail, document_type)
+        rule_fields = _from_rule_results(rule_results, detail)
+        for rf in rule_fields:
+            field_name = rf["field"]
+            if field_name in seen_fields:
+                # 更新已有项（rule_results 有值的才覆盖）
+                for i, f in enumerate(fields):
+                    if f["field"] == field_name:
+                        if rf.get("recognized") or rf.get("expected"):
+                            fields[i].update(
+                                {k: v for k, v in rf.items() if v is not None and v != ""}
+                            )
+                        break
+            else:
+                fields.append(rf)
+                seen_fields.add(field_name)
+    return fields
 
 
 def compute_verification_result(
