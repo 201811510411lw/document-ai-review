@@ -42,6 +42,7 @@ from app.models import ReviewDocumentInput, ReviewInput
 from app.services.review_service import ReviewService
 
 logger = logging.getLogger(__name__)
+_LockType = type(threading.Lock())
 
 # ---------------------------------------------------------------------------
 # 按日期范围查询的 SQL（替换原 order by rand() limit 1）
@@ -341,10 +342,10 @@ def _manual_task(record: DocumentRecord, use_case: str) -> Any:
     )
 
 
-_lock: threading.Lock | None = None
+_lock: _LockType | None = None
 
 
-def _get_sync_lock() -> threading.Lock:
+def _get_sync_lock() -> _LockType:
     global _lock
     if _lock is None:
         _lock = threading.Lock()
