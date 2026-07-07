@@ -2,25 +2,35 @@
   <div class="dashboard-page">
     <van-nav-bar title="效期看板" left-arrow @click-left="router.push('/scene1')" />
 
-    <!-- 统计卡片（横向滚动） -->
+    <!-- 统计筛选卡片 -->
     <div class="stats-scroll">
-      <div class="stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);" @click="filterExpire = ''">
+      <div class="stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"
+           :class="{ active: filterExpire === '' }"
+           @click="filterExpire = ''; currentPage = 1">
         <div class="stat-num">{{ stats.total || 0 }}</div>
         <div class="stat-label">总证照数</div>
       </div>
-      <div class="stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);" @click="filterExpire = 'valid'">
+      <div class="stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);"
+           :class="{ active: filterExpire === 'valid' }"
+           @click="filterExpire = 'valid'; currentPage = 1">
         <div class="stat-num">{{ stats.valid || 0 }}</div>
         <div class="stat-label">正常</div>
       </div>
-      <div class="stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);" @click="filterExpire = 'expiring'">
+      <div class="stat-card stat-warning"
+           :class="{ active: filterExpire === 'expiring' }"
+           @click="filterExpire = 'expiring'; currentPage = 1">
         <div class="stat-num">{{ stats.expiring || 0 }}</div>
-        <div class="stat-label">临期</div>
+        <div class="stat-label">⚠️ 临期</div>
       </div>
-      <div class="stat-card" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);" @click="filterExpire = 'expired'">
+      <div class="stat-card stat-danger"
+           :class="{ active: filterExpire === 'expired' }"
+           @click="filterExpire = 'expired'; currentPage = 1">
         <div class="stat-num">{{ stats.expired || 0 }}</div>
-        <div class="stat-label">已过期</div>
+        <div class="stat-label">🚫 已过期</div>
       </div>
-      <div class="stat-card" style="background: linear-gradient(135deg, #969799 0%, #646566 100%);" @click="filterExpire = 'unknown'">
+      <div class="stat-card" style="background: linear-gradient(135deg, #969799 0%, #646566 100%);"
+           :class="{ active: filterExpire === 'unknown' }"
+           @click="filterExpire = 'unknown'; currentPage = 1">
         <div class="stat-num">{{ stats.unknown || 0 }}</div>
         <div class="stat-label">未识别</div>
       </div>
@@ -35,97 +45,71 @@
       background="#ecf5ff"
     />
 
-    <!-- 每日日报 -->
-    <div class="section-title">每日日报</div>
-    <div v-if="dailyReport" class="daily-report">
-      <div class="report-header">
-        <van-icon name="notes-o" size="20" color="#1989fa" />
-        <span>证照效期日报</span>
-        <span class="report-time">{{ dailyReport.date || todayStr }}</span>
-      </div>
-
-      <!-- 昨日新上传 -->
-      <div class="report-section">
-        <div class="section-label new">
-          📦 昨日上传（{{ newUploads.total }} 条）
-          <span v-if="newUploads.total > 0" class="sub-count">
-            <span class="count-safe">{{ newUploads.valid.length }} 有效</span>
-            <span class="count-warn">{{ newUploads.expiring.length }} 临期</span>
-            <span class="count-danger">{{ newUploads.expired.length }} 过期</span>
-          </span>
-        </div>
-        <div v-if="newUploads.expiring?.length && (!filterExpire || filterExpire === 'expiring')" class="sub-section">
-          <div class="sub-label warning">⚠️ 临期 {{ newUploads.expiring.length }} 条</div>
-          <div v-for="r in newUploads.expiring.slice(0, 5)" :key="r.id" class="report-item" @click="goToQuery(r.company_name)">
-            <span class="item-name">{{ r.company_name }}</span>
-            <span class="item-detail">{{ r.license_type }} · 到期 {{ r.expire_date || '未知' }}{{ r.expire_days_remaining !== null && r.expire_days_remaining !== undefined ? ' · 剩余 ' + r.expire_days_remaining + ' 天' : '' }}</span>
-          </div>
-        </div>
-        <div v-if="newUploads.expired?.length && (!filterExpire || filterExpire === 'expired')" class="sub-section">
-          <div class="sub-label danger">❌ 过期 {{ newUploads.expired.length }} 条</div>
-          <div v-for="r in newUploads.expired.slice(0, 5)" :key="r.id" class="report-item" @click="goToQuery(r.company_name)">
-            <span class="item-name">{{ r.company_name }}</span>
-            <span class="item-detail">{{ r.license_type }} · {{ r.expire_date || '未知日期' }} 过期</span>
-          </div>
-        </div>
-        <div v-if="!newUploads.expiring?.length && !newUploads.expired?.length" class="empty-hint">{{ newUploads.valid.length > 0 ? '✅ 昨日上传证照均有效' : '昨日无新增上传' }}</div>
-      </div>
-
-      <!-- 当前效期概览（所有记录） -->
-      <div class="report-section">
-        <div class="section-label overview">📊 当前效期概览（共 {{ stats.total }} 条）</div>
-        <div v-if="overviewValid.length > 0 && (!filterExpire || filterExpire === 'valid')" class="sub-section">
-          <div class="sub-label safe">✅ 有效 {{ overviewValid.length }} 条</div>
-          <div v-for="r in overviewValid.slice(0, limitValid)" :key="r.id" class="report-item" @click="goToQuery(r.company_name)">
-            <span class="item-name">{{ r.company_name }}</span>
-            <span class="item-detail">{{ r.license_type }} · {{ r.expire_date ? '到期 ' + r.expire_date : '长期有效' }}</span>
-          </div>
-          <div v-if="overviewValid.length > 10" class="more-link" @click="limitValid = limitValid >= overviewValid.length ? 10 : overviewValid.length">
-            {{ limitValid >= overviewValid.length ? '收起' : '还有 ' + (overviewValid.length - limitValid) + ' 条...' }}
-          </div>
-        </div>
-        <div v-if="overviewExpiring.length > 0 && (!filterExpire || filterExpire === 'expiring')" class="sub-section">
-          <div class="sub-label warning">⚠️ 临期 {{ overviewExpiring.length }} 条</div>
-          <div v-for="r in overviewExpiring.slice(0, limitExpiring)" :key="r.id" class="report-item" @click="goToQuery(r.company_name)">
-            <span class="item-name">{{ r.company_name }}</span>
-            <span class="item-detail">{{ r.license_type }} · 到期 {{ r.expire_date || '未知' }}{{ r.expire_days_remaining !== null && r.expire_days_remaining !== undefined ? ' · 剩余 ' + r.expire_days_remaining + ' 天' : '' }}</span>
-          </div>
-          <div v-if="overviewExpiring.length > 10" class="more-link" @click="limitExpiring = limitExpiring >= overviewExpiring.length ? 10 : overviewExpiring.length">
-            {{ limitExpiring >= overviewExpiring.length ? '收起' : '还有 ' + (overviewExpiring.length - limitExpiring) + ' 条...' }}
-          </div>
-        </div>
-        <div v-if="overviewExpired.length > 0 && (!filterExpire || filterExpire === 'expired')" class="sub-section">
-          <div class="sub-label danger">❌ 过期 {{ overviewExpired.length }} 条</div>
-          <div v-for="r in overviewExpired.slice(0, 5)" :key="r.id" class="report-item" @click="goToQuery(r.company_name)">
-            <span class="item-name">{{ r.company_name }}</span>
-            <span class="item-detail">{{ r.license_type }} · {{ r.expire_date || '未知日期' }} 过期</span>
-          </div>
-        </div>
-        <div v-if="overviewUnknown.length > 0 && (!filterExpire || filterExpire === 'unknown')" class="sub-section">
-          <div class="sub-label unknown">❓ 未识别 {{ overviewUnknown.length }} 条（无附件）</div>
-          <div v-for="r in overviewUnknown.slice(0, 10)" :key="r.id" class="report-item" @click="goToQuery(r.company_name)">
-            <span class="item-name">{{ r.company_name }}</span>
-            <span class="item-detail">{{ r.license_type }} · 未上传证照文件</span>
-          </div>
-        </div>
+    <!-- 证照类型按钮选项 -->
+    <div class="doc-type-bar">
+      <span class="doc-type-label">证照类型：</span>
+      <div class="doc-type-options">
+        <span v-for="opt in docTypeOptions" :key="opt.value"
+          class="doc-type-btn"
+          :class="{ active: filterDocType === opt.value }"
+          @click="filterDocType = opt.value; currentPage = 1">
+          {{ opt.text }}
+        </span>
       </div>
     </div>
-    <van-empty v-else-if="!loading" description="暂无日报数据" />
 
-    <!-- 证照类型分布 -->
+    <!-- 结果信息 -->
+    <div class="result-info" v-if="!loading">
+      <span class="filter-result">{{ filteredTotal }} 条记录</span>
+      <span v-if="filterExpire" class="clear-filter" @click="filterExpire = ''; currentPage = 1">清除筛选</span>
+    </div>
+
+    <!-- 数据表格 -->
+    <div v-if="pagedRecords.length" class="data-table">
+      <div class="table-header">
+        <span class="col-status">效期类型</span>
+        <span class="col-type">证照类型</span>
+        <span class="col-name">公司/供应商名称</span>
+        <span class="col-expire">到期日期</span>
+      </div>
+      <div v-for="r in pagedRecords" :key="r.id" class="table-row" @click="goToQuery(r.company_name)">
+        <span class="col-status">
+          <van-tag :type="statusTagType(r.expire_status)" size="small">
+            {{ statusLabel(r.expire_status) }}
+          </van-tag>
+        </span>
+        <span class="col-type">{{ r.license_type }}</span>
+        <span class="col-name van-multi-ellipsis--l2">{{ r.company_name }}</span>
+        <span class="col-expire">
+          {{ r.expire_date || '-' }}
+          <span v-if="r.expire_days_remaining !== null" class="days-remaining"
+                :class="{ danger: r.expire_days_remaining < 0, warning: r.expire_days_remaining >= 0 && r.expire_days_remaining <= 30 }">
+            {{ r.expire_days_remaining < 0 ? '已过期' : r.expire_days_remaining + '天' }}
+          </span>
+        </span>
+      </div>
+    </div>
+    <van-empty v-else-if="!loading" :description="filteredTotal === 0 ? '暂无匹配记录' : '加载中...'" />
+
+    <!-- 分页 -->
+    <div v-if="totalPages > 1" class="pagination-wrapper">
+      <van-pagination v-model="currentPage" :page-count="totalPages" mode="simple"
+        @change="scrollToTop" />
+    </div>
+
+    <van-loading v-if="loading" class="page-loading" size="24">加载中...</van-loading>
+
+    <!-- 证照类型分布（保持不变） -->
     <div class="section-title">证照类型分布</div>
     <div class="type-distribution">
       <div v-if="typeDistribution.length">
-      <div v-for="item in typeDistribution" :key="item.type" class="type-bar-item">
-        <span class="type-name">{{ item.type }}</span>
-        <div class="bar-bg">
-          <div
-            class="bar-fill"
-            :style="{ width: item.percent + '%', background: item.color }"
-          />
+        <div v-for="item in typeDistribution" :key="item.type" class="type-bar-item">
+          <span class="type-name">{{ item.type }}</span>
+          <div class="bar-bg">
+            <div class="bar-fill" :style="{ width: item.percent + '%', background: item.color }" />
+          </div>
+          <span class="type-count">{{ item.count }}</span>
         </div>
-        <span class="type-count">{{ item.count }}</span>
-      </div>
       </div>
       <van-empty v-else description="暂无证照类型统计" />
     </div>
@@ -142,14 +126,22 @@ import { showToast } from 'vant'
 const userStore = useUserStore()
 const router = useRouter()
 const isAdmin = computed(() => userStore.isAdmin)
-const stats = ref({})
+
 const dailyReport = ref(null)
 const loading = ref(true)
-const todayStr = new Date().toISOString().slice(0, 10)
-const limitExpiring = ref(10)
-const limitValid = ref(10)
-
+const stats = ref({})
 const filterExpire = ref('')
+const filterDocType = ref('')
+const currentPage = ref(1)
+const pageSize = 15
+
+const docTypeOptions = [
+  { text: '全部证照类型', value: '' },
+  { text: '营业执照', value: 'business_license' },
+  { text: '食品经营许可证', value: 'food_license' },
+  { text: '食品生产许可证', value: 'food_production_license' },
+  { text: '商品报告', value: 'product_report' },
+]
 
 const typeDistribution = computed(() => {
   const rows = stats.value.type_distribution || []
@@ -157,35 +149,52 @@ const typeDistribution = computed(() => {
   return rows.map(i => ({ ...i, percent: (i.count / max) * 100 }))
 })
 
-const newUploads = computed(() => {
-  const d = dailyReport.value
-  if (!d) return { total: 0, valid: [], expiring: [], expired: [], unknown: [] }
-  return d.new_uploads || { total: 0, valid: [], expiring: [], expired: [], unknown: [] }
-})
-
-const overviewValid = computed(() => {
+const allRecords = computed(() => {
   const d = dailyReport.value
   if (!d || !d.all_records) return []
-  return d.all_records.filter(r => r.expire_status === 'valid')
+  return d.all_records
 })
 
-const overviewExpiring = computed(() => {
-  const d = dailyReport.value
-  if (!d || !d.all_records) return []
-  return d.all_records.filter(r => r.expire_status === 'expiring_soon')
+const filteredRecords = computed(() => {
+  let list = allRecords.value
+  if (filterExpire.value) {
+    list = list.filter(r => r.expire_status === filterExpire.value)
+  }
+  if (filterDocType.value) {
+    const dt = filterDocType.value
+    list = list.filter(r => r.document_type === dt || r._document_type === dt)
+  }
+  return list
 })
 
-const overviewUnknown = computed(() => {
-  const d = dailyReport.value
-  if (!d || !d.all_records) return []
-  return d.all_records.filter(r => r.expire_status === 'unknown')
+const filteredTotal = computed(() => filteredRecords.value.length)
+
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredRecords.value.length / pageSize)))
+
+const pagedRecords = computed(() => {
+  const start = (currentPage.value - 1) * pageSize
+  return filteredRecords.value.slice(start, start + pageSize)
 })
 
-const overviewExpired = computed(() => {
-  const d = dailyReport.value
-  if (!d || !d.all_records) return []
-  return d.all_records.filter(r => r.expire_status === 'expired')
-})
+function statusLabel(status) {
+  const map = { valid: '正常', expiring_soon: '临期', expired: '过期', unknown: '未识别' }
+  return map[status] || status || '未知'
+}
+
+function statusTagType(status) {
+  if (status === 'valid') return 'success'
+  if (status === 'expiring_soon') return 'warning'
+  if (status === 'expired') return 'danger'
+  return 'default'
+}
+
+function scrollToTop() {
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+function goToQuery(companyName) {
+  router.push({ path: '/query', query: { keyword: companyName } })
+}
 
 onMounted(async () => {
   try {
@@ -211,10 +220,6 @@ onMounted(async () => {
     loading.value = false
   }
 })
-
-function goToQuery(companyName) {
-  router.push({ path: '/query', query: { keyword: companyName } })
-}
 </script>
 
 <style scoped>
@@ -233,64 +238,142 @@ function goToQuery(companyName) {
   color: #fff;
   text-align: center;
   cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
 }
-@media (min-width: 768px) {
-  .stat-card {
-    flex: 1;
-    min-width: 0;
-  }
+.stat-card.active {
+  transform: scale(0.95);
+  box-shadow: inset 0 0 0 3px rgba(255,255,255,0.6);
+}
+@media (min-width: 480px) {
+  .stat-card { flex: 1; min-width: 0; }
 }
 .stat-num { font-size: 28px; font-weight: 700; }
 .stat-label { font-size: 12px; opacity: 0.9; margin-top: 4px; }
-.section-title {
-  font-size: 14px; font-weight: 600; color: #323233;
-  padding: 16px 16px 8px;
+/* 临期 - 暖橙醒目 */
+.stat-warning {
+  background: linear-gradient(135deg, #ff7a00 0%, #ff9400 100%);
+  box-shadow: 0 2px 8px rgba(255, 122, 0, 0.3);
 }
-.daily-report {
-  margin: 0 16px;
+/* 已过期 - 深红突出 */
+.stat-danger {
+  background: linear-gradient(135deg, #cf1322 0%, #ff4d4f 100%);
+  box-shadow: 0 2px 8px rgba(207, 19, 34, 0.35);
+}
+
+/* 证照类型按钮栏 */
+.doc-type-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 16px;
   background: #fff;
-  border-radius: 8px;
-  padding: 16px;
+  flex-wrap: wrap;
 }
-.report-header {
+.doc-type-label {
+  font-size: 12px;
+  color: #969799;
+  line-height: 30px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.doc-type-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.doc-type-btn {
+  display: inline-block;
+  padding: 4px 12px;
+  font-size: 12px;
+  border-radius: 14px;
+  border: 1px solid #dcdee0;
+  color: #646566;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.doc-type-btn.active {
+  background: #1989fa;
+  color: #fff;
+  border-color: #1989fa;
+}
+.doc-type-btn:active {
+  opacity: 0.7;
+}
+
+/* 结果信息 */
+.result-info {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 15px;
+  justify-content: space-between;
+  padding: 4px 16px 8px;
+  font-size: 12px;
+}
+.filter-result { color: #969799; }
+.clear-filter {
+  color: #1989fa;
+  cursor: pointer;
+}
+.clear-filter:active { opacity: 0.7; }
+
+/* 数据表格 */
+.data-table {
+  margin: 8px 16px;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.table-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  background: #f5f6f8;
+  font-size: 12px;
   font-weight: 600;
-  margin-bottom: 12px;
+  color: #646566;
 }
-.report-time {
-  font-size: 12px; color: #969799; font-weight: 400; margin-left: auto;
-}
-.report-section { margin-bottom: 12px; }
-.section-label {
-  font-size: 13px; font-weight: 600;
-  margin-bottom: 8px; padding: 4px 8px; border-radius: 4px;
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-}
-.section-label.new { background: #e8fae8; color: #07c160; }
-.section-label.overview { background: #f0f0ff; color: #667eea; }
-.sub-count { font-size: 11px; font-weight: 400; display: flex; gap: 6px; }
-.count-safe { color: #07c160; }
-.count-warn { color: #ff976a; }
-.count-danger { color: #ee0a24; }
-.sub-section { margin-bottom: 8px; padding-left: 8px; }
-.sub-label { font-size: 12px; font-weight: 600; margin-bottom: 4px; padding: 2px 6px; border-radius: 3px; }
-.sub-label.warning { background: #fff7e6; color: #ff976a; }
-.sub-label.danger { background: #ffeeed; color: #ee0a24; }
-.sub-label.safe { background: #e8fae8; color: #07c160; }
-.empty-hint { font-size: 12px; color: #969799; padding: 8px; text-align: center; }
-.report-item {
-  padding: 6px 8px;
+.table-row {
+  display: flex;
+  align-items: center;
+  padding: 12px;
   border-bottom: 1px solid #f5f6f8;
   font-size: 13px;
   cursor: pointer;
 }
-.report-item:active { background: #f5f6f8; }
-.item-name { font-weight: 500; display: block; }
-.item-detail { font-size: 12px; color: #969799; }
-.more-link { font-size: 12px; color: #1989fa; text-align: center; padding: 4px; cursor: pointer; }
+.table-row:last-child { border-bottom: none; }
+.table-row:active { background: #f5f6f8; }
+.col-status { width: 60px; flex-shrink: 0; }
+.col-type { width: 85px; flex-shrink: 0; font-size: 12px; color: #646566; }
+.col-name { flex: 1; min-width: 0; padding: 0 8px; color: #323233; }
+.col-expire { width: 110px; flex-shrink: 0; text-align: right; font-size: 12px; color: #969799; }
+.days-remaining {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+  background: #e8fae8;
+  color: #07c160;
+}
+.days-remaining.warning { background: #fff7e6; color: #ff976a; }
+.days-remaining.danger { background: #ffeeed; color: #ee0a24; }
+
+/* 分页 */
+.pagination-wrapper {
+  display: flex;
+  justify-content: center;
+  padding: 12px 16px;
+}
+.pagination-wrapper :deep(.van-pagination__item) {
+  white-space: nowrap;
+}
+
+/* 证照类型分布 */
+.section-title {
+  font-size: 14px; font-weight: 600; color: #323233;
+  padding: 16px 16px 8px;
+}
 .type-distribution {
   margin: 0 16px; background: #fff; border-radius: 8px; padding: 12px 16px;
 }
@@ -306,4 +389,5 @@ function goToQuery(companyName) {
   height: 100%; border-radius: 8px; transition: width 0.3s ease;
 }
 .type-count { font-size: 12px; color: #969799; width: 30px; text-align: right; }
+.page-loading { display: flex; justify-content: center; padding: 40px; }
 </style>

@@ -88,7 +88,7 @@ left join srm.attachment t2 on
     t1.uuid = t2.refId
 where
     t2.tenant = '8560'
-    and t1.category = 'sku'
+    and t1.category in ('sku', 'vendor', 'manufacturer')
     and t1.typeName = '产品报告'
     and t1.deleted = 0
     and t2.removed = 0

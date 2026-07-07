@@ -86,7 +86,7 @@ def fetch_product_report_source_tasks(
         record = map_srm_certification_row(row)
         if record.declared_document_type != "product_report":
             continue
-        if record.document_category != "sku":
+        if record.document_category not in ("sku", "vendor", "manufacturer"):
             continue
         if record.is_deleted:
             continue

@@ -881,6 +881,7 @@ def _frontend_record_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _frontend_workbench_stats(records: list[dict[str, Any]]) -> dict[str, int]:
+    """统计各状态数量。records 的 review_status 已由 _frontend_qc_record 映射为前端值。"""
     return {
         "total": len(records),
         "pending": sum(1 for row in records if row.get("review_status") == "pending"),
@@ -1197,9 +1198,7 @@ def _frontend_review_filter(status: str) -> dict[str, str]:
             "filter_frontend_status": "1",
         },
         "flagged": {
-            "risk_level": "HIGH",
             "frontend_status": "flagged",
-            "force_frontend_status": "flagged",
         },
     }.get(status or "", {})
 

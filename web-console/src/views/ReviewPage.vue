@@ -19,15 +19,27 @@
       </div>
       <div class="stat-card warning" @click="filterStatus = 'pending'">
         <div class="stat-num">{{ stats.pending || 0 }}</div>
-        <div class="stat-label">待审核</div>
+        <div class="stat-label">
+          待审核
+          <van-icon name="info-o" size="12" style="vertical-align:middle;margin-left:2px"
+            @click.stop="showDialog({ message: '待审核 = 需要人工复核的记录\n规则审核未通过或关键字段缺失时进入待审核状态' })" />
+        </div>
       </div>
       <div class="stat-card success" @click="filterStatus = 'confirmed'">
         <div class="stat-num">{{ stats.confirmed || 0 }}</div>
-        <div class="stat-label">已认可</div>
+        <div class="stat-label">
+          已认可
+          <van-icon name="info-o" size="12" style="vertical-align:middle;margin-left:2px"
+            @click.stop="showDialog({ message: '已认可 = 已人工审核通过\n管理员手动确认为有效的记录' })" />
+        </div>
       </div>
       <div class="stat-card danger" @click="filterStatus = 'flagged'">
         <div class="stat-num">{{ stats.flagged || 0 }}</div>
-        <div class="stat-label">已标记</div>
+        <div class="stat-label">
+          异常
+          <van-icon name="info-o" size="12" style="vertical-align:middle;margin-left:2px"
+            @click.stop="showDialog({ message: '异常记录包含三类：\n1. 审核失败（自动审核未通过）\n2. 人工驳回（管理员审核后驳回）\n3. 高风险（关键字段不匹配等）' })" />
+        </div>
       </div>
     </div>
 
@@ -44,7 +56,7 @@
     <div v-if="filterStatus || keyword" class="filter-bar">
       <div class="filter-tags">
         <span v-if="filterStatus" class="filter-tag">
-          {{ filterStatus === 'pending' ? '待审核' : filterStatus === 'confirmed' ? '已认可' : '已标记' }}
+          {{ filterStatus === 'pending' ? '待审核' : filterStatus === 'confirmed' ? '已认可' : '异常' }}
           <van-icon name="cross" @click="filterStatus = ''" />
         </span>
         <span v-if="keyword" class="filter-tag">
@@ -109,7 +121,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { reviewApi } from '@/api'
-import { showToast } from 'vant'
+import { showDialog, showToast } from 'vant'
 
 const router = useRouter()
 const route = useRoute()
@@ -166,13 +178,15 @@ let isMounted = false
 
 onMounted(() => {
   isMounted = true
-  // 优先从 sessionStorage 恢复上次的 tab，避免返回后跳回营业执照
-  const saved = sessionStorage.getItem('review_doc_type')
-  if (saved && !route.query.document_type) {
-    router.replace({ path: '/review', query: { document_type: saved } })
-  }
   if (route.query.document_type) {
     sessionStorage.setItem('review_doc_type', route.query.document_type)
+  } else {
+    // 无 query → 可能是从详情返回，从 sessionStorage 恢复上次的标签
+    const saved = sessionStorage.getItem('review_doc_type')
+    if (saved && documentTypeMap[saved]) {
+      router.replace({ path: '/review', query: { document_type: saved } })
+      return  // 重定向后 onMounted 会再次触发
+    }
   }
   activeDocumentType.value = documentType.value
   loadList()
@@ -254,6 +268,7 @@ async function createReviewFromSrm() {
 }
 
 function goToDetail(id) {
+  sessionStorage.setItem('review_doc_type', documentType.value)
   router.push(`/review/${id}`)
 }
 
@@ -272,7 +287,7 @@ function statusTagType(status) {
 function statusText(status) {
   if (status === 'pending') return '待审核'
   if (status === 'confirmed') return '已认可'
-  if (status === 'flagged') return '已标记'
+  if (status === 'flagged') return '异常'
   return '无需审核'
 }
 </script>

@@ -245,7 +245,7 @@ _VALIDATION_FIELD_SPECS: dict[str, list[tuple[str, tuple[str, ...]]]] = {
         ("生产日期", ("production_date",)),
         ("签发日期", ("issue_date", "sign_date")),
         ("批准日期", ("approval_date",)),
-        ("有效截止日", ("valid_to",)),
+        ("有效截止日", ("issue_date", "sign_date")),
         ("检验结论", ("inspection_conclusion", "inspection_result")),
     ],
     "tobacco_license": [

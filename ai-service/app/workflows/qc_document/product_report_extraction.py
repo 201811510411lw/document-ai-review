@@ -48,8 +48,9 @@ def extract_product_report_fields(
     conclusion = _extract_conclusion(text)
     inspection_items = _extract_inspection_items(text)
 
+    detected_type = _detect_product_report_type(text)
     extracted = ProductReportExtractedFields(
-        document_type="product_report" if text.strip() else None,
+        document_type=detected_type,
         report_no=report_no,
         product_name=product_name,
         sample_name=product_name,
@@ -188,6 +189,18 @@ def _extract_conclusion(document_text: str) -> str | None:
     if not match:
         return None
     return re.sub(r"\s+", " ", match.group(1)).strip()
+
+
+def _detect_product_report_type(document_text: str) -> str | None:
+    """检测文档标题判断证照类型。"""
+    text = (document_text or "").strip()
+    if not text:
+        return None
+    # 取前 500 字符判断标题
+    head = text[:500]
+    if re.search(r'检验报告|检测报告', head):
+        return "第三方检验报告"
+    return "product_report"
 
 
 def _valid_to(issue_or_approval_date: str | None) -> str | None:
