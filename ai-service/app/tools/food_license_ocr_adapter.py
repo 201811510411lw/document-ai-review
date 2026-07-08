@@ -95,7 +95,7 @@ class QwenOcrFoodLicenseAdapter:
                         "page": page_number,
                         "raw_text": content_text,
                         "text": text,
-                        "fields": _sanitize_food_license_fields(fields or {}),
+                        "fields": _sanitize_food_license_fields(fields or {}, source_text=text),
                         "is_food_license": _is_food_license_page(fields or {}, text),
                     }
                 )
@@ -135,7 +135,7 @@ class QwenOcrFoodLicenseAdapter:
                 "metadata": metadata,
             }
 
-        structured_fields = _sanitize_food_license_fields(selected["fields"])
+        structured_fields = _sanitize_food_license_fields(selected["fields"], source_text=selected["text"])
         structured_fields["source_page"] = selected["page"]
         return {
             "text": selected["text"],
@@ -304,7 +304,7 @@ class FoodLicenseOcrTextParser:
             return {"text": document_text, "metadata": parsed_metadata}
         return {
             "text": document_text,
-            "structured_fields": _sanitize_food_license_fields(fields),
+            "structured_fields": _sanitize_food_license_fields(fields, source_text=document_text),
             "metadata": parsed_metadata,
         }
 
@@ -416,7 +416,11 @@ def _with_fallback_metadata(
     return {**result, "metadata": metadata}
 
 
-def _sanitize_food_license_fields(fields: dict[str, Any]) -> dict[str, Any]:
+def _sanitize_food_license_fields(
+    fields: dict[str, Any],
+    *,
+    source_text: str = "",
+) -> dict[str, Any]:
     sanitized = dict(fields)
     for key, value in list(sanitized.items()):
         if isinstance(value, str) and value.strip().lower() in {
@@ -434,6 +438,11 @@ def _sanitize_food_license_fields(fields: dict[str, Any]) -> dict[str, Any]:
         sanitized["document_type"] = "food_license"
     elif sanitized.get("document_type") == "食品生产许可证":
         sanitized["document_type"] = "food_production_license"
+    # document_type_raw 保底：从 source_text 提取标题
+    if not _optional_text(sanitized.get("document_type_raw")):
+        raw = _extract_food_license_title_from_text(source_text)
+        if raw:
+            sanitized["document_type_raw"] = raw
     if not _optional_text(sanitized.get("issue_date")):
         sanitized["issue_date"] = _first_optional_text(
             sanitized,
@@ -489,6 +498,7 @@ def _sanitize_food_license_fields(fields: dict[str, Any]) -> dict[str, Any]:
         "valid_to",
         "issue_authority",
         "issue_date",
+        "document_type_raw",
     ):
         sanitized[key] = _optional_text(sanitized.get(key))
     return sanitized
@@ -612,6 +622,28 @@ def _normalize_text(value: Any) -> str:
         return ""
     normalized = unicodedata.normalize("NFKC", str(value))
     return "".join(normalized.split()).strip()
+
+
+def _extract_food_license_title_from_text(text: str) -> str | None:
+    """从 OCR 原始文本中提取食品经营端证照大标题。"""
+    if not text:
+        return None
+    compact = "".join(text.split())
+    titles = [
+        "仅销售预包装食品备案凭证",
+        "仅销售预包装食品备案",
+        "网络食品交易第三方平台备案",
+        "食品小经营店登记证",
+        "小餐饮经营许可证",
+        "食品经营许可证",
+        "小食杂店登记证",
+        "食品摊贩登记卡",
+        "食品摊贩备案卡",
+    ]
+    for title in titles:
+        if title in compact:
+            return title
+    return None
 
 
 def _get_value(source: Any, key: str) -> Any:

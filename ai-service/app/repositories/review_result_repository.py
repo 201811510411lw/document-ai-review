@@ -981,6 +981,7 @@ class MySQLReviewResultRepository:
                         extracted_fields_json,
                         normalized_fields_json,
                         rule_results_json,
+                        source_evidence_json,
                         created_at,
                         updated_at
                     FROM food_license_reviews
@@ -1006,6 +1007,7 @@ class MySQLReviewResultRepository:
                         extracted_fields_json,
                         normalized_fields_json,
                         rule_results_json,
+                        source_evidence_json,
                         created_at,
                         updated_at
                     FROM food_production_license_reviews
@@ -1135,6 +1137,7 @@ class MySQLReviewResultRepository:
                         normalized_fields_json,
                         rule_results_json,
                         created_at,
+                        source_evidence_json,
                         updated_at
                     FROM food_license_reviews
                     WHERE created_at >= %s
@@ -1161,6 +1164,7 @@ class MySQLReviewResultRepository:
                         extracted_fields_json,
                         normalized_fields_json,
                         rule_results_json,
+                        source_evidence_json,
                         created_at,
                         updated_at
                     FROM food_production_license_reviews
@@ -2264,12 +2268,13 @@ def _qc_product_report_row(row: dict[str, Any]) -> dict[str, Any]:
 def _qc_food_license_row(row: dict[str, Any]) -> dict[str, Any]:
     item = dict(row)
     item["needs_manual_review"] = bool(item["needs_manual_review"])
+    source_evidence = loads(item.get("source_evidence_json") or "{}")
     return {
         "task_id": item["task_id"],
         "use_case_name": "food_license",
         "document_type": "food_license",
         "document_type_label": _document_type_label("food_license"),
-        "supplier_name": item.get("subject_name"),
+        "supplier_name": item.get("subject_name") or source_evidence.get("supplier_name") or "",
         "credit_code": item.get("credit_code"),
         "review_status": item.get("review_status"),
         "review_status_label": _review_status_label(item.get("review_status") or ""),
@@ -2282,6 +2287,7 @@ def _qc_food_license_row(row: dict[str, Any]) -> dict[str, Any]:
         "source_attachment_ref_id": item.get("source_attachment_ref_id"),
         "source_url": item.get("source_url"),
         "valid_to": item.get("valid_to"),
+        "source_evidence": source_evidence,
         "extracted_fields": loads(item.get("extracted_fields_json") or "{}"),
         "normalized_fields": loads(item.get("normalized_fields_json") or "{}"),
         "rule_results": loads(item.get("rule_results_json") or "[]"),
@@ -2293,12 +2299,13 @@ def _qc_food_license_row(row: dict[str, Any]) -> dict[str, Any]:
 def _qc_food_production_license_row(row: dict[str, Any]) -> dict[str, Any]:
     item = dict(row)
     item["needs_manual_review"] = bool(item["needs_manual_review"])
+    source_evidence = loads(item.get("source_evidence_json") or "{}")
     return {
         "task_id": item["task_id"],
         "use_case_name": "food_production_license",
         "document_type": "food_production_license",
         "document_type_label": _document_type_label("food_production_license"),
-        "supplier_name": item.get("supplier_name"),
+        "supplier_name": item.get("supplier_name") or source_evidence.get("supplier_name") or "",
         "credit_code": _food_production_credit_code_for_display(item.get("credit_code")),
         "review_status": item.get("review_status"),
         "review_status_label": _review_status_label(item.get("review_status") or ""),
@@ -2314,6 +2321,7 @@ def _qc_food_production_license_row(row: dict[str, Any]) -> dict[str, Any]:
         "extracted_fields": loads(item.get("extracted_fields_json") or "{}"),
         "normalized_fields": loads(item.get("normalized_fields_json") or "{}"),
         "rule_results": loads(item.get("rule_results_json") or "[]"),
+        "source_evidence": source_evidence,
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
     }

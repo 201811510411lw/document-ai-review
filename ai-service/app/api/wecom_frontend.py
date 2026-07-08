@@ -180,8 +180,9 @@ def review_list(
         for record in records
         if _frontend_record_matches_review_filter(record, review_filter)
     ]
+    filtered_total = len(records)
     stats = _frontend_workbench_stats(records_scope)
-    return {"records": records[:limit], "stats": stats}
+    return {"records": records[:limit], "stats": stats, "filtered_total": filtered_total}
 
 
 @api_router.get("/review/{task_id}")
@@ -674,16 +675,22 @@ def _frontend_review_record(
     *,
     force_status: str | None = None,
 ) -> dict[str, Any]:
+    company_name = (
+        row.get("business_name")
+        or row.get("supplier_name")
+        or _source_evidence_name(row)
+        or "未识别主体名称"
+    )
     return {
         "id": row.get("task_id"),
-        "company_name": row.get("business_name") or row.get("supplier_name") or "未识别主体名称",
+        "company_name": company_name,
         "license_type": _document_type_label(row.get("document_type")),
         "credit_code": row.get("credit_code") or "",
         "expire_date": "",
         "expire_status": _risk_to_expire_status(row.get("risk_level")),
         "expire_days_remaining": None,
         "match_ratio": _match_ratio(row),
-        "review_status": force_status or _current_review_status_to_frontend(row),
+        "review_status": _resolve_review_status(row, force_status=force_status),
         "created_at": row.get("created_at") or row.get("updated_at") or "",
         "source_file_url": row.get("source_url") or "",
     }
@@ -742,6 +749,7 @@ def _frontend_qc_record(
     company_name = (
         row.get("supplier_name")
         or row.get("business_name")
+        or _source_evidence_name(row)
         or ""
     )
     if not company_name:
@@ -774,7 +782,7 @@ def _frontend_qc_record(
         "match_ratio": _match_ratio(row, validation_fields=validation_fields),
         "field_coverage": compute_field_coverage(validation_fields),
         "verification_result": compute_verification_result(validation_fields),
-        "review_status": force_status or _current_review_status_to_frontend(row),
+        "review_status": _resolve_review_status(row, force_status=force_status),
         "created_at": row.get("created_at") or row.get("updated_at") or "",
         "source_file_url": row.get("source_url") or "",
         "source_file_name": _source_file_name(row),
@@ -937,6 +945,14 @@ def _validation_field_risk(keys: tuple[str, ...], recognized: Any) -> str:
     if "valid_to" in keys:
         return _valid_to_status(recognized)
     return ""
+
+
+def _source_evidence_name(row: dict[str, Any]) -> str | None:
+    """从 source_evidence 中取供应商名称（数据库原始名称）。"""
+    se = row.get("source_evidence") or {}
+    if isinstance(se, dict):
+        return se.get("supplier_name") or None
+    return None
 
 
 def _source_validation_fields(snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -1208,6 +1224,21 @@ def _blank_to_none(value: str | None) -> str | None:
         return None
     stripped = value.strip()
     return stripped or None
+
+
+def _resolve_review_status(
+    row: dict[str, Any],
+    *,
+    force_status: str | None = None,
+) -> str | None:
+    """计算前端展示的审核状态，自动处理 100% 匹配率免审逻辑。"""
+    status = force_status or _current_review_status_to_frontend(row)
+    # 100% 匹配 → 自动转为已认可（无需人工审核）
+    if status == "pending":
+        ratio = _match_ratio(row)
+        if ratio >= 100:
+            return "confirmed"
+    return status
 
 
 def _current_review_status_to_frontend(row: dict[str, Any]) -> str | None:

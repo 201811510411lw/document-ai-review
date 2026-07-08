@@ -64,13 +64,13 @@
           <van-icon name="cross" @click="keyword = ''; loadList()" />
         </span>
       </div>
-      <span v-if="stats.total !== undefined" class="result-count">{{ stats.total }} 条结果</span>
+      <span v-if="filteredTotal !== undefined" class="result-count">{{ filteredTotal }} 条结果</span>
     </div>
 
     <!-- 待审核提示 -->
     <van-notice-bar
       v-if="stats.pending > 0"
-      :text="`有 ${stats.pending} 条记录待人工审核，匹配率低于 60%`"
+      :text="`有 ${stats.pending} 条记录待人工审核`"
       color="#ee0a24"
       background="#fff2f0"
       left-icon="info-o"
@@ -136,6 +136,7 @@ const activeDocumentType = ref('')
 const displayRecords = ref([])
 const listLoading = ref(false)
 const listFinished = ref(false)
+const filteredTotal = ref(0)
 const pageSize = 20
 
 const documentTypeOptions = [
@@ -185,7 +186,10 @@ onMounted(() => {
     const saved = sessionStorage.getItem('review_doc_type')
     if (saved && documentTypeMap[saved]) {
       router.replace({ path: '/review', query: { document_type: saved } })
-      return  // 重定向后 onMounted 会再次触发
+      // replace 同路径组件不复用，手动继续加载
+      activeDocumentType.value = saved
+      loadList()
+      return
     }
   }
   activeDocumentType.value = documentType.value
@@ -215,6 +219,7 @@ async function loadList() {
     })
     records.value = res.records || []
     stats.value = res.stats || {}
+    filteredTotal.value = res.filtered_total ?? records.value.length
     // 首次显示前 pageSize 条
     displayRecords.value = records.value.slice(0, pageSize)
     if (records.value.length <= pageSize) {

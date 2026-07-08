@@ -61,6 +61,16 @@ class QwenOcrFoodProductionLicenseAdapter:
         if not content:
             return self._error("failed", "QWEN_OCR_EMPTY_CONTENT")
 
+        pdf_page_text = ""
+        if mime_type == "application/pdf":
+            try:
+                import fitz
+                doc = fitz.open(stream=content, filetype="pdf")
+                pdf_page_text = doc.load_page(0).get_text() or ""
+                doc.close()
+            except Exception:
+                pdf_page_text = ""
+
         try:
             page_data_urls = _source_page_data_urls(content, mime_type)
         except Exception as error:
@@ -94,8 +104,10 @@ class QwenOcrFoodProductionLicenseAdapter:
                     max_attempts=self.max_attempts,
                 )
                 attempts += page_attempts
-                fields = parse_business_license_vision_json(content_text)
-                text = _ocr_response_to_plain_text(content_text)
+                # 分离可见文字和 JSON
+                visible_text, json_text = _split_visible_text_and_json(content_text)
+                fields = parse_business_license_vision_json(json_text or content_text)
+                text = _ocr_response_to_plain_text(visible_text or content_text)
                 page_results.append(
                     {
                         "page": page_number,
@@ -150,6 +162,7 @@ class QwenOcrFoodProductionLicenseAdapter:
         structured_fields = _sanitize_food_production_license_fields(
             selected["fields"],
             source_text=selected["text"],
+            pdf_raw_text=pdf_page_text,
         )
         structured_fields["source_page"] = selected["page"]
         return {
@@ -399,11 +412,27 @@ def validate_food_production_license_ocr_result(result: dict[str, Any]) -> dict[
     }
 
 
+def _split_visible_text_and_json(content: str) -> tuple[str, str]:
+    """分离 LLM 响应中的可见文字和 JSON 部分。"""
+    if not content:
+        return "", ""
+    # 尝试提取最后的 JSON 对象 {...}
+    json_match = re.search(r"\{.*\}", content, re.DOTALL)
+    if json_match:
+        json_part = json_match.group()
+        text_part = content[: json_match.start()].strip()
+        return text_part or json_part, json_part
+    return content, content
+
+
 def food_production_license_qwen_ocr_prompt() -> str:
     skill_text = _load_skill_extraction_text("food-production-license-review")
     return (
-        "你是证照 OCR 字段抽取器。请严格根据下面 Skill 的字段抽取要求处理当前图片/PDF 页面，"
-        "只依据页面可见文字，不要执行合规审核。\n"
+        "你是证照 OCR 字段抽取器。先逐字输出你在这张图片上看到的所有文字内容（包括证照标题、"
+        "字段标签、数值、说明文字等），然后严格按照下面的 Skill 要求输出结构化 JSON。\n\n"
+        "# 第一步：输出可见文字\n"
+        "直接输出你从图片上读取到的所有文字，不要添加额外说明。\n\n"
+        "# 第二步：输出结构化 JSON\n"
         "只输出 JSON 对象，不要输出 Markdown。除 Skill 字段外，可额外输出 source_page、ignored_pages。\n\n"
         "# Skill: food-production-license-review\n"
         f"{skill_text}"
@@ -535,6 +564,7 @@ def _sanitize_food_production_license_fields(
     fields: dict[str, Any],
     *,
     source_text: str = "",
+    pdf_raw_text: str = "",
 ) -> dict[str, Any]:
     sanitized = dict(fields)
     for key, value in list(sanitized.items()):
@@ -551,6 +581,12 @@ def _sanitize_food_production_license_fields(
             sanitized[key] = None
     if sanitized.get("document_type") == "食品生产许可证":
         sanitized["document_type"] = "food_production_license"
+    # document_type_raw 保底：从 ocr_text / pdf_raw_text / source_text 提取标题
+    if not _optional_text(sanitized.get("document_type_raw")):
+        ocr_text = sanitized.get("ocr_text") or ""
+        raw = _extract_title_from_text(ocr_text) or _extract_title_from_text(pdf_raw_text) or _extract_title_from_text(source_text)
+        if raw:
+            sanitized["document_type_raw"] = raw
     if not _optional_text(sanitized.get("legal_person")):
         sanitized["legal_person"] = _first_optional_text(
             sanitized,
@@ -617,6 +653,8 @@ def _sanitize_food_production_license_fields(
         "valid_to",
         "issue_authority",
         "issue_date",
+        "document_type_raw",
+        "ocr_text",
     ):
         sanitized[key] = _optional_text(sanitized.get(key))
     return sanitized
@@ -860,6 +898,28 @@ def _normalize_text(value: Any) -> str:
         return ""
     normalized = unicodedata.normalize("NFKC", str(value))
     return "".join(normalized.split()).strip()
+
+
+def _extract_title_from_text(text: str) -> str | None:
+    """从 OCR 原始文本中提取证照大标题。"""
+    if not text:
+        return None
+    compact = "".join(text.split())
+    # 按长度降序匹配已知标题关键词
+    titles = [
+        "特殊医学用途配方食品生产许可证",
+        "婴幼儿配方食品生产许可证",
+        "食品生产加工小作坊许可证",
+        "食品添加剂生产许可证",
+        "保健食品生产许可证",
+        "食品生产许可证",
+        "食品小作坊登记证",
+        "小作坊登记证",
+    ]
+    for title in titles:
+        if title in compact:
+            return title
+    return None
 
 
 def _get_value(source: Any, key: str) -> Any:

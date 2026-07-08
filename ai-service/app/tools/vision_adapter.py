@@ -177,6 +177,24 @@ def parse_business_license_vision_json(content: str) -> dict[str, Any] | None:
 
 
 def convert_pdf_pages_to_png_data_urls(content: bytes, *, dpi: int = 200) -> list[str]:
+    # 优先使用 fitz (PyMuPDF)，无需 poppler
+    try:
+        import fitz
+
+        doc = fitz.open(stream=content, filetype="pdf")
+        data_urls = []
+        for page_number in range(len(doc)):
+            page = doc.load_page(page_number)
+            pix = page.get_pixmap(dpi=dpi)
+            img_bytes = pix.tobytes("png")
+            encoded = base64.b64encode(img_bytes).decode("ascii")
+            data_urls.append(f"data:image/png;base64,{encoded}")
+        doc.close()
+        return data_urls
+    except Exception:
+        pass
+
+    # 降级：使用 pdf2image（需要 poppler）
     try:
         from pdf2image import convert_from_bytes
     except Exception as error:

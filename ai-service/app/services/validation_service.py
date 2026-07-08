@@ -513,7 +513,7 @@ def _lookup_field_value(
         "报告有效期": "valid_to",
         "有效期开始": "valid_from",
         "有效期结束": "valid_to",
-        "证照类型": "document_type",
+        "证照类型": "__document_type__",
         "文档类型": "document_type",
         "产品名称": "product_name",
         "样品名称": "sample_name",
@@ -525,6 +525,16 @@ def _lookup_field_value(
     key = key_map.get(field_name)
     if not key:
         return ""
+    # __document_type__ 特殊处理：通过映射表返回显示名
+    if key == "__document_type__":
+        raw_title = extracted.get("document_type_raw") or ""
+        if raw_title:
+            from app.capabilities.document_type_mapping import match_document_type
+            return match_document_type(raw_title) or "未知"
+        # 无原始标题 → 用系统值映射到显示名
+        sys_type = str(extracted.get("document_type") or normalized.get("document_type") or "").strip().lower()
+        from app.capabilities.document_type_mapping import SYSTEM_TO_DISPLAY
+        return SYSTEM_TO_DISPLAY.get(sys_type) or sys_type or ""
     # 优先从 normalized 取，再 fallback 到 extracted
     value = normalized.get(key) or extracted.get(key)
     if value is None:
@@ -573,7 +583,29 @@ def _field_comparison(
 
         # 证照类型特殊处理：比较 document_type
         if "document_type" in keys:
-            match = str(recognized).lower() == str(expected).lower() if recognized and expected else False
+            from app.capabilities.document_type_mapping import match_document_type, SYSTEM_TO_DISPLAY
+
+            raw_title = extracted.get("document_type_raw") or ""
+            if raw_title:
+                # 用原始标题 → 显示名
+                recognized_display = match_document_type(raw_title) or "未知"
+                # 数据库系统类型 → 显示名
+                db_doc_type = detail.get("document_type") or document_type
+                expected_display = SYSTEM_TO_DISPLAY.get(db_doc_type) or ""
+                match = recognized_display == expected_display if expected_display else False
+                recognized = recognized_display
+                expected = expected_display or _display_value(expected)
+            else:
+                # 无原始标题 → 用系统值映射显示名
+                db_doc_type = detail.get("document_type") or document_type
+                expected_display = SYSTEM_TO_DISPLAY.get(db_doc_type) or ""
+                recognized_display = SYSTEM_TO_DISPLAY.get(str(recognized).lower()) or ""
+                if recognized_display and expected_display:
+                    recognized = recognized_display
+                    expected = expected_display
+                    match = recognized_display == expected_display
+                else:
+                    match = str(recognized).lower() == str(expected).lower() if recognized and expected else False
         elif _is_date_key(keys):
             match = _normalize_date(recognized) == _normalize_date(expected) if recognized and expected else False
         elif _is_name_key(keys):
