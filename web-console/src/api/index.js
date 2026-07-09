@@ -101,6 +101,7 @@ export const reviewApi = {
       food_license: '/api/v1/food-license/reviews/from-srm',
       food_production_license: '/api/v1/qc/food-production-license/reviews/from-srm',
       product_report: '/api/v1/qc/product-report/reviews/from-srm',
+      batch_report: '/api/v1/qc/batch-report/reviews/from-starrocks',
     }
     const endpoint = endpoints[documentType] || endpoints.business_license
     return http.post(endpoint)

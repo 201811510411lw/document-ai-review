@@ -2,6 +2,7 @@
 .env
 .env.local
 .env.*.local
+app-config/app.yaml
 
 # Python
 __pycache__/
@@ -32,3 +33,4 @@ Thumbs.db
 
 # Apps
 ai-service/server.log
+ai-service/data/reviews.sqlite3

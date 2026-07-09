@@ -171,6 +171,7 @@ API 中的日期和时间使用：
 | `POST` | `/api/v1/food-license/reviews/{task_id}/manual-review` | 提交人工复核动作 | 必须 |
 | `POST` | `/api/v1/food-license/reviews:upload` | 上传图片或 PDF 创建审核任务 | 保留设计，低优先级 |
 | `POST` | `/api/v1/qc/product-report/reviews/from-srm` | 从 SRM 拉取一条商品产品报告并审核 | 必须 |
+| `POST` | `/api/v1/qc/batch-report/reviews/from-starrocks` | 从 StarRocks SRM 同步表随机拉取一条商品批次报告并审核 | 必须 |
 | `GET` | `/api/v1/qc/reviews` | 查询 QC 审核列表，支持证照和产品报告 | 必须 |
 | `GET` | `/api/v1/qc/reviews/{task_id}` | 查询 QC 审核详情 | 必须 |
 | `POST` | `/api/v1/qc/reviews/{task_id}/manual-review` | 提交 QC 人工复核动作 | 必须 |
@@ -455,6 +456,63 @@ where t2.tenant = '8560'
   "inspection_items": []
 }
 ```
+
+### 8.2 `POST /api/v1/qc/batch-report/reviews/from-starrocks`
+
+从 StarRocks 中的 SRM 同步表随机拉取一条商品批次报告来源记录，下载附件并执行 `qc_document_review`。
+
+当前首版默认 `review_date=2026-05-05`，用于验证链路；后续默认值会调整为昨天。调用方可通过查询参数覆盖：
+
+```text
+POST /api/v1/qc/batch-report/reviews/from-starrocks?review_date=2026-05-05
+```
+
+#### StarRocks 来源筛选
+
+来源表：
+
+```text
+srm_orders
+srm_orderdeliverybatch
+srm_attachment
+```
+
+核心筛选：
+
+```sql
+t1.tenant = '8560'
+and t1.created >= '{review_date} 00:00:00'
+and t1.created < '{review_date + 1 day} 00:00:00'
+and t1.state = 'finish'
+and t3.refType = 'orderDeliveryBatch'
+and (t3.removed = 0 or t3.removed is null)
+and t3.url is not null
+and t3.url <> ''
+order by rand()
+limit 1
+```
+
+#### 输入映射
+
+| StarRocks 字段 | ReviewInput 字段 | 说明 |
+| --- | --- | --- |
+| `t2.uuid` | `source.record_id` / `source.batch_uuid` | 批次记录 ID |
+| `t1.number` | `source.order_number` | 订单号 |
+| `t1.vendorName` | `supplier_name` / `source.vendor_name` | 供应商名称 |
+| `t2.skuName` | `source.sku_name` | 商品名称 |
+| `t2.productionTime` | `source.production_date` | 来源批次生产日期 |
+| `t3.uuid` | `source.attachment_uuid` | 附件记录 ID |
+| `t3.attachmentName` | `file.file_name` | 附件名 |
+| `t3.url` | `file.file_uri` | 远程 PDF / 图片 URL |
+| 固定值 | `declared_document_type='batch_report'` | 文档类型声明 |
+
+#### 审核规则摘要
+
+- 抽取厂名/公司名、产品名称、生产批号和生产日期。
+- 产品名称与来源商品名比对。
+- 厂名/公司名与来源供应商名称比对。
+- 报告生产日期需与来源批次生产日期一致；若只识别到生产批号，批号中包含 `YYYYMMDD` 也可视为匹配。
+- 附件无法获取可审核文本、关键字段缺失或比对不一致时进入人工复核。
 
 ## 9. 查询审核任务和结果
 

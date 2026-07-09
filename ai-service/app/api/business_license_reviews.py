@@ -441,6 +441,11 @@ def _compact_extracted_fields(fields: dict[str, Any]) -> dict[str, Any]:
         "valid_to",
         "issue_authority",
         "issue_date",
+        "producer_name",
+        "company_name",
+        "product_name",
+        "batch_no",
+        "production_date",
     )
     return {
         key: fields.get(key)

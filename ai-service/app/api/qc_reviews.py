@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -15,6 +15,11 @@ from app.integrations.srm.food_production_license_tasks import (
 from app.integrations.srm.product_report_tasks import (
     ProductReportSourceTaskError,
     fetch_one_product_report_source_task,
+)
+from app.integrations.starrocks.batch_report_tasks import (
+    BatchReportSourceTaskError,
+    DEFAULT_BATCH_REPORT_REVIEW_DATE,
+    fetch_one_batch_report_source_task,
 )
 from app.models import ReviewResult
 from app.repositories import build_review_result_repository_from_env
@@ -90,6 +95,10 @@ def get_product_report_srm_sql_client() -> SqlFetchClient:
     return MySqlFetchClient(mysql_settings_from_env("SRM_MYSQL"))
 
 
+def get_batch_report_starrocks_sql_client() -> SqlFetchClient:
+    return MySqlFetchClient(mysql_settings_from_env("STARROCKS"))
+
+
 @router.post("/food-production-license/reviews/from-srm")
 def create_food_production_license_review_from_srm(
     _current_user: dict[str, Any] = Depends(require_web_console_user),
@@ -148,6 +157,42 @@ def create_product_report_review_from_srm(
             detail={
                 "code": "PRODUCT_REPORT_SOURCE_RECORD_NOT_FOUND",
                 "message": "未找到可审核的产品报告来源记录",
+            },
+        )
+
+    result = service.review(task.review_input, use_case_name="qc_document_review")
+    return _review_response(result)
+
+
+@router.post("/batch-report/reviews/from-starrocks")
+def create_batch_report_review_from_starrocks(
+    review_date: date = Query(default=DEFAULT_BATCH_REPORT_REVIEW_DATE),
+    _current_user: dict[str, Any] = Depends(require_web_console_user),
+    sql_client: SqlFetchClient = Depends(get_batch_report_starrocks_sql_client),
+    service: ReviewService = Depends(get_review_service),
+) -> dict[str, Any]:
+    try:
+        task = fetch_one_batch_report_source_task(
+            sql_client,
+            review_date=review_date,
+        )
+    except BatchReportSourceTaskError as error:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": error.code,
+                "message": str(error),
+                "record_id": error.record_id,
+            },
+        ) from error
+
+    if task is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "BATCH_REPORT_SOURCE_RECORD_NOT_FOUND",
+                "message": "未找到可审核的商品批次报告来源记录",
+                "review_date": review_date.isoformat(),
             },
         )
 

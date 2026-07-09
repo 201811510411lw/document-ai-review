@@ -47,6 +47,8 @@ TITLE_KEYWORD_MAP: list[tuple[str, str, str]] = sorted(
 SYSTEM_TO_DISPLAY: dict[str, str] = {
     "food_license": "食品经营许可证",
     "food_production_license": "食品生产许可证",
+    "product_report": "商品报告",
+    "batch_report": "商品批次报告",
 }
 
 DISPLAY_TO_SYSTEM: dict[str, str] = {v: k for k, v in SYSTEM_TO_DISPLAY.items()}

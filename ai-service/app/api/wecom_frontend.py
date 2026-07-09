@@ -742,14 +742,32 @@ def _frontend_qc_record(
     validation_fields = _validation_fields(row)
     product_name = ""
     sample_name = ""
+    batch_no = ""
+    production_date = ""
     extracted = row.get("extracted_fields") or {}
+    source_evidence = row.get("source_evidence") if isinstance(row.get("source_evidence"), dict) else {}
+    source = source_evidence.get("source") if isinstance(source_evidence.get("source"), dict) else {}
+    source_fields = (
+        source_evidence.get("source_fields")
+        if isinstance(source_evidence.get("source_fields"), dict)
+        else {}
+    )
     if isinstance(extracted, dict):
-        product_name = str(extracted.get("product_name") or extracted.get("sample_name") or "")
+        product_name = str(extracted.get("product_name") or extracted.get("sample_name") or source.get("sku_name") or "")
         sample_name = str(extracted.get("sample_name") or "")
+        batch_no = str(extracted.get("batch_no") or source.get("batch_no") or "")
+        production_date = str(
+            extracted.get("production_date")
+            or source_fields.get("production_date")
+            or source.get("production_date")
+            or ""
+        )
     company_name = (
         row.get("supplier_name")
         or row.get("business_name")
         or _source_evidence_name(row)
+        or source_fields.get("vendor_name")
+        or source.get("vendor_name")
         or ""
     )
     if not company_name:
@@ -791,6 +809,11 @@ def _frontend_qc_record(
         "summary": row.get("summary") or "",
         "product_name": product_name,
         "sample_name": sample_name,
+        "batch_no": batch_no,
+        "production_date": production_date,
+        "order_number": source.get("order_number") or "",
+        "sku_name": source.get("sku_name") or "",
+        "vendor_name": source.get("vendor_name") or "",
     }
 
 
@@ -1290,6 +1313,7 @@ def _document_type_label(document_type: str | None) -> str:
         "food_license": "食品经营许可证",
         "food_production_license": "食品生产许可证",
         "product_report": "商品报告",
+        "batch_report": "商品批次报告",
         "tobacco_license": "烟草证",
         "business_tobacco_consistency": "营业执照与烟草证一致性",
     }.get(document_type or "", "营业执照")
