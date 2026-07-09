@@ -9,6 +9,10 @@ from app.tools.skill_rule_review import (
     load_skill_text,
     parse_json_object,
 )
+from app.workflows.qc_document.batch_report_extraction import (
+    extract_batch_report_fields,
+    review_batch_report_rules,
+)
 from app.workflows.qc_document.product_report_extraction import (
     ProductReportExtractedFields,
     extract_product_report_fields,
@@ -112,6 +116,13 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
         downloader=qc_document_remote_downloader,
     )
     document_text = acquisition_result.document_text
+
+    if review_input.declared_document_type == "batch_report":
+        return _run_batch_report_workflow(
+            input_context=input_context,
+            document_text=document_text,
+            acquisition_result=acquisition_result,
+        )
 
     if review_input.declared_document_type != "product_report":
         return {
@@ -266,6 +277,77 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
                     **dict(rules_result.get("metadata") or {}),
                     "skill_name": skill_name,
                 },
+            },
+        },
+    }
+
+
+def _run_batch_report_workflow(
+    *,
+    input_context: ReviewInputContext,
+    document_text: str,
+    acquisition_result: Any,
+) -> dict[str, Any]:
+    review_input = input_context.input
+    extracted_fields, extraction_metadata = extract_batch_report_fields(document_text)
+    extraction_metadata = {
+        **acquisition_result.extraction_metadata,
+        **extraction_metadata,
+    }
+    extracted_payload = extracted_fields.model_dump(mode="json")
+    source_fields = {
+        "supplier_name": review_input.supplier_name,
+        "supplier_credit_code": review_input.supplier_credit_code,
+        "vendor_name": review_input.source.get("vendor_name"),
+        "sku_name": review_input.source.get("sku_name"),
+        "production_date": review_input.source.get("production_date"),
+    }
+    rules_result = review_batch_report_rules(
+        declared_document_type=review_input.declared_document_type,
+        extracted_fields=extracted_payload,
+        source_fields=source_fields,
+        has_document_text=bool(document_text),
+    )
+    status = rules_result.get("status", "PENDING_MANUAL_REVIEW")
+    needs_manual_review = rules_result.get("needs_manual_review", True)
+    manual_review = ManualReview(
+        status=(
+            ManualReviewStatus.PENDING
+            if needs_manual_review
+            else ManualReviewStatus.NOT_REQUIRED
+        ),
+        reasons=(
+            list(rules_result.get("manual_review_reasons", []))
+            if needs_manual_review
+            else []
+        ),
+    )
+    return {
+        "input_context": input_context,
+        "implementation_status": "implemented",
+        "status": status,
+        "risk_level": rules_result.get("risk_level", "MEDIUM"),
+        "needs_manual_review": needs_manual_review,
+        "summary": rules_result.get("summary", "商品批次报告规则审核完成。"),
+        "manual_review": manual_review,
+        "rule_results": rules_result.get("rule_results", []),
+        "capability_names": ["batch_report"],
+        "document_type": "batch_report",
+        "skill_result": {
+            "document_input": acquisition_result.document_input,
+            "document_classification": {
+                "document_type": "batch_report",
+                "confidence": 1.0,
+                "reasons": ["declared_document_type=batch_report，进入商品批次报告抽取链路"],
+            },
+            "extracted_fields": extracted_payload,
+            "extraction_metadata": extraction_metadata,
+            "source_evidence": {
+                "supplier_name": review_input.supplier_name,
+                "declared_document_type": review_input.declared_document_type,
+                "source_fields": source_fields,
+                "source": review_input.source,
+                "options": review_input.options,
             },
         },
     }

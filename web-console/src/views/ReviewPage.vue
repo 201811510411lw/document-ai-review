@@ -52,6 +52,18 @@
       @search="loadList"
     />
 
+    <div class="toolbar">
+      <van-button
+        type="primary"
+        size="small"
+        icon="plus"
+        :loading="creating"
+        @click="createReviewFromSrm"
+      >
+        {{ createButtonText }}
+      </van-button>
+    </div>
+
     <!-- 当前筛选指示 -->
     <div v-if="filterStatus || keyword" class="filter-bar">
       <div class="filter-tags">
@@ -91,20 +103,20 @@
           @click="goToDetail(r.id)"
         >
           <div class="card-top">
-            <span class="company-name">{{ r.company_name }}</span>
+            <span class="company-name">{{ recordTitle(r) }}</span>
             <van-tag :type="statusTagType(r.review_status)" size="small">
               {{ statusText(r.review_status) }}
             </van-tag>
           </div>
           <div class="card-meta">
-            <span>{{ r.license_type || currentDocument.label || '未识别' }}</span>
+            <span>{{ recordPrimaryMeta(r) }}</span>
             <span class="sep">|</span>
             <span>匹配率: {{ formatRatio(r.match_ratio) }}</span>
             <span class="sep">|</span>
-            <span>{{ r.expire_date || '无到期日' }}</span>
+            <span>{{ recordSecondaryMeta(r) }}</span>
           </div>
           <div class="card-bottom">
-            <span class="batch-no">批次: {{ r.created_at?.slice(0, 10) || '-' }}</span>
+            <span class="batch-no">{{ recordFooterText(r) }}</span>
             <van-icon name="arrow" />
           </div>
         </div>
@@ -164,6 +176,12 @@ const documentTypeOptions = [
     shortLabel: '商品报告',
     subjectLabel: '样品名称/供应商',
   },
+  {
+    value: 'batch_report',
+    label: '商品批次报告',
+    shortLabel: '批次报告',
+    subjectLabel: '订单号/商品名/供应商',
+  },
 ]
 
 const documentTypeMap = Object.fromEntries(documentTypeOptions.map(item => [item.value, item]))
@@ -174,6 +192,11 @@ const documentType = computed(() => {
 })
 
 const currentDocument = computed(() => documentTypeMap[documentType.value])
+const createButtonText = computed(() => (
+  documentType.value === 'batch_report'
+    ? '随机拉取批次'
+    : `发起${currentDocument.value.shortLabel}审核`
+))
 
 let isMounted = false
 
@@ -280,6 +303,35 @@ function goToDetail(id) {
 function formatRatio(val) {
   if (val === null || val === undefined) return '-'
   return Math.round(val) + '%'
+}
+
+function recordTitle(record) {
+  if (documentType.value === 'batch_report') {
+    return record.product_name || record.sku_name || record.company_name || record.order_number || '未识别商品批次'
+  }
+  return record.company_name || record.product_name || '未识别主体名称'
+}
+
+function recordPrimaryMeta(record) {
+  if (documentType.value === 'batch_report') {
+    return record.order_number ? `订单: ${record.order_number}` : (record.license_type || currentDocument.value.label)
+  }
+  return record.license_type || currentDocument.value.label || '未识别'
+}
+
+function recordSecondaryMeta(record) {
+  if (documentType.value === 'batch_report') {
+    return record.production_date || record.batch_no || record.vendor_name || record.company_name || '无批次信息'
+  }
+  return record.expire_date || '无到期日'
+}
+
+function recordFooterText(record) {
+  if (documentType.value === 'batch_report') {
+    const supplier = record.vendor_name || record.company_name || '-'
+    return `供应商: ${supplier}`
+  }
+  return `批次: ${record.created_at?.slice(0, 10) || '-'}`
 }
 
 function statusTagType(status) {

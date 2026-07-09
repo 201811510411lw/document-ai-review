@@ -38,6 +38,10 @@ srm_mysql:
   host: 127.0.0.1
   port: 3306
   database: srm
+starrocks:
+  host: starrocks.example.test
+  port: 9030
+  database: work_temp
 wecom:
   reviewer_user_ids:
     - zhangsan
@@ -46,7 +50,10 @@ wecom:
         encoding="utf-8",
     )
     (project_root / ".env").write_text(
-        "OPENAI_API_KEY=secret-key\nSRM_MYSQL_PASSWORD=secret-password\n",
+        "OPENAI_API_KEY=secret-key\n"
+        "SRM_MYSQL_PASSWORD=secret-password\n"
+        "STARROCKS_USER=starrocks-user\n"
+        "STARROCKS_PASSWORD=starrocks-password\n",
         encoding="utf-8",
     )
     _clear_project_env(monkeypatch)
@@ -60,6 +67,11 @@ wecom:
     assert os.environ["ALIYUN_OCR_BODY_JSON"] == '{"prob":true,"table":false}'
     assert os.environ["ALIYUN_OCR_ROTATION_ORDER"] == "270,0"
     assert os.environ["WECOM_REVIEWER_USER_IDS"] == "zhangsan,lisi"
+    assert os.environ["STARROCKS_HOST"] == "starrocks.example.test"
+    assert os.environ["STARROCKS_PORT"] == "9030"
+    assert os.environ["STARROCKS_DATABASE"] == "work_temp"
+    assert os.environ["STARROCKS_USER"] == "starrocks-user"
+    assert os.environ["STARROCKS_PASSWORD"] == "starrocks-password"
     assert os.environ["OPENAI_API_KEY"] == "secret-key"
     assert os.environ["SRM_MYSQL_PASSWORD"] == "secret-password"
 

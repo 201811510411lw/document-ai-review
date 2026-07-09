@@ -186,6 +186,7 @@ const typeOptions = [
   { value: 'food_license', label: '食品经营' },
   { value: 'food_production_license', label: '食品生产' },
   { value: 'product_report', label: '商品报告' },
+  { value: 'batch_report', label: '批次报告' },
 ]
 
 // 批量查询

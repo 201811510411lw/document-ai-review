@@ -141,6 +141,7 @@ const docTypeOptions = [
   { text: '食品经营许可证', value: 'food_license' },
   { text: '食品生产许可证', value: 'food_production_license' },
   { text: '商品报告', value: 'product_report' },
+  { text: '商品批次报告', value: 'batch_report' },
 ]
 
 const typeDistribution = computed(() => {

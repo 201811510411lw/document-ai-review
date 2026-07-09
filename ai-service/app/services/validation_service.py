@@ -163,6 +163,32 @@ _RULE_CODE_FIELD_MAP: dict[str, dict[str, Any]] = {
         "category": "conclusion",
         "required": True,
     },
+    # ── 商品批次报告 ──
+    "BATCH_REPORT_TEXT_PRESENT": {
+        "field": "文档文本",
+        "category": "evidence",
+        "required": True,
+    },
+    "BATCH_REPORT_TYPE_MATCH": {
+        "field": "文档类型",
+        "category": "type",
+        "required": True,
+    },
+    "BATCH_REPORT_PRODUCT_NAME_MATCH": {
+        "field": "商品名称",
+        "category": "field",
+        "required": True,
+    },
+    "BATCH_REPORT_PRODUCER_NAME_MATCH": {
+        "field": "生产者名称",
+        "category": "field",
+        "required": True,
+    },
+    "BATCH_REPORT_PRODUCTION_DATE_MATCH": {
+        "field": "生产日期/批号",
+        "category": "field",
+        "required": True,
+    },
     # ── 烟草证 ──
     "TOBACCO_LICENSE_TYPE_MATCH": {
         "field": "证照类型",
@@ -248,6 +274,13 @@ _VALIDATION_FIELD_SPECS: dict[str, list[tuple[str, tuple[str, ...]]]] = {
         ("有效截止日", ("issue_date", "sign_date")),
         ("检验结论", ("inspection_conclusion", "inspection_result")),
     ],
+    "batch_report": [
+        ("文档类型", ("document_type",)),
+        ("商品名称", ("product_name",)),
+        ("生产者名称", ("producer_name", "company_name")),
+        ("生产日期", ("production_date",)),
+        ("生产批号", ("batch_no",)),
+    ],
     "tobacco_license": [
         ("证照类型", ("document_type",)),
         ("企业名称", ("subject_name",)),
@@ -281,6 +314,8 @@ _SOURCE_FIELD_KEYS = {
     "producer_name",
     "entrusting_party",
     "manufacturer_name",
+    "product_name",
+    "production_date",
     "credit_code",
 }
 
@@ -477,13 +512,34 @@ def _source_fallback_fields(detail: dict[str, Any] | None) -> dict[str, str]:
     if not detail:
         return {}
     source_evidence = dict(detail.get("source_evidence") or {})
+    source = source_evidence.get("source") if isinstance(source_evidence.get("source"), dict) else {}
+    source_fields = (
+        source_evidence.get("source_fields")
+        if isinstance(source_evidence.get("source_fields"), dict)
+        else {}
+    )
     supplier_name = str(source_evidence.get("supplier_name") or "")
+    source_supplier_name = str(
+        source_fields.get("supplier_name")
+        or source_fields.get("vendor_name")
+        or source.get("vendor_name")
+        or supplier_name
+        or ""
+    )
+    source_product_name = str(source_fields.get("sku_name") or source.get("sku_name") or "")
+    source_production_date = str(
+        source_fields.get("production_date") or source.get("production_date") or ""
+    )
     return {
         "主体名称": supplier_name,
         "经营者名称": supplier_name,
-        "生产者名称": supplier_name,
+        "生产者名称": source_supplier_name,
         "供应商名称": supplier_name,
         "企业名称": supplier_name,
+        "商品名称": source_product_name,
+        "产品名称": source_product_name,
+        "生产日期/批号": source_production_date,
+        "生产日期": source_production_date,
         "统一社会信用代码": str(source_evidence.get("supplier_credit_code") or ""),
         "许可证编号": str(source_evidence.get("license_no") or ""),
         "经营场所": str(source_evidence.get("business_address") or supplier_name),
@@ -516,9 +572,11 @@ def _lookup_field_value(
         "证照类型": "__document_type__",
         "文档类型": "document_type",
         "产品名称": "product_name",
+        "商品名称": "product_name",
         "样品名称": "sample_name",
         "检验结论": "inspection_conclusion",
         "批号": "batch_no",
+        "生产日期/批号": "production_date",
         "生产日期": "production_date",
         "签发日期": "issue_date",
     }
@@ -634,7 +692,17 @@ def _source_validation_fields(detail: dict[str, Any]) -> dict[str, Any]:
     source = {}
     if isinstance(source_evidence.get("source"), dict):
         source = source_evidence["source"]
+    source_fields = {}
+    if isinstance(source_evidence.get("source_fields"), dict):
+        source_fields = source_evidence["source_fields"]
     supplier_name = source_evidence.get("supplier_name") or ""
+    source_supplier_name = (
+        source_fields.get("supplier_name")
+        or source_fields.get("vendor_name")
+        or source.get("vendor_name")
+        or supplier_name
+        or ""
+    )
     credit_code = source_evidence.get("supplier_credit_code") or ""
     if not credit_code and isinstance(source.get("source_payload"), dict):
         payload = source["source_payload"]
@@ -645,9 +713,12 @@ def _source_validation_fields(detail: dict[str, Any]) -> dict[str, Any]:
                 break
     return {
         "subject_name": supplier_name,
-        "producer_name": supplier_name,
+        "producer_name": source_supplier_name,
+        "company_name": source_supplier_name,
         "entrusting_party": supplier_name,
         "manufacturer_name": supplier_name,
+        "product_name": source_fields.get("sku_name") or source.get("sku_name"),
+        "production_date": source_fields.get("production_date") or source.get("production_date"),
         "credit_code": credit_code,
     }
 
@@ -695,7 +766,7 @@ def _is_date_key(keys: tuple[str, ...]) -> bool:
 
 def _is_name_key(keys: tuple[str, ...]) -> bool:
     return any(
-        k in {"subject_name", "producer_name", "entrusting_party", "manufacturer_name"}
+        k in {"subject_name", "producer_name", "company_name", "entrusting_party", "manufacturer_name", "product_name"}
         for k in keys
     )
 
@@ -728,6 +799,9 @@ def _is_required_field(document_type: str, keys: tuple[str, ...]) -> bool:
             "batch_no", "production_date", "issue_date",
             "approval_date", "valid_to", "inspection_conclusion",
         }
+        return any(k in required for k in keys)
+    if document_type == "batch_report":
+        required = {"document_type", "product_name", "producer_name", "company_name", "production_date"}
         return any(k in required for k in keys)
     return False
 

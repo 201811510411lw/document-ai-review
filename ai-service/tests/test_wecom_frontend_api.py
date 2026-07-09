@@ -1290,6 +1290,74 @@ def test_wecom_frontend_product_report_detail_uses_product_report_validation_fie
     assert entrusting_party["match"] is True
 
 
+def test_wecom_frontend_batch_report_list_detail_and_confirm(monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    result = ReviewService(repository=repository).review(
+        ReviewInput(
+            ocr_text="""
+            商品批次报告
+            厂名：广州市秀雅秀贸易有限公司（常温）
+            产品名称：游世佳族金唱片面包
+            生产日期：2026年05月08日
+            """,
+            supplier_name="广州市秀雅秀贸易有限公司（常温）",
+            supplier_credit_code="",
+            declared_document_type="batch_report",
+            source={
+                "record_id": "batch-001",
+                "order_number": "10102605050385",
+                "vendor_name": "广州市秀雅秀贸易有限公司（常温）",
+                "sku_name": "游世佳族金唱片面包",
+                "production_date": "2026-05-08",
+                "attachment_ref_id": "batch-001",
+            },
+        ),
+        use_case_name="qc_document_review",
+    )
+    app.dependency_overrides[get_review_read_repository] = lambda: repository
+    client = TestClient(app)
+    headers = business_license_auth_headers(client, monkeypatch)
+
+    list_response = client.get(
+        "/api/review/list",
+        params={"document_type": "batch_report"},
+        headers=headers,
+    )
+    assert list_response.status_code == 200
+    records = list_response.json()["records"]
+    assert records[0]["id"] == result.task_id
+    assert records[0]["license_type"] == "商品批次报告"
+    assert records[0]["product_name"] == "游世佳族金唱片面包"
+    assert records[0]["order_number"] == "10102605050385"
+
+    detail_response = client.get(f"/api/review/{result.task_id}", headers=headers)
+    assert detail_response.status_code == 200
+    record = detail_response.json()["record"]
+    assert record["document_type"] == "batch_report"
+    fields = record["validation_fields"]
+    assert [field["field"] for field in fields] == [
+        "文档类型",
+        "商品名称",
+        "生产者名称",
+        "生产日期",
+        "生产批号",
+        "文档文本",
+        "生产日期/批号",
+    ]
+    product_name = next(field for field in fields if field["field"] == "商品名称")
+    assert product_name["expected"] == "游世佳族金唱片面包"
+    assert product_name["match"] is True
+
+    confirm_response = client.post(
+        f"/api/review/{result.task_id}/confirm",
+        json={"comment": "已确认批次报告。"},
+        headers=headers,
+    )
+    assert confirm_response.status_code == 200
+    assert confirm_response.json()["record"]["review_status"] == "confirmed"
+
+
 def test_wecom_frontend_food_production_detail_prefers_payload_document_type_over_stale_projection(
     tmp_path,
     monkeypatch,

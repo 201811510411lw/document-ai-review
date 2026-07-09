@@ -60,6 +60,12 @@ review_result_mysql:
   port: 3306
   database: document_ai_review
 
+# StarRocks 批次报告验证库；账号和密码放在 .env。
+starrocks:
+  host: your-starrocks-host
+  port: 9030
+  database: work_temp
+
 # Web 控制台本地认证配置；密码和签名密钥放在 .env。
 web_console_auth:
   username: reviewer

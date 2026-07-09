@@ -829,6 +829,8 @@ class MySQLReviewResultRepository:
         product_report = self.get_product_report_snapshot(task_id)
         if product_report is not None:
             return _qc_product_report_detail(product_report)
+        if payload is not None and payload.document_type == "batch_report":
+            return _qc_review_result_detail(payload)
         return None
 
     def _get_qc_review_detail_by_document_type(
@@ -854,6 +856,9 @@ class MySQLReviewResultRepository:
         if document_type == "product_report":
             snapshot = self.get_product_report_snapshot(task_id)
             return _qc_product_report_detail(snapshot) if snapshot is not None else None
+        if document_type == "batch_report":
+            payload = self.get_by_task_id(task_id)
+            return _qc_review_result_detail(payload) if payload is not None else None
         return None
 
     def manual_review_qc_review(
@@ -868,8 +873,6 @@ class MySQLReviewResultRepository:
     ) -> dict[str, Any] | None:
         self._ensure_schema_once()
         table = self._qc_projection_table_for_task(task_id)
-        if table is None:
-            return None
         reviewed_at_text = reviewed_at.isoformat()
         with self._connect() as connection:
             with connection.cursor() as cursor:
@@ -890,34 +893,35 @@ class MySQLReviewResultRepository:
                     if payload_row is not None
                     else None
                 )
-                cursor.execute(
-                    f"""
-                    UPDATE {table}
-                    SET
-                        review_status = %s,
-                        needs_manual_review = %s,
-                        manual_review_status = %s,
-                        manual_review_decision = %s,
-                        manual_review_comment = %s,
-                        manual_review_reviewer_id = %s,
-                        manual_review_reviewer_username = %s,
-                        manual_review_reviewed_at = %s,
-                        updated_at = %s
-                    WHERE task_id = %s
-                    """,
-                    (
-                        "MANUAL_REVIEWED",
-                        0,
-                        "COMPLETED",
-                        decision,
-                        comment,
-                        reviewer_id,
-                        reviewer_username,
-                        reviewed_at_text,
-                        reviewed_at_text,
-                        task_id,
-                    ),
-                )
+                if table is not None:
+                    cursor.execute(
+                        f"""
+                        UPDATE {table}
+                        SET
+                            review_status = %s,
+                            needs_manual_review = %s,
+                            manual_review_status = %s,
+                            manual_review_decision = %s,
+                            manual_review_comment = %s,
+                            manual_review_reviewer_id = %s,
+                            manual_review_reviewer_username = %s,
+                            manual_review_reviewed_at = %s,
+                            updated_at = %s
+                        WHERE task_id = %s
+                        """,
+                        (
+                            "MANUAL_REVIEWED",
+                            0,
+                            "COMPLETED",
+                            decision,
+                            comment,
+                            reviewer_id,
+                            reviewer_username,
+                            reviewed_at_text,
+                            reviewed_at_text,
+                            task_id,
+                        ),
+                    )
                 if updated_payload is not None:
                     cursor.execute(
                         """
@@ -928,6 +932,8 @@ class MySQLReviewResultRepository:
                         (updated_payload.model_dump_json(), task_id),
                     )
             connection.commit()
+        if table is None and updated_payload is None:
+            return None
         return self.get_qc_review_detail(task_id)
 
     def _qc_projection_table_for_task(self, task_id: str) -> str | None:
@@ -1099,6 +1105,19 @@ class MySQLReviewResultRepository:
                     """
                 )
                 rows.extend(_qc_product_report_row(row) for row in cursor.fetchall())
+                cursor.execute(
+                    """
+                    SELECT payload_json
+                    FROM review_results
+                    """
+                )
+                for row in cursor.fetchall():
+                    payload_json = row.get("payload_json")
+                    if not payload_json:
+                        continue
+                    payload = ReviewResult.model_validate_json(payload_json)
+                    if payload.document_type == "batch_report":
+                        rows.append(_qc_review_result_row(payload))
         return rows
 
     def list_qc_reviews_created_since(self, since_date: str) -> list[dict[str, Any]]:
@@ -2534,6 +2553,81 @@ def _qc_tobacco_consistency_detail(snapshot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _qc_review_result_row(review_result: ReviewResult) -> dict[str, Any]:
+    skill_result = _skill_result_dict(review_result)
+    extracted_fields = dict(skill_result.get("extracted_fields") or {})
+    normalized_fields = dict(skill_result.get("normalized_fields") or {})
+    extraction_metadata = dict(skill_result.get("extraction_metadata") or {})
+    source_evidence = dict(skill_result.get("source_evidence") or {})
+    source = dict(source_evidence.get("source") or {})
+    source_fields = dict(source_evidence.get("source_fields") or {})
+    document_input = dict(skill_result.get("document_input") or {})
+    supplier_name = (
+        source_fields.get("supplier_name")
+        or source_fields.get("vendor_name")
+        or source.get("vendor_name")
+        or source.get("sku_name")
+        or extracted_fields.get("producer_name")
+        or extracted_fields.get("product_name")
+    )
+    source_url = (
+        document_input.get("source_url")
+        or document_input.get("file_uri")
+        or source.get("attachment_url")
+    )
+    source_record_id = (
+        source.get("record_id")
+        or source.get("batch_uuid")
+        or source.get("order_number")
+    )
+    return {
+        "task_id": review_result.task_id,
+        "use_case_name": review_result.use_case_name,
+        "document_type": review_result.document_type,
+        "document_type_label": _document_type_label(review_result.document_type),
+        "supplier_name": supplier_name,
+        "credit_code": source_fields.get("supplier_credit_code"),
+        "review_status": review_result.status.value,
+        "review_status_label": _review_status_label(review_result.status.value),
+        "risk_level": review_result.risk_level.value,
+        "risk_level_label": _risk_level_label(review_result.risk_level.value),
+        "needs_manual_review": review_result.needs_manual_review,
+        "summary": review_result.summary,
+        "source_record_id": source_record_id,
+        "source_created_at": source.get("order_created") or source.get("source_created_at"),
+        "source_attachment_ref_id": source.get("attachment_ref_id"),
+        "source_url": source_url,
+        "extracted_fields": extracted_fields,
+        "normalized_fields": normalized_fields or extracted_fields,
+        "extraction_metadata": extraction_metadata,
+        "source_evidence": source_evidence,
+        "rule_results": [rule.model_dump(mode="json") for rule in review_result.rule_results],
+        "created_at": review_result.created_at.isoformat(),
+        "updated_at": review_result.updated_at.isoformat(),
+        "manual_review": {
+            "status": review_result.manual_review.status.value,
+            "decision": review_result.manual_review.action,
+            "comment": review_result.manual_review.comment,
+            "reviewer_id": review_result.manual_review.reviewer,
+            "reviewer_username": review_result.manual_review.reviewer,
+            "reviewed_at": (
+                review_result.manual_review.reviewed_at.isoformat()
+                if review_result.manual_review.reviewed_at
+                else None
+            ),
+            "reasons": review_result.manual_review.reasons,
+        },
+    }
+
+
+def _qc_review_result_detail(review_result: ReviewResult) -> dict[str, Any]:
+    row = _qc_review_result_row(review_result)
+    return {
+        **row,
+        "raw_payload": review_result.model_dump(mode="json"),
+    }
+
+
 def _qc_product_report_detail(snapshot: dict[str, Any]) -> dict[str, Any]:
     row = _qc_product_report_row(snapshot)
     extracted_fields = {
@@ -2628,6 +2722,7 @@ def _document_type_label(document_type: str) -> str:
         "food_license": "食品经营许可证",
         "food_production_license": "食品生产许可证",
         "product_report": "商品报告",
+        "batch_report": "商品批次报告",
         "tobacco_license": "烟草专卖零售许可证",
         "business_tobacco_consistency": "营业执照与烟草证一致性",
     }.get(document_type, document_type)

@@ -24,7 +24,10 @@ class StubMySQLCursor:
             }
             return
         if compact.startswith("select payload_json from review_results"):
-            self.result = self.storage["review_results"].get(params[0])
+            if "where task_id = %s" in compact:
+                self.result = self.storage["review_results"].get(params[0])
+            else:
+                self.result = list(self.storage["review_results"].values())
             return
         if compact.startswith("update review_results set payload_json"):
             row = self.storage["review_results"].get(params[1])
@@ -35,6 +38,7 @@ class StubMySQLCursor:
             keys = [
                 "task_id",
                 "source_record_id",
+                "source_created_at",
                 "source_attachment_ref_id",
                 "source_url",
                 "tenant",
@@ -65,6 +69,7 @@ class StubMySQLCursor:
             keys = [
                 "task_id",
                 "source_record_id",
+                "source_created_at",
                 "source_attachment_ref_id",
                 "source_url",
                 "tenant",
@@ -97,6 +102,7 @@ class StubMySQLCursor:
             keys = [
                 "task_id",
                 "source_record_id",
+                "source_created_at",
                 "source_attachment_ref_id",
                 "source_url",
                 "tenant",
@@ -121,6 +127,7 @@ class StubMySQLCursor:
             keys = [
                 "task_id",
                 "source_record_id",
+                "source_created_at",
                 "source_attachment_ref_id",
                 "source_url",
                 "tenant",
@@ -149,6 +156,7 @@ class StubMySQLCursor:
             keys = [
                 "task_id",
                 "source_record_id",
+                "source_created_at",
                 "source_attachment_ref_id",
                 "source_url",
                 "tenant",
@@ -437,6 +445,7 @@ class StubMySQLCursor:
             keys = [
                 "task_id",
                 "source_record_id",
+                "source_created_at",
                 "source_attachment_ref_id",
                 "source_url",
                 "tenant",

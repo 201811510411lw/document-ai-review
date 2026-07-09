@@ -164,6 +164,9 @@ CONFIG_KEY_PATHS = {
     "REVIEW_RESULT_MYSQL_HOST": ("review_result_mysql", "host"),
     "REVIEW_RESULT_MYSQL_PORT": ("review_result_mysql", "port"),
     "REVIEW_RESULT_MYSQL_DATABASE": ("review_result_mysql", "database"),
+    "STARROCKS_HOST": ("starrocks", "host"),
+    "STARROCKS_PORT": ("starrocks", "port"),
+    "STARROCKS_DATABASE": ("starrocks", "database"),
     "WEB_CONSOLE_AUTH_USERNAME": ("web_console_auth", "username"),
     "WEB_CONSOLE_AUTH_TOKEN_TTL_SECONDS": (
         "web_console_auth",
@@ -198,6 +201,8 @@ SECRET_ENV_KEYS = {
     "SRM_MYSQL_PASSWORD",
     "REVIEW_RESULT_MYSQL_USER",
     "REVIEW_RESULT_MYSQL_PASSWORD",
+    "STARROCKS_USER",
+    "STARROCKS_PASSWORD",
     "WEB_CONSOLE_AUTH_PASSWORD",
     "WEB_CONSOLE_AUTH_SECRET",
     "WECOM_SECRET",

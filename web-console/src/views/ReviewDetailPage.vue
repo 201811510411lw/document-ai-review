@@ -34,9 +34,9 @@
 
       <!-- 头部信息 -->
       <div class="detail-header">
-        <h2 class="company-name">{{ record.company_name }}</h2>
+        <h2 class="company-name">{{ detailTitle }}</h2>
         <div class="meta-row">
-          <span class="meta-label">{{ record.license_type }}</span>
+          <span class="meta-label">{{ record.license_type || detailDocumentLabel }}</span>
           <span class="meta-sep">|</span>
           <span class="meta-label">匹配率</span>
           <span class="ratio-value" :class="ratioClass">{{ formatRatio(record.match_ratio) }}</span>
@@ -113,7 +113,7 @@
           icon="eye-o"
           @click.stop="openSourceFile"
         >
-          查看证照原图
+          {{ sourceFileButtonText }}
         </van-button>
         <span v-else class="no-file">无附件</span>
       </div>
@@ -167,6 +167,29 @@ const showFailDetails = ref(true)
 const verificationResult = computed(() => {
   return record.value?.verification_result || null
 })
+
+const detailDocumentLabel = computed(() => {
+  if (record.value?.document_type === 'batch_report') return '商品批次报告'
+  if (record.value?.document_type === 'product_report') return '商品报告'
+  return record.value?.license_type || '审核材料'
+})
+
+const detailTitle = computed(() => {
+  if (record.value?.document_type === 'batch_report') {
+    return (
+      record.value?.product_name ||
+      record.value?.sku_name ||
+      record.value?.company_name ||
+      record.value?.order_number ||
+      '未识别商品批次'
+    )
+  }
+  return record.value?.company_name || record.value?.product_name || '未识别主体名称'
+})
+
+const sourceFileButtonText = computed(() => (
+  record.value?.document_type === 'batch_report' ? '查看批次报告原件' : '查看证照原图'
+))
 
 const fieldGroups = computed(() => {
   const allFields = record.value?.validation_fields || []
