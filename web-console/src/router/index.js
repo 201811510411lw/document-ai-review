@@ -13,8 +13,6 @@ import HomePage from '@/views/HomePage.vue'
 import Scene1Home from '@/views/Scene1Home.vue'
 import TobaccoReportList from '@/views/TobaccoReportList.vue'
 import TobaccoReportDetail from '@/views/TobaccoReportDetail.vue'
-import ContractReportList from '@/views/ContractReportList.vue'
-import ContractReportDetail from '@/views/ContractReportDetail.vue'
 
 const routes = [
   {
@@ -76,16 +74,6 @@ const routes = [
     path: '/tobacco/reports/:id',
     name: 'TobaccoReportDetail',
     component: TobaccoReportDetail,
-  },
-  {
-    path: '/contract/reports',
-    name: 'ContractReports',
-    component: ContractReportList,
-  },
-  {
-    path: '/contract/reports/:id',
-    name: 'ContractReportDetail',
-    component: ContractReportDetail,
   },
   {
     path: '/profile',

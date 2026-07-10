@@ -9,6 +9,7 @@ class FoodProductionLicenseDocumentClassification(BaseModel):
 
 class FoodProductionLicenseExtractedFields(BaseModel):
     document_type: str | None = None
+    document_type_raw: str | None = None
     producer_name: str | None = None
     credit_code: str | None = None
     license_no: str | None = None
@@ -23,6 +24,7 @@ class FoodProductionLicenseExtractedFields(BaseModel):
 
 class FoodProductionLicenseNormalizedFields(BaseModel):
     document_type: str | None = None
+    document_type_raw: str | None = None
     producer_name: str | None = None
     credit_code: str | None = None
     license_no: str | None = None

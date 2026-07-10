@@ -495,7 +495,7 @@ def _normalize_document_type(value) -> str:
         return "food_license"
     if text in {"food_production_license", "食品生产许可证"}:
         return "food_production_license"
-    return text or "unknown"
+    return text or ""
 
 
 def _normalize_date_text(value: str | None) -> str | None:

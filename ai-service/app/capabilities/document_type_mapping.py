@@ -45,10 +45,13 @@ TITLE_KEYWORD_MAP: list[tuple[str, str, str]] = sorted(
 # ─── 系统类型 ↔ 显示名映射 ───────────────────────────────────────
 
 SYSTEM_TO_DISPLAY: dict[str, str] = {
+    "business_license": "营业执照",
     "food_license": "食品经营许可证",
     "food_production_license": "食品生产许可证",
     "product_report": "商品报告",
     "batch_report": "商品批次报告",
+    "tobacco_license": "烟草专卖零售许可证",
+    "business_tobacco_consistency": "营业执照与烟草证一致性",
 }
 
 DISPLAY_TO_SYSTEM: dict[str, str] = {v: k for k, v in SYSTEM_TO_DISPLAY.items()}

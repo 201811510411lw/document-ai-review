@@ -44,6 +44,12 @@
             字段 {{ record.field_coverage.coverage }}%
           </span>
         </div>
+        <!-- 批次报告订单号（可选复制） -->
+        <div v-if="record.document_type === 'batch_report' && record.order_number" class="order-number-row">
+          <span class="order-label">订单号</span>
+          <span class="order-value">{{ record.order_number }}</span>
+          <van-icon name="copy" class="copy-icon" @click="copyOrderNumber" />
+        </div>
         <van-tag :type="statusTagType" size="medium">{{ statusText }}</van-tag>
         <div v-if="manualReviewReasons.length" class="review-reasons">
           <div v-for="reason in manualReviewReasons" :key="reason" class="review-reason">
@@ -61,7 +67,12 @@
         <div v-for="(group, gIdx) in fieldGroups" :key="gIdx" class="field-group">
           <div class="group-title">{{ group.label }}</div>
           <div v-for="(field, idx) in group.fields" :key="idx" class="field-item">
-            <div class="field-name">{{ field.field }}</div>
+            <div class="field-name">
+              {{ field.field }}
+              <span v-if="field.confidence" class="confidence-badge" :class="'conf-' + field.confidence.toLowerCase()">
+                {{ field.confidence }}
+              </span>
+            </div>
             <div class="field-values">
               <!-- 识别值 = 数据库值 => 显示"一致" -->
               <div v-if="field.recognized && field.expected && field.recognized === field.expected" class="value-row match-row">
@@ -96,6 +107,11 @@
               <div v-else class="value-row empty-row">
                 <van-icon name="info-o" color="#969799" size="14" />
                 <span class="value-text empty">{{ field.missing_recognized ? '未识别到' : '-' }}</span>
+              </div>
+              <!-- LLM 匹配理由 -->
+              <div v-if="field.match_reason" class="match-reason-row">
+                <span class="reason-icon">💡</span>
+                <span class="reason-text">{{ field.match_reason }}</span>
               </div>
             </div>
           </div>
@@ -169,9 +185,16 @@ const verificationResult = computed(() => {
 })
 
 const detailDocumentLabel = computed(() => {
-  if (record.value?.document_type === 'batch_report') return '商品批次报告'
-  if (record.value?.document_type === 'product_report') return '商品报告'
-  return record.value?.license_type || '审核材料'
+  const typeMap = {
+    'business_license': '营业执照',
+    'food_license': '食品经营许可证',
+    'food_production_license': '食品生产许可证',
+    'product_report': '商品报告',
+    'batch_report': '商品批次报告',
+    'tobacco_license': '烟草专卖零售许可证',
+    'business_tobacco_consistency': '营业执照与烟草证一致性',
+  }
+  return typeMap[record.value?.document_type] || record.value?.license_type || '审核材料'
 })
 
 const detailTitle = computed(() => {
@@ -306,6 +329,25 @@ async function handleConfirm() {
   }).catch(() => {})
 }
 
+function copyOrderNumber() {
+  const num = record.value?.order_number
+  if (!num) return
+  navigator.clipboard.writeText(num).then(() => {
+    showToast('已复制订单号')
+  }).catch(() => {
+    // 降级方案
+    const ta = document.createElement('textarea')
+    ta.value = num
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+    showToast('已复制订单号')
+  })
+}
+
 async function handleFlag() {
   showConfirmDialog({
     title: '标记异常',
@@ -414,6 +456,15 @@ async function handleFlag() {
   font-size: 12px;
   line-height: 1.4;
 }
+.order-number-row {
+  display: flex; align-items: center; gap: 6px;
+  margin: 6px 0 4px; font-size: 13px;
+  background: #f5f6f8; padding: 4px 8px; border-radius: 4px;
+  user-select: text; -webkit-user-select: text;
+}
+.order-label { color: #969799; font-size: 12px; flex-shrink: 0; }
+.order-value { color: #323233; font-weight: 500; flex: 1; }
+.copy-icon { font-size: 14px; color: #1989fa; cursor: pointer; flex-shrink: 0; }
 .comment { margin-top: 8px; font-size: 13px; color: #ee0a24; background: #fff2f0; padding: 6px 10px; border-radius: 4px; }
 
 .section-title {
@@ -441,7 +492,20 @@ async function handleFlag() {
   border-bottom: 1px solid #f5f6f8;
 }
 .field-item:last-child { border-bottom: none; }
-.field-name { font-size: 12px; font-weight: 500; color: #969799; margin-bottom: 3px; }
+.field-name { font-size: 12px; font-weight: 500; color: #969799; margin-bottom: 3px; display: flex; align-items: center; gap: 6px; }
+.confidence-badge {
+  font-size: 10px; font-weight: 600; padding: 0 5px; border-radius: 3px; line-height: 16px;
+}
+.conf-high { background: #e8fae8; color: #07c160; }
+.conf-medium { background: #fff7e6; color: #ff976a; }
+.conf-low { background: #ffeeed; color: #ee0a24; }
+.match-reason-row {
+  display: flex; align-items: flex-start; gap: 4px;
+  font-size: 12px; color: #969799; margin-top: 3px; padding: 3px 6px;
+  background: #f9fafb; border-radius: 4px;
+}
+.reason-icon { font-size: 12px; flex-shrink: 0; }
+.reason-text { line-height: 1.4; }
 .value-row { display: flex; align-items: center; gap: 5px; font-size: 13px; padding: 2px 0; }
 .value-label { font-size: 11px; color: #969799; width: 44px; flex-shrink: 0; }
 .value-text { color: #323233; flex: 1; }

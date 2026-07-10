@@ -189,6 +189,16 @@ _RULE_CODE_FIELD_MAP: dict[str, dict[str, Any]] = {
         "category": "field",
         "required": True,
     },
+    "BATCH_REPORT_EXPIRY_CHECK": {
+        "field": "生产日期时效性",
+        "category": "validity",
+        "required": True,
+    },
+    "BATCH_REPORT_KEY_FIELD_INTEGRITY": {
+        "field": "关键字段完整性",
+        "category": "integrity",
+        "required": True,
+    },
     # ── 烟草证 ──
     "TOBACCO_LICENSE_TYPE_MATCH": {
         "field": "证照类型",
@@ -448,6 +458,7 @@ def _from_rule_results(
     fields: list[dict[str, Any]] = []
     for rule in rule_results:
         rule_code = str(rule.get("rule_code") or "")
+        details = rule.get("details") or {}
         spec = _RULE_CODE_FIELD_MAP.get(rule_code)
         if not spec:
             field_name = rule.get("rule_name") or rule_code
@@ -470,6 +481,8 @@ def _from_rule_results(
                     "required": True,
                     "missing_recognized": not actual,
                     "missing_expected": not expected,
+                    "match_reason": details.get("match_reason") or "",
+                    "confidence": details.get("confidence") or "",
                 }
             )
             continue
@@ -487,6 +500,20 @@ def _from_rule_results(
         if not expected:
             expected = source.get(field_name, "")
 
+        # 证照类型字段：英文系统类型 → 中文显示名
+        if field_name in ("证照类型", "文档类型"):
+            # "unknown" 是 _normalize_document_type 对空值的旧有 fallback，
+            # 已存数据中可能还有，统一按空值处理
+            if actual and actual.strip().lower() == "unknown":
+                actual = ""
+            if expected and expected.strip().lower() == "unknown":
+                expected = ""
+            from app.capabilities.document_type_mapping import system_to_display
+            if actual and not _is_chinese(actual):
+                actual = system_to_display(actual) or actual
+            if expected and not _is_chinese(expected):
+                expected = system_to_display(expected) or expected
+
         passed = bool(rule.get("passed", False))
         risk = rule.get("risk_level_on_failure") or ""
 
@@ -500,6 +527,8 @@ def _from_rule_results(
                 "required": spec.get("required", True),
                 "missing_recognized": not actual,
                 "missing_expected": not expected,
+                "match_reason": details.get("match_reason") or "",
+                "confidence": details.get("confidence") or "",
                 "_rule_code": rule_code,
                 "_category": spec.get("category", ""),
             }
@@ -591,6 +620,9 @@ def _lookup_field_value(
             return match_document_type(raw_title) or "未知"
         # 无原始标题 → 用系统值映射到显示名
         sys_type = str(extracted.get("document_type") or normalized.get("document_type") or "").strip().lower()
+        # "unknown" 是 _normalize_document_type 旧有 fallback，按空值处理
+        if sys_type == "unknown":
+            sys_type = ""
         from app.capabilities.document_type_mapping import SYSTEM_TO_DISPLAY
         return SYSTEM_TO_DISPLAY.get(sys_type) or sys_type or ""
     # 优先从 normalized 取，再 fallback 到 extracted
@@ -639,8 +671,11 @@ def _field_comparison(
         missing_rec = not _display_value(recognized)
         missing_exp = _is_source_field(keys) and not _display_value(expected)
 
-        # 证照类型特殊处理：比较 document_type
+        # 对已存数据中 "unknown" 字面值的防御（_normalize_document_type 旧有 fallback）
         if "document_type" in keys:
+            recognized_str = _display_value(recognized)
+            if recognized_str.lower() == "unknown":
+                recognized = None
             from app.capabilities.document_type_mapping import match_document_type, SYSTEM_TO_DISPLAY
 
             raw_title = extracted.get("document_type_raw") or ""
@@ -649,6 +684,8 @@ def _field_comparison(
                 recognized_display = match_document_type(raw_title) or "未知"
                 # 数据库系统类型 → 显示名
                 db_doc_type = detail.get("document_type") or document_type
+                if db_doc_type and str(db_doc_type).strip().lower() == "unknown":
+                    db_doc_type = document_type
                 expected_display = SYSTEM_TO_DISPLAY.get(db_doc_type) or ""
                 match = recognized_display == expected_display if expected_display else False
                 recognized = recognized_display
@@ -656,6 +693,8 @@ def _field_comparison(
             else:
                 # 无原始标题 → 用系统值映射显示名
                 db_doc_type = detail.get("document_type") or document_type
+                if db_doc_type and str(db_doc_type).strip().lower() == "unknown":
+                    db_doc_type = document_type
                 expected_display = SYSTEM_TO_DISPLAY.get(db_doc_type) or ""
                 recognized_display = SYSTEM_TO_DISPLAY.get(str(recognized).lower()) or ""
                 if recognized_display and expected_display:
@@ -869,3 +908,10 @@ def _risk_to_match_ratio(risk_level: str) -> int:
         "MEDIUM": 72,
         "LOW": 96,
     }.get(str(risk_level).strip().upper(), 96)
+
+
+def _is_chinese(text: str) -> bool:
+    """判断字符串是否包含中文字符"""
+    if not text:
+        return False
+    return any('一' <= c <= '鿿' for c in text)

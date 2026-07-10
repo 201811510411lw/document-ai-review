@@ -11,7 +11,6 @@ from app.tools.skill_rule_review import (
 )
 from app.workflows.qc_document.batch_report_extraction import (
     extract_batch_report_fields,
-    review_batch_report_rules,
 )
 from app.workflows.qc_document.product_report_extraction import (
     ProductReportExtractedFields,
@@ -301,15 +300,31 @@ def _run_batch_report_workflow(
         "vendor_name": review_input.source.get("vendor_name"),
         "sku_name": review_input.source.get("sku_name"),
         "production_date": review_input.source.get("production_date"),
+        "expired_time": review_input.source.get("expired_time"),
     }
-    rules_result = review_batch_report_rules(
-        declared_document_type=review_input.declared_document_type,
-        extracted_fields=extracted_payload,
-        source_fields=source_fields,
-        has_document_text=bool(document_text),
+    # 走 LLM Skill 规则审核（与 product_report 使用同一 adapter）
+    skill_name = "qc-document-review"
+    rules_result = qc_document_skill_rule_review_adapter.review(
+        skill_name=skill_name,
+        skill_text=load_skill_text(skill_name),
+        review_payload={
+            "task_id": input_context.task_id,
+            "declared_document_type": "batch_report",
+            "source_fields": source_fields,
+            "extracted_fields": {
+                **extracted_payload,
+                "has_document_text": bool(document_text),
+            },
+            "extraction_metadata": extraction_metadata,
+            "source": review_input.source,
+            "options": review_input.options,
+        },
     )
     status = rules_result.get("status", "PENDING_MANUAL_REVIEW")
     needs_manual_review = rules_result.get("needs_manual_review", True)
+    if rules_result.get("risk_level") == "HIGH":
+        status = "FAILED"
+        needs_manual_review = False
     manual_review = ManualReview(
         status=(
             ManualReviewStatus.PENDING
@@ -328,7 +343,7 @@ def _run_batch_report_workflow(
         "status": status,
         "risk_level": rules_result.get("risk_level", "MEDIUM"),
         "needs_manual_review": needs_manual_review,
-        "summary": rules_result.get("summary", "商品批次报告规则审核完成。"),
+        "summary": rules_result.get("summary", "商品批次报告 Skill 规则审核完成。"),
         "manual_review": manual_review,
         "rule_results": rules_result.get("rule_results", []),
         "capability_names": ["batch_report"],
@@ -348,6 +363,10 @@ def _run_batch_report_workflow(
                 "source_fields": source_fields,
                 "source": review_input.source,
                 "options": review_input.options,
+                "skill_rule_review_metadata": {
+                    **dict(rules_result.get("metadata") or {}),
+                    "skill_name": skill_name,
+                },
             },
         },
     }
