@@ -23,6 +23,9 @@ from app.workflows.qc_document import workflow as qc_document_workflow
 
 @pytest.fixture(autouse=True)
 def use_fake_review_adapters(monkeypatch):
+    # 确保 LLM 提取不会真实调用（测试环境不依赖真实 API）
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("BUSINESS_LICENSE_SKILL_REVIEW_MODEL", raising=False)
     adapter = DynamicSkillRuleReviewAdapter()
     monkeypatch.setattr(
         business_license_nodes,

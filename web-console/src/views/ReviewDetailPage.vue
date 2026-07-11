@@ -7,28 +7,64 @@
     </div>
 
     <template v-if="record">
-      <!-- 核验结果横幅 -->
-      <div v-if="verificationResult" class="verify-banner" :class="verificationResult.result">
-        <van-icon :name="verificationResult.result === 'pass' ? 'success' : 'cross'" :size="18" />
-        <span class="verify-text">
-          {{ verificationResult.result === 'pass' ? '核验通过' : '核验未通过' }}
-        </span>
-        <span v-if="verificationResult.failed_items?.length" class="verify-detail">
-          （{{ verificationResult.failed_items.length }} 项不匹配）
-        </span>
-        <van-icon
-          v-if="verificationResult.failed_items?.length"
-          :name="showFailDetails ? 'arrow-up' : 'arrow-down'"
-          class="toggle-icon"
-          @click="showFailDetails = !showFailDetails"
-        />
-      </div>
-      <!-- 失败详情展开 -->
-      <div v-if="showFailDetails && verificationResult?.failed_items?.length" class="fail-details">
-        <div v-for="item in verificationResult.failed_items" :key="item.field" class="fail-item">
-          <van-icon name="cross" color="#ee0a24" size="14" />
-          <span class="fail-field">{{ item.field }}</span>
-          <span class="fail-reason">{{ item.reason }}</span>
+      <!-- 审核结果卡片 -->
+      <div class="review-result-card">
+        <div class="result-header" :class="verificationResult?.result || 'unknown'">
+          <div class="result-top-row">
+            <div class="result-left">
+              <van-icon
+                :name="verificationResult?.result === 'pass' ? 'success' : 'cross'"
+                :size="18"
+              />
+              <span class="result-text">
+                {{ verificationResult?.result === 'pass' ? '核验通过' : '核验未通过' }}
+              </span>
+            </div>
+            <span class="risk-badge" :class="riskLevelClass">
+              {{ record.risk_level_label || record.risk_level || '-' }}
+            </span>
+          </div>
+          <div class="result-meta-row">
+            <span>匹配率 <strong>{{ formatRatio(record.match_ratio) }}</strong></span>
+            <span class="meta-dot">·</span>
+            <span v-if="record.field_coverage">字段覆盖率 <strong>{{ record.field_coverage.coverage }}%</strong></span>
+            <span v-else-if="ruleSummaryText">{{ ruleSummaryText }}</span>
+          </div>
+          <div v-if="record.summary" class="result-summary">{{ record.summary }}</div>
+        </div>
+        <!-- 关键问题 -->
+        <div v-if="keyIssues.length" class="key-issues">
+          <div class="issues-header" @click="showKeyIssues = !showKeyIssues">
+            <span>⚠️ {{ keyIssues.length }} 项需要关注</span>
+            <van-icon :name="showKeyIssues ? 'arrow-up' : 'arrow-down'" size="14" />
+          </div>
+          <div v-if="showKeyIssues" class="issues-list">
+            <div v-for="issue in keyIssues" :key="issue.rule_code" class="issue-item">
+              <div class="issue-top">
+                <span class="issue-icon">!</span>
+                <span class="issue-name">{{ issue.rule_name || issue.rule_code }}</span>
+                <span class="issue-risk" :class="'risk-' + (issue.risk_level_on_failure || '').toLowerCase()">
+                  {{ issue.risk_level_on_failure }}
+                </span>
+              </div>
+              <div class="issue-desc">{{ issue.message || issue.details?.match_reason || '' }}</div>
+            </div>
+          </div>
+        </div>
+        <!-- 完整性检测 -->
+        <div v-if="integrityChecks.length" class="integrity-section">
+          <div v-for="check in integrityChecks" :key="check.rule_code" class="integrity-row">
+            <van-icon
+              :name="check.passed ? 'success' : 'warning-o'"
+              :color="check.passed ? '#07c160' : '#ff976a'"
+              size="14"
+            />
+            <span class="integrity-name">{{ check.rule_name }}</span>
+            <span class="integrity-status" :class="check.passed ? 'pass' : 'warn'">
+              {{ check.passed ? '通过' : '待确认' }}
+            </span>
+            <span v-if="check.message" class="integrity-desc">{{ check.message }}</span>
+          </div>
         </div>
       </div>
 
@@ -118,6 +154,37 @@
         </div>
       </div>
 
+      <!-- 规则审核明细（可折叠） -->
+      <div v-if="record.rule_results?.length" class="section-title rule-details-title" @click="showRuleDetails = !showRuleDetails">
+        <span>规则审核明细</span>
+        <span class="rule-summary-tag">{{ ruleSummaryText }}</span>
+        <van-icon :name="showRuleDetails ? 'arrow-up' : 'arrow-down'" class="toggle-icon" />
+      </div>
+      <div v-if="showRuleDetails && record.rule_results?.length" class="rule-results-section">
+        <div v-for="rule in record.rule_results" :key="rule.rule_code" class="rule-item" :class="{ 'rule-failed': !rule.passed }">
+          <div class="rule-top">
+            <van-icon
+              :name="rule.passed ? 'success' : (rule.risk_level_on_failure === 'HIGH' ? 'fail' : 'warning-o')"
+              :color="rule.passed ? '#07c160' : (rule.risk_level_on_failure === 'HIGH' ? '#ee0a24' : '#ff976a')"
+              size="16"
+            />
+            <span class="rule-name">{{ rule.rule_name || rule.rule_code }}</span>
+            <span v-if="rule.risk_level_on_failure" class="rule-risk-badge" :class="'risk-' + rule.risk_level_on_failure.toLowerCase()">
+              {{ rule.risk_level_on_failure }}
+            </span>
+            <span v-if="rule.details?.confidence" class="rule-confidence" :class="'conf-' + rule.details.confidence.toLowerCase()">
+              {{ rule.details.confidence }}
+            </span>
+          </div>
+          <div class="rule-message">{{ rule.message || rule.details?.match_reason || '' }}</div>
+          <!-- 对比值 -->
+          <div v-if="rule.details?.expected || rule.details?.actual" class="rule-values">
+            <span v-if="rule.details?.expected" class="rule-val"><span class="val-label">期望</span>{{ rule.details.expected }}</span>
+            <span v-if="rule.details?.actual" class="rule-val"><span class="val-label">实际</span>{{ rule.details.actual }}</span>
+          </div>
+        </div>
+      </div>
+
       <!-- 原文件 -->
       <div class="section-title">原文件</div>
       <div class="file-section">
@@ -178,10 +245,54 @@ const loading = ref(true)
 const submitting = ref(false)
 const openingSourceFile = ref(false)
 const comment = ref('')
-const showFailDetails = ref(true)
+const showKeyIssues = ref(true)
+const showRuleDetails = ref(false)
 
 const verificationResult = computed(() => {
   return record.value?.verification_result || null
+})
+
+const keyIssues = computed(() => {
+  const rules = record.value?.rule_results || []
+  return rules
+    .filter(r => !r.passed && r.risk_level_on_failure)
+    // 完整性类规则已在"完整性检测"区域展示，不重复计入
+    .filter(r => {
+      const code = r.rule_code || ''
+      return !(code.includes('INTEGRITY') || code.includes('EVIDENCE') || code.includes('REQUIRED') || code.includes('TEXT_PRESENT'))
+    })
+    .sort((a, b) => {
+      const order = { HIGH: 0, MEDIUM: 1, LOW: 2 }
+      return (order[a.risk_level_on_failure] ?? 3) - (order[b.risk_level_on_failure] ?? 3)
+    })
+})
+
+const ruleSummaryText = computed(() => {
+  const rules = record.value?.rule_results || []
+  if (!rules.length) return ''
+  const passed = rules.filter(r => r.passed).length
+  return `${passed}/${rules.length} 规则通过`
+})
+
+const riskLevelClass = computed(() => {
+  const level = (record.value?.risk_level || '').toLowerCase()
+  if (level === 'high') return 'risk-high'
+  if (level === 'medium') return 'risk-medium'
+  if (level === 'low') return 'risk-low'
+  return ''
+})
+
+const integrityChecks = computed(() => {
+  const rules = record.value?.rule_results || []
+  return rules.filter(r => {
+    const code = r.rule_code || ''
+    return code.includes('INTEGRITY') || code.includes('EVIDENCE') || code.includes('REQUIRED') || code.includes('TEXT_PRESENT')
+  }).map(r => ({
+    rule_code: r.rule_code,
+    rule_name: r.rule_name || r.rule_code,
+    passed: !!r.passed,
+    message: r.message || r.details?.match_reason || '',
+  }))
 })
 
 const detailDocumentLabel = computed(() => {
@@ -227,6 +338,8 @@ const fieldGroups = computed(() => {
 
   for (const f of allFields) {
     const name = f.field || ''
+    // 完整性/证据类字段已迁移至审核结果卡片展示，跳过字段比对
+    if (name.includes('完整性') || name.includes('证据')) continue
     if (name.includes('证照类型') || name.includes('文档类型')) {
       typeFields.push(f)
     } else if (name.includes('有效期') || name.includes('效期') || name.includes('到期')) {
@@ -371,55 +484,161 @@ async function handleFlag() {
 .detail-page { padding-bottom: 32px; }
 .page-loading { display: flex; justify-content: center; padding: 60px; }
 
-/* 核验结果横幅 */
-.verify-banner {
+/* 审核结果卡片 */
+.review-result-card {
+  margin: 0 0 2px;
+  background: #fff;
+}
+.result-header {
+  padding: 14px 16px 10px;
+}
+.result-header.pass { background: #e8fae8; color: #07c160; }
+.result-header.fail { background: #ffeeed; color: #ee0a24; }
+.result-header.unknown { background: #f5f6f8; color: #969799; }
+.result-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.result-left {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 10px 16px;
-  margin: 0 0 2px;
-  font-size: 14px;
+}
+.result-text {
+  font-size: 15px;
   font-weight: 600;
 }
-.verify-banner.pass {
-  background: #e8fae8;
-  color: #07c160;
+.risk-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  line-height: 18px;
+  white-space: nowrap;
 }
-.verify-banner.fail {
-  background: #ffeeed;
-  color: #ee0a24;
-}
-.verify-detail {
-  font-weight: 400;
-  font-size: 13px;
-  opacity: 0.8;
-}
-.toggle-icon {
-  margin-left: auto;
-  cursor: pointer;
-  font-size: 16px;
-}
-.fail-details {
-  background: #fff2f0;
-  margin: 0 0 2px;
-  padding: 8px 16px 12px;
-  border-bottom: 1px solid #ffccc7;
-}
-.fail-item {
+.risk-badge.risk-high { background: #ee0a24; color: #fff; }
+.risk-badge.risk-medium { background: #ff976a; color: #fff; }
+.risk-badge.risk-low { background: #e8fae8; color: #07c160; }
+.result-meta-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
   margin-top: 6px;
-}
-.fail-field {
-  font-weight: 600;
-  color: #323233;
-  min-width: 80px;
-}
-.fail-reason {
-  color: #ee0a24;
   font-size: 12px;
+  color: inherit;
+  opacity: 0.75;
+  flex-wrap: wrap;
+}
+.result-meta-row strong { font-weight: 700; }
+.meta-dot { color: inherit; opacity: 0.4; }
+.result-summary {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: inherit;
+  opacity: 0.85;
+}
+/* 关键问题 */
+.key-issues {
+  border-top: 1px solid rgba(0,0,0,0.06);
+}
+.issues-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #ee0a24;
+  cursor: pointer;
+  user-select: none;
+}
+.issues-list {
+  padding: 0 16px 10px;
+}
+.issue-item {
+  background: #fff2f0;
+  border: 1px solid #ffccc7;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+.issue-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.issue-icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ee0a24;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.issue-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #323233;
+  flex: 1;
+}
+.issue-risk {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.issue-risk.risk-high { background: #ee0a24; color: #fff; }
+.issue-risk.risk-medium { background: #ff976a; color: #fff; }
+.issue-risk.risk-low { background: #e8fae8; color: #07c160; }
+.issue-desc {
+  font-size: 12px;
+  color: #646566;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+/* 完整性检测 */
+.integrity-section {
+  border-top: 1px solid rgba(0,0,0,0.06);
+  padding: 10px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.integrity-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+.integrity-name {
+  color: #323233;
+  font-weight: 500;
+}
+.integrity-status {
+  font-size: 11px;
+  padding: 0 6px;
+  border-radius: 8px;
+  line-height: 18px;
+  font-weight: 600;
+}
+.integrity-status.pass { background: #e8fae8; color: #07c160; }
+.integrity-status.warn { background: #fff7e6; color: #ff976a; }
+.integrity-desc {
+  font-size: 12px;
+  color: #969799;
+  width: 100%;
+  margin-left: 20px;
+  line-height: 1.4;
 }
 
 /* 头部 */
@@ -466,6 +685,93 @@ async function handleFlag() {
 .order-value { color: #323233; font-weight: 500; flex: 1; }
 .copy-icon { font-size: 14px; color: #1989fa; cursor: pointer; flex-shrink: 0; }
 .comment { margin-top: 8px; font-size: 13px; color: #ee0a24; background: #fff2f0; padding: 6px 10px; border-radius: 4px; }
+
+/* 规则审核明细 */
+.rule-details-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.rule-details-title .toggle-icon {
+  margin-left: auto;
+  color: #969799;
+  font-size: 14px;
+}
+.rule-summary-tag {
+  font-size: 11px;
+  font-weight: 400;
+  color: #07c160;
+  background: #e8fae8;
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+.rule-results-section {
+  margin: 0 12px 8px;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.rule-item {
+  padding: 10px 14px;
+  border-bottom: 1px solid #f5f6f8;
+}
+.rule-item:last-child { border-bottom: none; }
+.rule-item.rule-failed { background: #fffcf5; }
+.rule-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rule-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #323233;
+  flex: 1;
+}
+.rule-risk-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.rule-risk-badge.risk-high { background: #ee0a24; color: #fff; }
+.rule-risk-badge.risk-medium { background: #ff976a; color: #fff; }
+.rule-risk-badge.risk-low { background: #e8fae8; color: #07c160; }
+.rule-confidence {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.rule-confidence.conf-high { background: #e8fae8; color: #07c160; }
+.rule-confidence.conf-medium { background: #fff7e6; color: #ff976a; }
+.rule-confidence.conf-low { background: #ffeeed; color: #ee0a24; }
+.rule-message {
+  font-size: 12px;
+  color: #646566;
+  margin-top: 4px;
+  margin-left: 22px;
+  line-height: 1.4;
+}
+.rule-values {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+  margin-left: 22px;
+  flex-wrap: wrap;
+}
+.rule-val {
+  font-size: 12px;
+  color: #969799;
+}
+.val-label {
+  color: #c8c9cc;
+  margin-right: 3px;
+}
 
 .section-title {
   font-size: 14px; font-weight: 600; color: #323233;

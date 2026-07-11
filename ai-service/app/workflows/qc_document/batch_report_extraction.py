@@ -1,3 +1,5 @@
+import json
+import os
 import re
 from datetime import date
 from typing import Any
@@ -20,28 +22,141 @@ def extract_batch_report_fields(
     document_text: str,
 ) -> tuple[BatchReportExtractedFields, dict[str, Any]]:
     text = _normalize_text(document_text)
-    producer_name = _extract_line_value(text, ["厂名", "公司名", "生产商", "生产单位", "生产企业"])
-    if not producer_name:
-        producer_name = _extract_report_title_producer(text)
-    product_name = _extract_line_value(text, ["产品名称", "商品名称", "品名", "样品名称"])
-    batch_no = _extract_line_value(text, ["生产批号", "批号", "批次号", "批次"])
-    production_date = _extract_date_value(text, ["生产日期", "生产时间", "制造日期"])
+    metadata = {"has_text": bool(text)}
+
+    # 优先使用 LLM 提取（更灵活），失败时自动回退正则
+    llm_fields = _extract_with_llm(text)
+    if llm_fields is not None:
+        producer_name = llm_fields.get("producer_name") or llm_fields.get("company_name")
+        product_name = llm_fields.get("product_name")
+        production_date = llm_fields.get("production_date")
+        batch_no = llm_fields.get("batch_no")
+        company_name = llm_fields.get("company_name") or producer_name
+        metadata["extraction_source"] = "llm"
+    else:
+        producer_name = _extract_line_value(text, ["厂名", "公司名", "生产商", "生产单位", "生产企业"])
+        if not producer_name:
+            producer_name = _extract_report_title_producer(text)
+        product_name = _extract_line_value(text, ["产品名称", "商品名称", "品名", "样品名称"])
+        batch_no = _extract_line_value(text, ["生产批号", "批号", "批次号", "批次"])
+        production_date = _extract_date_value(text, ["生产日期", "生产时间", "制造日期"])
+        company_name = producer_name
+        metadata["extraction_source"] = "regex"
+
     extracted = BatchReportExtractedFields(
         document_type="batch_report" if text else None,
         producer_name=producer_name,
-        company_name=producer_name,
+        company_name=company_name,
         product_name=product_name,
         batch_no=batch_no,
         production_date=production_date,
     )
-    return extracted, {
-        "missing_required_fields": [
-            field
-            for field in ("producer_name", "product_name", "production_date")
-            if not getattr(extracted, field)
-        ],
-        "has_text": bool(text),
-    }
+    metadata["missing_required_fields"] = [
+        field
+        for field in ("producer_name", "product_name", "production_date")
+        if not getattr(extracted, field)
+    ]
+    return extracted, metadata
+
+
+def _extract_with_llm(document_text: str) -> dict[str, str | None] | None:
+    """使用 LLM 从批次报告文本中抽取结构化字段。失败时返回 None（由调用方回退正则）。"""
+    if not document_text or not document_text.strip():
+        return None
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    base_url = os.environ.get("OPENAI_BASE_URL")
+    model = (
+        os.environ.get("BATCH_REPORT_LLM_EXTRACT_MODEL")
+        or os.environ.get("QC_DOCUMENT_SKILL_REVIEW_MODEL")
+        or os.environ.get("BUSINESS_LICENSE_SKILL_REVIEW_MODEL")
+    )
+    if not api_key or not model:
+        return None
+
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=api_key, base_url=base_url, timeout=60)
+    except Exception:
+        return None
+
+    prompt = (
+        "你是商品批次报告 OCR 字段抽取器。根据以下 OCR 文本抽取字段。\n"
+        "只输出 JSON 对象，不要输出 Markdown 格式。\n"
+        "字段包括：\n"
+        "- product_name：产品名称、商品名称或品名\n"
+        "- producer_name：厂名、公司名、生产商、生产单位或生产企业\n"
+        "- production_date：生产日期，格式 YYYY-MM-DD\n"
+        "- batch_no：生产批号、批号、批次号或批次\n"
+        "\n"
+        "注意事项：\n"
+        "- 字段不存在或无法确定时输出 null\n"
+        "- 不要编造数据\n"
+        "- 日期统一为 YYYY-MM-DD 格式\n"
+        "\n"
+        f"OCR 文本：\n{document_text[:4000]}"
+    )
+
+    try:
+        # 重试 2 次，temperature=0 保证稳定性
+        import time
+
+        last_error: Exception | None = None
+        for _ in range(2):
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0,
+                )
+                content = response.choices[0].message.content
+                break
+            except Exception as e:
+                last_error = e
+                time.sleep(1)
+        else:
+            if last_error is not None:
+                raise last_error
+            return None
+    except Exception:
+        return None
+
+    if not content or not content.strip():
+        return None
+
+    # 解析 JSON，兼容 markdown 围栏
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError:
+        match = re.search(r'```(?:json)?\s*([\s\S]*?)```', content)
+        if match:
+            try:
+                parsed = json.loads(match.group(1))
+            except json.JSONDecodeError:
+                return None
+        else:
+            return None
+
+    if not isinstance(parsed, dict):
+        return None
+
+    result: dict[str, str | None] = {}
+    for key in ("product_name", "producer_name", "company_name", "production_date", "batch_no"):
+        val = parsed.get(key)
+        result[key] = _clean_llm_value(val)
+    if not result.get("product_name") and not result.get("producer_name") and not result.get("production_date"):
+        return None  # 啥都没提取到，让调用方回退正则
+    return result
+
+
+def _clean_llm_value(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if text in ("", "null", "None", "无", "/", "-"):
+        return None
+    return text
 
 
 def review_batch_report_rules(
