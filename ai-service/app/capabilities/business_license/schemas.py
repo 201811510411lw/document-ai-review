@@ -12,6 +12,7 @@ class BusinessLicenseDocumentClassification(BaseModel):
 
 class BusinessLicenseExtractedFields(BaseModel):
     document_type: str | None = None
+    document_type_raw: str | None = None
     subject_name: str | None = None
     credit_code: str | None = None
     business_address: str | None = None

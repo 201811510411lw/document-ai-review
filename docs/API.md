@@ -172,6 +172,8 @@ API 中的日期和时间使用：
 | `POST` | `/api/v1/food-license/reviews:upload` | 上传图片或 PDF 创建审核任务 | 保留设计，低优先级 |
 | `POST` | `/api/v1/qc/product-report/reviews/from-srm` | 从 SRM 拉取一条商品产品报告并审核 | 必须 |
 | `POST` | `/api/v1/qc/batch-report/reviews/from-starrocks` | 从 StarRocks SRM 同步表随机拉取一条商品批次报告并审核 | 必须 |
+| `POST` | `/api/v1/tobacco-license/source-files/from-starrocks` | 按门店从 StarRocks OA 快照表查烟草证附件并从本地 NAS 解压落盘 | 必须 |
+| `GET` | `/api/v1/tobacco-license/source-files/local/{relative_path}` | 预览或下载已落盘的烟草证文件 | 必须 |
 | `GET` | `/api/v1/qc/reviews` | 查询 QC 审核列表，支持证照和产品报告 | 必须 |
 | `GET` | `/api/v1/qc/reviews/{task_id}` | 查询 QC 审核详情 | 必须 |
 | `POST` | `/api/v1/qc/reviews/{task_id}/manual-review` | 提交 QC 人工复核动作 | 必须 |
@@ -513,6 +515,79 @@ limit 1
 - 厂名/公司名与来源供应商名称比对。
 - 报告生产日期需与来源批次生产日期一致；若只识别到生产批号，批号中包含 `YYYYMMDD` 也可视为匹配。
 - 附件无法获取可审核文本、关键字段缺失或比对不一致时进入人工复核。
+
+### 8.3 `POST /api/v1/tobacco-license/source-files/from-starrocks`
+
+按门店标识从 StarRocks OA 快照表查询最新烟草证附件元数据，并读取本机 `/data` NAS 挂载路径中的 OA zip 文件，解压到 `ai-service/data/tobacco_license/`。该接口只完成来源文件准备，不执行国家烟草证下载比对和最终审核。
+
+#### 请求示例
+
+```json
+{
+  "store_identifier": "B65230024"
+}
+```
+
+#### StarRocks 来源链路
+
+```text
+ods_oa_ecology_formtable_main_283_df.ycxsxkz
+-> ods_oa_ecology_docdetail_df.ID
+-> ods_oa_ecology_docimagefile_df.DOCID / IMAGEFILEID
+-> ods_oa_ecology_imagefile_df.IMAGEFILEID / FILEREALPATH
+```
+
+核心筛选：
+
+```sql
+r.WORKFLOWID = 614
+and f.ycxsxkz is not null
+and trim(f.ycxsxkz) <> ''
+and i.FILEREALPATH is not null
+and (
+  f.mdbm = '{store_identifier}'
+  or f.mdmc = '{store_identifier}'
+  or instr(ifnull(f.qsbt, ''), '{store_identifier}') > 0
+  or instr(ifnull(f.nrgk, ''), '{store_identifier}') > 0
+  or instr(ifnull(r.REQUESTNAME, ''), '{store_identifier}') > 0
+)
+order by r.CREATEDATE desc, r.CREATETIME desc
+```
+
+#### 响应示例
+
+```json
+{
+  "store_identifier": "B65230024",
+  "documents": [
+    {
+      "source": {
+        "requestid": 2801287,
+        "store_code": "B65230024",
+        "docid": 824576,
+        "imagefile_id": 1409517,
+        "file_real_path": "/data/oaec/202607/J/38982780-2512-4dd7-8e4d-feb27f5d44bf.zip",
+        "is_zip": "1",
+        "is_encrypt": "0",
+        "is_aes_encrypt": 0
+      },
+      "files": [
+        {
+          "file_name": "y.jpg",
+          "relative_path": "B65230024/2801287_824576_1409517/y.jpg",
+          "content_type": "image/jpeg",
+          "preview_url": "/api/v1/tobacco-license/source-files/local/B65230024/2801287_824576_1409517/y.jpg",
+          "download_url": "/api/v1/tobacco-license/source-files/local/B65230024/2801287_824576_1409517/y.jpg?download=1"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### 8.4 `GET /api/v1/tobacco-license/source-files/local/{relative_path}`
+
+读取 `ai-service/data/tobacco_license/` 下已解压的烟草证文件。默认用于预览；追加 `?download=1` 时返回附件下载文件名。
 
 ## 9. 查询审核任务和结果
 

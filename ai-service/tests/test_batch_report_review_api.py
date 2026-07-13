@@ -83,7 +83,9 @@ def test_batch_report_review_from_starrocks_routes_to_qc_document_review():
     payload = response.json()
     assert payload["use_case_name"] == "qc_document_review"
     assert payload["document_type"] == "batch_report"
-    assert payload["status"] == "REVIEWED"
+    # expired_time=2026-08-06（距今日27天），按规则标记为"临期待审"
+    assert payload["status"] == "PENDING_MANUAL_REVIEW"
+    assert payload["risk_level"] == "MEDIUM"
     assert calls[0][1] == "qc_document_review"
     assert calls[0][0].declared_document_type == "batch_report"
     assert calls[0][0].source["order_number"] == "10102605050385"

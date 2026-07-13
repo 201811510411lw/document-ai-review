@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Protocol
 
 from pydantic import BaseModel
@@ -26,13 +26,8 @@ class BatchReportSourceTask(BaseModel):
     review_input: ReviewInput
 
 
-def build_batch_report_source_sql(
-    review_date: date = DEFAULT_BATCH_REPORT_REVIEW_DATE,
-) -> str:
-    start = review_date.isoformat()
-    end = (review_date + timedelta(days=1)).isoformat()
-    return f"""
-select
+def _batch_report_columns() -> str:
+    return """
     t1.uuid as order_uuid,
     t1.number as order_number,
     t1.tenant as order_tenant,
@@ -57,19 +52,50 @@ select
     t3.attachmentName as attachment_name,
     t3.storeId as attachment_store_id,
     t3.url as attachment_url
+""".strip()
+
+
+def _batch_report_from_clause() -> str:
+    return """
 from srm_orders t1
 join srm_orderdeliverybatch t2 on t1.uuid = t2.orderId
 join srm_attachment t3 on t2.uuid = t3.refId
+""".strip()
+
+
+def _batch_report_where_clause() -> str:
+    return """
 where t1.tenant = '8560'
-  and t1.created >= '{start} 00:00:00'
-  and t1.created < '{end} 00:00:00'
   and t1.state = 'finish'
   and t3.refType = 'orderDeliveryBatch'
   and (t3.removed = 0 or t3.removed is null)
   and t3.url is not null
   and t3.url <> ''
+""".strip()
+
+
+def build_batch_report_source_sql(
+    review_date: date = DEFAULT_BATCH_REPORT_REVIEW_DATE,
+) -> str:
+    start = review_date.isoformat()
+    end = (review_date + timedelta(days=1)).isoformat()
+    return f"""select {_batch_report_columns()}
+{_batch_report_from_clause()}
+{_batch_report_where_clause()}
+  and t1.created >= '{start} 00:00:00'
+  and t1.created < '{end} 00:00:00'
 order by rand()
 limit 1
+""".strip()
+
+
+def build_batch_report_sync_sql(since_iso: str) -> str:
+    """构建每日同步用的批次报告查询 SQL（批量，不含 rand() limit 1）"""
+    return f"""select {_batch_report_columns()}
+{_batch_report_from_clause()}
+{_batch_report_where_clause()}
+  and t1.created >= '{since_iso}'
+order by t1.created
 """.strip()
 
 

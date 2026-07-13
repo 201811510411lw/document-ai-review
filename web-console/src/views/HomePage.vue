@@ -3,7 +3,7 @@
     <!-- 顶部标题 -->
     <div class="home-header">
       <van-icon name="certificate" size="32" color="#1989fa" />
-      <h1>合同及证照智能审核系统</h1>
+      <h1>证照智能审核系统</h1>
       <p class="subtitle">企业微信工作台应用</p>
     </div>
 
@@ -44,23 +44,9 @@
         <van-icon name="arrow" color="#dcdee0" />
       </div>
 
-      <!-- 场景三：合同审核 -->
-      <div class="scene-card" @click="router.push('/contract/reports')">
-        <div class="scene-icon" style="background: linear-gradient(135deg, #4facfe, #00f2fe);">
-          <van-icon name="description" size="28" color="#fff" />
-        </div>
-        <div class="scene-info">
-          <h3>合同审核 <van-tag size="small" plain color="#969799" style="vertical-align:middle">暂未上线</van-tag></h3>
-          <p class="scene-desc">法务合同内容审查</p>
-          <div class="scene-stats">
-            <span v-if="contractStats['高'] > 0" class="stat-tag danger">高风险 {{ contractStats['高'] }}</span>
-            <span v-if="contractStats['中'] > 0" class="stat-tag warning">中风险 {{ contractStats['中'] }}</span>
-            <span class="stat-tag success">低风险 {{ contractStats['低'] || 0 }}</span>
-          </div>
-        </div>
-        <van-icon name="arrow" color="#dcdee0" />
-      </div>
     </div>
+
+    <!-- 底部提示 -->
 
     <!-- 底部提示 -->
     <div class="home-footer">
@@ -72,13 +58,12 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { dashboardApi, tobaccoApi, contractApi } from '@/api'
+import { dashboardApi, tobaccoApi } from '@/api'
 import { showToast } from 'vant'
 
 const router = useRouter()
 const scene1Stats = ref({})
 const tobaccoStats = ref({})
-const contractStats = ref({})
 
 onMounted(async () => {
   try {
@@ -98,13 +83,6 @@ onMounted(async () => {
   try {
     const res = await tobaccoApi.list({ limit: 1 })
     tobaccoStats.value = res.stats || {}
-  } catch {
-    // 静默
-  }
-
-  try {
-    const res = await contractApi.list({ limit: 1 })
-    contractStats.value = res.stats || {}
   } catch {
     // 静默
   }

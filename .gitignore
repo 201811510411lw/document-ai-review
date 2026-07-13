@@ -26,6 +26,8 @@ dist/
 
 # Local helper scripts (not part of the project)
 start.bat
+cleanup_*.py
+tesseract-installer.exe
 
 # OS
 .DS_Store
@@ -34,3 +36,4 @@ Thumbs.db
 # Apps
 ai-service/server.log
 ai-service/data/reviews.sqlite3
+ai-service/data/tobacco_license/

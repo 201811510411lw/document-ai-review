@@ -38,6 +38,11 @@ from app.integrations.srm.product_report_tasks import (
     ProductReportSourceTask,
     fetch_product_report_source_tasks,
 )
+from app.integrations.starrocks.batch_report_tasks import (
+    BatchReportSourceTask,
+    build_batch_report_sync_sql,
+    fetch_batch_report_source_tasks,
+)
 from app.models import ReviewDocumentInput, ReviewInput
 from app.services.review_service import ReviewService
 
@@ -206,10 +211,90 @@ def is_already_reviewed(
         return False
 
 
+def is_batch_report_already_reviewed(
+    review_db: MySqlFetchClient,
+    batch_uuid: str,
+) -> bool:
+    """检查 batch_uuid 是否已在 review_results 表（JSON 中）存在"""
+    if not batch_uuid:
+        return False
+    try:
+        escaped = batch_uuid.replace("'", "''")
+        sql = (
+            f"SELECT COUNT(*) AS cnt FROM review_results "
+            f"WHERE JSON_EXTRACT(payload_json, '$.source.record_id') = '\"{escaped}\"'"
+        )
+        rows = review_db.fetch_all(sql)
+        return rows and int(rows[0]["cnt"]) > 0
+    except Exception as e:
+        logger.warning("[scheduled-review] batch_report 去重查询失败 %s: %s", batch_uuid, e)
+        return False
+
+
+def _sync_batch_reports_from_starrocks(
+    starrocks_client: MySqlFetchClient,
+    review_db: MySqlFetchClient,
+    review_service: ReviewService,
+    since_iso: str,
+    progress: SyncProgress,
+) -> None:
+    """从 StarRocks 同步批次报告审核"""
+    try:
+        sql = build_batch_report_sync_sql(since_iso)
+        rows = starrocks_client.fetch_all(sql)
+    except Exception as e:
+        logger.error("[scheduled-review] 查询 StarRocks batch_report 失败: %s", e)
+        progress.errors.append(f"查询 batch_report 失败: {e}")
+        return
+
+    if not rows:
+        logger.info("[scheduled-review] batch_report 无新增记录")
+        return
+
+    try:
+        tasks = fetch_batch_report_source_tasks(starrocks_client, sql)
+    except Exception as e:
+        logger.warning("[scheduled-review] batch_report fetch_tasks 失败: %s", e)
+        progress.errors.append(f"batch_report fetch_tasks 失败: {e}")
+        return
+
+    progress.total += len(tasks)
+
+    for task in tasks:
+        source = task.review_input.source or {}
+        batch_uuid = str(source.get("record_id") or "")
+        vendor_name = str(source.get("vendor_name") or task.review_input.supplier_name or "未知")
+
+        # 去重
+        if batch_uuid and is_batch_report_already_reviewed(review_db, batch_uuid):
+            progress.skipped += 1
+            logger.info("[scheduled-review] 跳过已审核 batch_report/%s", batch_uuid)
+            continue
+
+        progress.new += 1
+        try:
+            result = review_service.review(
+                task.review_input,
+                use_case_name="qc_document_review",
+            )
+            if result and getattr(result, "status", None) != "failed":
+                progress.succeeded += 1
+                logger.info("[scheduled-review] ✅ %s - batch_report 审核完成", vendor_name)
+            else:
+                progress.failed += 1
+                logger.warning("[scheduled-review] ⚠️ %s - batch_report 审核返回异常", vendor_name)
+        except Exception as e:
+            progress.failed += 1
+            err_msg = f"{vendor_name}/batch_report: {e}"
+            progress.errors.append(err_msg)
+            logger.error("[scheduled-review] ❌ %s", err_msg)
+
+
 def run_daily_sync(
     srm_client: MySqlFetchClient,
     review_db: MySqlFetchClient,
     review_service: ReviewService,
+    starrocks_client: MySqlFetchClient | None = None,
     *,
     since_date: str | None = None,
 ) -> SyncProgress:
@@ -300,10 +385,23 @@ def run_daily_sync(
         # 全部处理完毕，更新时间戳（即使有失败也更新，避免重复处理已成功的）
         _update_last_sync_time_in_db(review_db)
         logger.info(
-            "[scheduled-review] 同步完成: 总计=%d, 跳过=%d, 新增=%d, 成功=%d, 失败=%d",
+            "[scheduled-review] SRM 同步完成: 总计=%d, 跳过=%d, 新增=%d, 成功=%d, 失败=%d",
             progress.total, progress.skipped, progress.new,
             progress.succeeded, progress.failed,
         )
+
+        # 批次报告从 StarRocks 同步（如有提供 StarRocks 客户端）
+        if starrocks_client is not None:
+            logger.info("[scheduled-review] 开始同步 StarRocks 批次报告")
+            _sync_batch_reports_from_starrocks(
+                starrocks_client, review_db, review_service, since_iso, progress,
+            )
+            logger.info(
+                "[scheduled-review] 全部同步完成: 总计=%d, 跳过=%d, 新增=%d, 成功=%d, 失败=%d",
+                progress.total, progress.skipped, progress.new,
+                progress.succeeded, progress.failed,
+            )
+
         return progress
 
     finally:
@@ -430,14 +528,20 @@ class DailyReviewScheduler:
                 time.sleep(self.check_interval)
 
     def _execute_sync(self) -> None:
-        """执行一次同步"""
+        """执行一次同步（含 SRM 证照 + StarRocks 批次报告）"""
         try:
             srm_client = MySqlFetchClient(self.srm_settings)
             review_db_client = MySqlFetchClient(self.review_db_settings)
+            starrocks_client = MySqlFetchClient(
+                mysql_settings_from_env("STARROCKS"),
+            )
             from app.repositories import build_review_result_repository_from_env
             review_repo = build_review_result_repository_from_env()
             review_service = ReviewService(repository=review_repo)
-            progress = run_daily_sync(srm_client, review_db_client, review_service)
+            progress = run_daily_sync(
+                srm_client, review_db_client, review_service,
+                starrocks_client=starrocks_client,
+            )
             logger.info(
                 "[scheduler] 自动审核完成: 新增=%d, 跳过=%d, 成功=%d, 失败=%d",
                 progress.new, progress.skipped, progress.succeeded, progress.failed,
