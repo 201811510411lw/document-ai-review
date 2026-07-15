@@ -142,6 +142,16 @@ export const tobaccoApi = {
       timeout: 120000,
     })
   },
+  getPendingStores() {
+    return http.get('/api/v1/tobacco-license-consistency/pending-stores')
+  },
+  createConsistencyReview(storeIdentifier) {
+    return http.post('/api/v1/tobacco-license-consistency/reviews', {
+      store_identifier: storeIdentifier,
+    }, {
+      timeout: 180000,
+    })
+  },
 }
 
 export const contractApi = {

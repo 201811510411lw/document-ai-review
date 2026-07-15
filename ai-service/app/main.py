@@ -11,6 +11,7 @@ from app.api.business_license_reviews import router as business_license_reviews_
 from app.api.food_license_reviews import router as food_license_reviews_router
 from app.api.health import router as health_router
 from app.api.tobacco_license_sources import router as tobacco_license_sources_router
+from app.api.tobacco_license_consistency import router as tobacco_license_consistency_router
 from app.api.wecom_frontend import api_router as wecom_frontend_api_router
 from app.api.wecom_frontend import auth_router as wecom_frontend_auth_router
 from app.api.qc_reviews import router as qc_reviews_router
@@ -72,6 +73,7 @@ app.include_router(business_license_reviews_router)
 app.include_router(food_license_reviews_router)
 app.include_router(qc_reviews_router)
 app.include_router(tobacco_license_sources_router)
+app.include_router(tobacco_license_consistency_router)
 app.include_router(wecom_frontend_api_router)
 app.include_router(wecom_notifications_router)
 

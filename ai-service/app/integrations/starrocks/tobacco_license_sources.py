@@ -98,6 +98,45 @@ LIMIT {safe_limit}
 """.strip()
 
 
+def build_pending_stores_sql(*, limit: int = 50) -> str:
+    safe_limit = max(1, min(int(limit), 200))
+    return f"""
+SELECT
+    f.mdbm AS store_code,
+    f.mdmc AS store_name,
+    MAX(f.requestid) AS requestid,
+    MAX(CAST(CONCAT(r.CREATEDATE, ' ', r.CREATETIME) AS CHAR)) AS submit_time
+FROM ods_oa_ecology_formtable_main_283_df f
+JOIN ods_oa_ecology_workflow_requestbase_df r
+  ON r.REQUESTID = f.requestid
+WHERE r.WORKFLOWID = 614
+  AND f.ycxsxkz IS NOT NULL
+  AND TRIM(f.ycxsxkz) <> ''
+  AND r.CREATEDATE IS NOT NULL
+GROUP BY f.mdbm, f.mdmc
+ORDER BY MAX(r.CREATEDATE) DESC, MAX(r.CREATETIME) DESC
+LIMIT {safe_limit}
+""".strip()
+
+
+def fetch_pending_stores(
+    sql_client: SqlFetchClient,
+    *,
+    sql: str | None = None,
+) -> list[dict[str, object]]:
+    rows = sql_client.fetch_all(sql or build_pending_stores_sql())
+    return [
+        {
+            "store_code": str(row.get("store_code") or ""),
+            "store_name": str(row.get("store_name") or ""),
+            "requestid": row.get("requestid"),
+            "submit_date": str(row.get("submit_time") or "")[:10],
+        }
+        for row in rows
+        if row.get("store_code") or row.get("store_name")
+    ]
+
+
 def fetch_latest_tobacco_license_source_files(
     sql_client: SqlFetchClient,
     store_identifier: str,
