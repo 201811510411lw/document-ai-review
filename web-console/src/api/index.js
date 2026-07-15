@@ -124,6 +124,24 @@ export const tobaccoApi = {
   detail(id) {
     return http.get(`/api/tobacco/reports/${id}`)
   },
+  fetchSourceFiles(storeIdentifier) {
+    return http.post('/api/v1/tobacco-license/source-files/from-starrocks', {
+      store_identifier: storeIdentifier,
+    }, {
+      timeout: 120000,
+    })
+  },
+  fetchSourceFile(relativePath, download = false) {
+    const encodedPath = relativePath
+      .split('/')
+      .map((part) => encodeURIComponent(part))
+      .join('/')
+    return http.get(`/api/v1/tobacco-license/source-files/local/${encodedPath}`, {
+      params: download ? { download: 1 } : undefined,
+      responseType: 'blob',
+      timeout: 120000,
+    })
+  },
 }
 
 export const contractApi = {
