@@ -36,3 +36,4 @@ Thumbs.db
 # Apps
 ai-service/server.log
 ai-service/data/reviews.sqlite3
+ai-service/data/tobacco_license/

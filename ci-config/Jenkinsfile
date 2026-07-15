@@ -3,7 +3,7 @@ def jenkinsServiceAccount() {
 }
 
 def jnlpImage() {
-  return "prod-mirror-cn-beijing.cr.volces.com/metadata/inbound-agent:latest-jdk17"
+  return "prod-mirror-cn-beijing.cr.volces.com/metadata/inbound-agent:latest-jdk21"
 }
 
 def kanikoImage() {
