@@ -35,6 +35,7 @@ BUSINESS_LICENSE_REVIEW_ROW_COLUMNS = """
     extracted_fields_json,
     normalized_fields_json,
     rule_results_json,
+    source_evidence_json,
     created_at,
     updated_at,
     manual_review_decision
@@ -2217,6 +2218,7 @@ def _qc_business_license_row(row: dict[str, Any]) -> dict[str, Any]:
         "extracted_fields": loads(item.get("extracted_fields_json") or "{}"),
         "normalized_fields": loads(item.get("normalized_fields_json") or "{}"),
         "rule_results": loads(item.get("rule_results_json") or "[]"),
+        "source_evidence": loads(item.get("source_evidence_json") or "{}"),
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
     }
