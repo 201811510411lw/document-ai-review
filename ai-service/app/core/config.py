@@ -167,6 +167,22 @@ CONFIG_KEY_PATHS = {
     "STARROCKS_HOST": ("starrocks", "host"),
     "STARROCKS_PORT": ("starrocks", "port"),
     "STARROCKS_DATABASE": ("starrocks", "database"),
+    "TOBACCO_CONSISTENCY_DAILY_SYNC_ENABLED": (
+        "tobacco_consistency",
+        "daily_sync_enabled",
+    ),
+    "TOBACCO_CONSISTENCY_OA_BUSINESS_LICENSE_FIELD": (
+        "tobacco_consistency",
+        "oa_business_license_field",
+    ),
+    "TOBACCO_CONSISTENCY_OA_RELATIONSHIP_EVIDENCE_FIELD": (
+        "tobacco_consistency",
+        "oa_relationship_evidence_field",
+    ),
+    "TOBACCO_CONSISTENCY_OA_MULTI_ADDRESS_EVIDENCE_FIELD": (
+        "tobacco_consistency",
+        "oa_multi_address_evidence_field",
+    ),
     "WEB_CONSOLE_AUTH_USERNAME": ("web_console_auth", "username"),
     "WEB_CONSOLE_AUTH_TOKEN_TTL_SECONDS": (
         "web_console_auth",

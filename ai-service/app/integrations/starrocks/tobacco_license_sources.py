@@ -16,6 +16,8 @@ class TobaccoLicenseSourceFile(BaseModel):
     summary_title: str | None = None
     content_summary: str | None = None
     tobacco_license_docids: str | None = None
+    business_license_docids: str | None = None
+    document_role: str = "tobacco_license"
     valid_from: str | None = None
     valid_to: str | None = None
     workflow_id: int | None = None
@@ -55,6 +57,12 @@ SELECT
     f.qsbt AS summary_title,
     f.nrgk AS content_summary,
     f.ycxsxkz AS tobacco_license_docids,
+    f.yyzz AS business_license_docids,
+    CASE
+      WHEN FIND_IN_SET(CAST(d.ID AS VARCHAR), REPLACE(f.yyzz, ' ', '')) > 0
+        THEN 'business_license'
+      ELSE 'tobacco_license'
+    END AS document_role,
     f.yczyxqksrq AS valid_from,
     f.yczyxqjsrq AS valid_to,
     r.WORKFLOWID AS workflow_id,
@@ -76,7 +84,10 @@ FROM ods_oa_ecology_formtable_main_283_df f
 JOIN ods_oa_ecology_workflow_requestbase_df r
   ON r.REQUESTID = f.requestid
 LEFT JOIN ods_oa_ecology_docdetail_df d
-  ON FIND_IN_SET(CAST(d.ID AS VARCHAR), REPLACE(f.ycxsxkz, ' ', '')) > 0
+  ON (
+    FIND_IN_SET(CAST(d.ID AS VARCHAR), REPLACE(f.ycxsxkz, ' ', '')) > 0
+    OR FIND_IN_SET(CAST(d.ID AS VARCHAR), REPLACE(f.yyzz, ' ', '')) > 0
+  )
 LEFT JOIN ods_oa_ecology_docimagefile_df dif
   ON dif.DOCID = d.ID
 LEFT JOIN ods_oa_ecology_imagefile_df i
@@ -167,6 +178,8 @@ def _to_source_file(row: dict[str, Any]) -> TobaccoLicenseSourceFile:
         summary_title=_text_or_none(row.get("summary_title")),
         content_summary=_text_or_none(row.get("content_summary")),
         tobacco_license_docids=_text_or_none(row.get("tobacco_license_docids")),
+        business_license_docids=_text_or_none(row.get("business_license_docids")),
+        document_role=_text_or_none(row.get("document_role")) or "tobacco_license",
         valid_from=_text_or_none(row.get("valid_from")),
         valid_to=_text_or_none(row.get("valid_to")),
         workflow_id=_int_or_none(row.get("workflow_id")),

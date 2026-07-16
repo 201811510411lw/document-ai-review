@@ -174,6 +174,7 @@ API 中的日期和时间使用：
 | `POST` | `/api/v1/qc/batch-report/reviews/from-starrocks` | 从 StarRocks SRM 同步表随机拉取一条商品批次报告并审核 | 必须 |
 | `POST` | `/api/v1/tobacco-license/source-files/from-starrocks` | 按门店从 StarRocks OA 快照表查烟草证附件并从本地 NAS 解压落盘 | 必须 |
 | `GET` | `/api/v1/tobacco-license/source-files/local/{relative_path}` | 预览或下载已落盘的烟草证文件 | 必须 |
+| `GET` | `/api/v1/tobacco-license-consistency/reviews/{task_id}/oa-result` | 获取烟草双证核对的 OA 回传载荷，不主动调用 OA | 必须 |
 | `GET` | `/api/v1/qc/reviews` | 查询 QC 审核列表，支持证照和产品报告 | 必须 |
 | `GET` | `/api/v1/qc/reviews/{task_id}` | 查询 QC 审核详情 | 必须 |
 | `POST` | `/api/v1/qc/reviews/{task_id}/manual-review` | 提交 QC 人工复核动作 | 必须 |

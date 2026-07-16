@@ -66,6 +66,14 @@ starrocks:
   port: 9030
   database: work_temp
 
+# 烟草证一致性日任务。字段值为 OA formtable_main_283 中三个“其他附件”控件的技术字段名。
+# 未确认字段名时保持 false；任务会跳过，不会基于不完整附件生成自动结论。
+tobacco_consistency:
+  daily_sync_enabled: false
+  oa_business_license_field: yyzz
+  oa_relationship_evidence_field: ""
+  oa_multi_address_evidence_field: ""
+
 # Web 控制台本地认证配置；密码和签名密钥放在 .env。
 web_console_auth:
   username: reviewer

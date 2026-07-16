@@ -15,7 +15,38 @@
           <span>{{ report.overall_result === '通过' ? '核验通过' : '核验未通过' }}</span>
         </div>
         <div class="compare-time">比对时间: {{ report.compare_time || report.created_at?.slice(0, 10) || '-' }}</div>
+        <div v-if="report.review_mode === 'store_in_store'" class="compare-time">模式: 店中店</div>
       </div>
+
+      <div v-if="report.needs_manual_review || report.overall_result === '待校验'" class="manual-actions">
+        <van-button size="small" type="primary" :loading="manualLoading" @click="submitManualReview('APPROVE')">人工通过</van-button>
+        <van-button size="small" plain type="danger" :loading="manualLoading" @click="submitManualReview('REJECT')">驳回</van-button>
+        <van-button size="small" plain :loading="manualLoading" @click="submitManualReview('REQUEST_MORE_INFO')">要求补件</van-button>
+      </div>
+
+      <template v-if="report.rule_results?.length">
+        <div class="section-title">自动核对结论</div>
+        <div class="compare-grid">
+          <div v-for="rule in report.rule_results" :key="rule.rule_code" class="compare-item" :class="rule.passed ? 'match' : 'mismatch'">
+            <div class="field-header"><van-icon :name="rule.passed ? 'success' : 'warning-o'" :color="rule.passed ? '#07c160' : '#ee0a24'" /><span>{{ rule.rule_name }}</span></div>
+            <div class="field-values"><div class="value-row"><span class="val">{{ rule.message }}</span></div></div>
+          </div>
+        </div>
+      </template>
+
+      <template v-if="report.review_mode === 'store_in_store'">
+        <div class="section-title">店中店证据链</div>
+        <div class="compare-grid">
+          <div class="compare-item" :class="report.comparison?.differences?.some((item) => item.rule_code === 'STORE_IN_STORE_RELATIONSHIP_EVIDENCE') ? 'mismatch' : 'match'">
+            <div class="field-header"><span>加盟/联营/场地授权凭证</span></div>
+            <div class="field-values"><div class="value-row"><span class="label">文件</span><span class="val">{{ report.comparison?.store_in_store?.relationship_evidence?.document_id || '-' }}</span></div></div>
+          </div>
+          <div class="compare-item" :class="report.comparison?.differences?.some((item) => item.rule_code === 'STORE_IN_STORE_ADDRESS_COVERAGE') ? 'mismatch' : 'match'">
+            <div class="field-header"><span>多经营地址佐证</span></div>
+            <div class="field-values"><div class="value-row"><span class="label">地址</span><span class="val">{{ report.comparison?.store_in_store?.multi_address_evidence?.addresses?.join('、') || '营业执照登记地址' }}</span></div></div>
+          </div>
+        </div>
+      </template>
 
       <!-- 比对结果表格 -->
       <div class="section-title">字段比对</div>
@@ -103,6 +134,7 @@ const router = useRouter()
 const route = useRoute()
 const report = ref(null)
 const loading = ref(true)
+const manualLoading = ref(false)
 
 onMounted(async () => {
   try {
@@ -114,6 +146,19 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+async function submitManualReview(decision) {
+  manualLoading.value = true
+  try {
+    const res = await tobaccoApi.manualReview(route.params.id, decision)
+    report.value = res.report || report.value
+    showToast(decision === 'APPROVE' ? '已人工通过' : decision === 'REJECT' ? '已驳回' : '已标记为待补件')
+  } catch (e) {
+    showToast(e.message || '人工复核提交失败')
+  } finally {
+    manualLoading.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -138,6 +183,7 @@ onMounted(async () => {
 .overall-result.pass { background: #e8fae8; color: #07c160; }
 .overall-result.fail { background: #ffeeed; color: #ee0a24; }
 .compare-time { font-size: 12px; color: #969799; margin-top: 8px; }
+.manual-actions { display: flex; gap: 8px; padding: 12px 16px 0; }
 .section-title {
   font-size: 14px; font-weight: 600; color: #323233;
   padding: 16px 16px 8px;

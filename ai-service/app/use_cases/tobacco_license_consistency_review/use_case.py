@@ -11,7 +11,7 @@ from app.workflows.tobacco_license_consistency_review.runtime import (
 class TobaccoLicenseConsistencyReviewUseCase:
     name = "tobacco_license_consistency_review"
     version = "v1"
-    ruleset_version = "tobacco-license-consistency-rules-v1"
+    ruleset_version = "tobacco-license-consistency-rules-v2"
     supported_document_types = (
         "tobacco_license_consistency_review",
         "tobacco_license_consistency",

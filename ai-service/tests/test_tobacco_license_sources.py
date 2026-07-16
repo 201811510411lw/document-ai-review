@@ -24,6 +24,8 @@ def test_build_tobacco_license_source_sql_filters_store_and_attachment_chain():
     assert "ods_oa_ecology_imagefile_df" in sql
     assert "r.WORKFLOWID = 614" in sql
     assert "FIND_IN_SET" in sql
+    assert "f.yyzz AS business_license_docids" in sql
+    assert "'business_license'" in sql
     assert "f.mdbm = 'B65230024'" in sql
     assert "ORDER BY r.CREATEDATE DESC" in sql
 
@@ -37,6 +39,8 @@ def test_fetch_latest_tobacco_license_source_files_maps_latest_form_rows_only():
         "summary_title": "",
         "content_summary": "已获得烟草证",
         "tobacco_license_docids": "824576",
+        "business_license_docids": "824577",
+        "document_role": "tobacco_license",
         "valid_from": "2026-06-25",
         "valid_to": "2029-06-01",
         "workflow_id": 614,
@@ -68,6 +72,8 @@ def test_fetch_latest_tobacco_license_source_files_maps_latest_form_rows_only():
     assert len(files) == 2
     assert files[0].store_code == "B65230024"
     assert files[0].docid == 824576
+    assert files[0].business_license_docids == "824577"
+    assert files[0].document_role == "tobacco_license"
     assert files[0].imagefile_id == 1409517
     assert files[0].file_real_path == "/data/oaec/202607/J/file.zip"
     assert len(client.executed_sql) == 1

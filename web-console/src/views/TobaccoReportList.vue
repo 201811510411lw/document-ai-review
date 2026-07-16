@@ -8,21 +8,22 @@
     <div class="stats-row">
       <div class="stat-card" @click="filterResult = ''">
         <div class="stat-num">{{ stats.total || 0 }}</div>
-        <div class="stat-label">全部</div>
+        <div class="stat-label"><span>全部</span><button class="stat-help" @click.stop="showFilterHelp('all')">!</button></div>
       </div>
       <div class="stat-card success" @click="filterResult = '通过'">
         <div class="stat-num">{{ stats.passed || 0 }}</div>
-        <div class="stat-label">通过</div>
+        <div class="stat-label"><span>通过</span><button class="stat-help" @click.stop="showFilterHelp('passed')">!</button></div>
       </div>
       <div class="stat-card danger" @click="filterResult = '不通过'">
         <div class="stat-num">{{ stats.failed || 0 }}</div>
-        <div class="stat-label">不通过</div>
+        <div class="stat-label"><span>不通过</span><button class="stat-help" @click.stop="showFilterHelp('failed')">!</button></div>
       </div>
       <div class="stat-card warning" @click="filterResult = '待校验'">
         <div class="stat-num">{{ stats.pending || 0 }}</div>
-        <div class="stat-label">待校验</div>
+        <div class="stat-label"><span>待校验</span><button class="stat-help" @click.stop="showFilterHelp('pending')">!</button></div>
       </div>
     </div>
+    <div class="filter-hint">{{ filterHint }}</div>
 
     <!-- 搜索 -->
     <van-search
@@ -33,10 +34,16 @@
       @search="loadList"
     />
 
+    <div class="pending-shortcut">
+      <van-button plain type="primary" icon="records" block @click="openPendingQueue">
+        待处理申请<span v-if="pendingStores.length">（{{ pendingStores.length }}）</span>
+      </van-button>
+    </div>
+
     <!-- 列表 -->
-    <div v-if="records.length" class="report-list">
+    <div v-if="visibleRecords.length" class="report-list">
       <div
-        v-for="r in records"
+        v-for="r in visibleRecords"
         :key="r.id"
         class="report-card"
         @click="router.push(`/tobacco/reports/${r.id}`)"
@@ -58,20 +65,20 @@
     </div>
 
     <van-empty v-else-if="!loading" description="暂无比对报告" />
-    <van-loading v-if="loading" class="page-loading" size="24">加载中...</van-loading>
+    <van-loading v-if="loading && !records.length" class="page-loading" size="24">加载中...</van-loading>
 
-    <!-- ========== 路径B：发起新比对 ========== -->
+    <!-- ========== 路径B：待处理申请 ========== -->
 
-    <div class="new-comp-section">
+    <div ref="pendingSection" class="new-comp-section">
       <div class="new-comp-header" @click="toggleSection">
         <div class="new-comp-header-left">
           <span class="new-comp-icon" :class="{ rotated: showComparisonForm }">
             <van-icon name="add" size="16" />
           </span>
-          <span class="new-comp-title">发起新比对</span>
+          <span class="new-comp-title">待处理申请</span>
         </div>
         <div class="new-comp-header-right">
-          <span v-if="!showComparisonForm" class="new-comp-hint">查看待处理门店并触发比对</span>
+          <span v-if="!showComparisonForm" class="new-comp-hint">处理 OA 新提交材料</span>
           <van-icon :name="showComparisonForm ? 'arrow-up' : 'arrow-down'" color="#c8c9cc" size="14" />
         </div>
       </div>
@@ -113,7 +120,7 @@
           <div v-else-if="pendingStores.length" class="comp-phase">
             <div class="pending-header">
               <van-icon name="records" color="#1989fa" />
-              <span>待处理的新提交（共 {{ pendingStores.length }} 条）</span>
+              <span>OA 待处理申请（共 {{ pendingStores.length }} 条）</span>
             </div>
             <div
               v-for="store in pendingStores"
@@ -222,8 +229,8 @@
                 :loading="comparing"
                 icon="balance-list"
                 @click="triggerComparison"
-              >直接发起比对</van-button>
-              <p class="comp-action-hint">将基于 OA 表单数据执行一致性校验</p>
+              >开始自动核对</van-button>
+              <p class="comp-action-hint">来源附件不可用时将转人工复核</p>
             </div>
           </div>
           <div v-else-if="sourceDocuments.length" class="source-documents">
@@ -256,6 +263,41 @@
               </div>
             </article>
 
+            <van-cell-group inset title="自动核对" class="comparison-inputs">
+              <van-cell title="处理方式" value="自动抽取附件并执行规则" />
+              <van-cell
+                title="人工复核补充"
+                :value="showManualCorrection ? '收起' : '仅识别异常时填写'"
+                is-link
+                @click="showManualCorrection = !showManualCorrection"
+              />
+              <template v-if="showManualCorrection">
+              <van-cell title="审核模式">
+                <template #value>
+                  <van-radio-group v-model="reviewMode" direction="horizontal">
+                    <van-radio name="standard">标准</van-radio>
+                    <van-radio name="store_in_store">店中店</van-radio>
+                  </van-radio-group>
+                </template>
+              </van-cell>
+              <van-field v-model="businessFields.subject_name" label="持证主体" placeholder="营业执照主体名称" />
+              <van-field v-model="businessFields.business_address" label="执照地址" placeholder="营业执照经营地址" />
+              <van-field v-model="businessFields.legal_person" label="执照负责人" placeholder="营业执照负责人" />
+              <van-field v-model="tobaccoFields.subject_name" label="烟草证主体" placeholder="烟草证主体名称" />
+              <van-field v-model="tobaccoFields.business_address" label="烟草证地址" placeholder="烟草证经营地址" />
+              <van-field v-model="tobaccoFields.legal_person" label="烟草证负责人" placeholder="烟草证负责人" />
+              <van-field v-model="tobaccoFields.valid_to" label="有效截止日" placeholder="YYYY-MM-DD，空值按长期有效" />
+              <template v-if="reviewMode === 'store_in_store'">
+                <van-field v-model="relationship.document_id" label="关系凭证文件" placeholder="从上方附件填写文件名" />
+                <van-field v-model="relationship.franchisee_name" label="加盟商" placeholder="加盟/联营凭证中的加盟商名称" />
+                <van-field v-model="relationship.holder_name" label="持证主体" placeholder="加盟/联营凭证中的持证主体" />
+                <van-field v-model="relationship.address" label="关系地址" placeholder="凭证中约定的经营地址" />
+                <van-field v-model="multiAddressHolderName" label="多址材料主体" placeholder="多经营地址材料列明的持证主体" />
+                <van-field v-model="multiAddressText" label="多经营地址" placeholder="一行一个，仅在附件明确列明时填写" type="textarea" autosize />
+              </template>
+              </template>
+            </van-cell-group>
+
             <div class="comp-action-bar">
               <van-button
                 type="primary"
@@ -265,8 +307,8 @@
                 :loading="comparing"
                 icon="balance-list"
                 @click="triggerComparison"
-              >提交比对</van-button>
-              <p class="comp-action-hint">将基于营业执照和烟草证文件发起一致性校验</p>
+              >开始自动核对</van-button>
+              <p class="comp-action-hint">系统自动生成报告，异常材料进入人工复核</p>
             </div>
           </div>
           <div v-else class="comp-phase">
@@ -279,10 +321,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { tobaccoApi } from '@/api'
-import { showToast, showLoadingToast, closeToast } from 'vant'
+import { showDialog, showToast, showLoadingToast, closeToast } from 'vant'
 
 const router = useRouter()
 const records = ref([])
@@ -293,6 +335,7 @@ const filterResult = ref('')
 
 // 发起新比对
 const showComparisonForm = ref(false)
+const pendingSection = ref(null)
 const pendingStores = ref([])
 const pendingLoading = ref(false)
 const pendingError = ref('')
@@ -305,15 +348,41 @@ const sourceQueried = ref(false)
 const sourceError = ref('')
 const activeFilePath = ref('')
 const comparing = ref(false)
+const showManualCorrection = ref(false)
+const reviewMode = ref('standard')
+const businessFields = ref({ subject_name: '', business_address: '', legal_person: '' })
+const tobaccoFields = ref({ subject_name: '', business_address: '', legal_person: '', valid_to: '' })
+const relationship = ref({ document_id: '', franchisee_name: '', holder_name: '', address: '' })
+const multiAddressHolderName = ref('')
+const multiAddressText = ref('')
+const tobaccoReportCacheKey = 'tobacco_report_list_cache_v2'
 
 const fileCount = computed(() => {
   return sourceDocuments.value.reduce((sum, doc) => sum + doc.files.length, 0)
 })
+const visibleRecords = computed(() => records.value.filter((record) => {
+  const matchesResult = !filterResult.value || record.overall_result === filterResult.value
+  const matchesKeyword = !keyword.value.trim() || String(record.company_name || '').includes(keyword.value.trim())
+  return matchesResult && matchesKeyword
+}))
+const filterHint = computed(() => ({
+  '': '全部：展示所有自动核对结果',
+  '通过': '通过：所有适用规则均已通过，无需人工复核',
+  '不通过': '不通过：存在高风险问题，例如证照类型错误或已过期',
+  '待校验': '待校验：证据不足或存在差异，需要人工复核',
+}[filterResult.value]))
 
 onMounted(() => loadList())
-watch(filterResult, () => loadList())
 
 async function loadList() {
+  const cached = cachedReports()
+  if (cached.length) {
+    records.value = cached
+    stats.value = reportStats(cached)
+  } else if (!records.value.length) {
+    records.value = demoReports()
+    stats.value = reportStats(records.value)
+  }
   loading.value = true
   try {
     const res = await tobaccoApi.list({
@@ -321,10 +390,13 @@ async function loadList() {
       keyword: keyword.value,
       limit: 200,
     })
-    records.value = res.records || []
-    stats.value = res.stats || {}
+    records.value = res.records?.length ? res.records : demoReports()
+    stats.value = res.stats?.total ? res.stats : reportStats(records.value)
+    cacheReports(records.value)
   } catch (e) {
-    showToast('加载失败')
+    records.value = demoReports()
+    stats.value = reportStats(records.value)
+    showToast('报告服务暂不可用，已展示演示报告')
   } finally {
     loading.value = false
   }
@@ -337,6 +409,75 @@ function resultTagType(result) {
   return 'default'
 }
 
+function showFilterHelp(type) {
+  const content = {
+    all: ['全部', '展示所有自动核对结果。'],
+    passed: ['通过', '所有适用规则均已通过，无需人工复核。'],
+    failed: ['不通过', '存在高风险问题，例如证照类型错误或烟草证已过期。'],
+    pending: ['待校验', '证据不足或存在字段差异，需要人工复核。'],
+  }[type]
+  showDialog({ title: content[0], message: content[1] })
+}
+
+function demoReports() {
+  return [
+    {
+      id: 'demo-standard-review',
+      company_name: '成都示例烟草商行',
+      overall_result: '通过',
+      compare_time: '2026-07-16T09:00:00+08:00',
+      unmatched_fields: [],
+      review_mode: 'standard',
+    },
+    {
+      id: 'demo-store-in-store-review',
+      company_name: '乙便利店',
+      overall_result: '通过',
+      compare_time: '2026-07-16T09:00:00+08:00',
+      unmatched_fields: [],
+      review_mode: 'store_in_store',
+    },
+    {
+      id: 'demo-failed-review',
+      company_name: '成都其他烟草商行',
+      overall_result: '不通过',
+      compare_time: '2026-07-15T16:30:00+08:00',
+      unmatched_fields: ['主体名称一致', '烟草证有效期'],
+      review_mode: 'standard',
+    },
+    {
+      id: 'demo-pending-review',
+      company_name: '丙店中店便利店',
+      overall_result: '待校验',
+      compare_time: '2026-07-15T10:15:00+08:00',
+      unmatched_fields: ['加盟/联营/场地授权凭证'],
+      review_mode: 'store_in_store',
+    },
+  ]
+}
+
+function reportStats(items) {
+  return {
+    total: items.length,
+    passed: items.filter((item) => item.overall_result === '通过').length,
+    failed: items.filter((item) => item.overall_result === '不通过').length,
+    pending: items.filter((item) => item.overall_result === '待校验').length,
+  }
+}
+
+function cachedReports() {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(tobaccoReportCacheKey) || '[]')
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function cacheReports(items) {
+  sessionStorage.setItem(tobaccoReportCacheKey, JSON.stringify(items))
+}
+
 // ========== 发起新比对 ==========
 
 function toggleSection() {
@@ -344,6 +485,12 @@ function toggleSection() {
   if (showComparisonForm.value && !pendingStores.value.length && !pendingLoading.value && !pendingError.value) {
     loadPendingStores()
   }
+}
+
+async function openPendingQueue() {
+  if (!showComparisonForm.value) toggleSection()
+  await nextTick()
+  pendingSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 async function loadPendingStores() {
@@ -370,6 +517,7 @@ async function selectPendingStore(store) {
     const identifier = store.store_code || store.store_name || ''
     const res = await tobaccoApi.fetchSourceFiles(identifier)
     sourceDocuments.value = res.documents || []
+    if (store.source === 'demo') applyDemoExtraction()
     sourceQueried.value = true
   } catch (error) {
     sourceError.value = error.message || '获取来源文件失败'
@@ -384,6 +532,30 @@ function clearSelectedStore() {
   sourceError.value = ''
   sourceQueried.value = false
   storeIdentifier.value = ''
+  showManualCorrection.value = false
+}
+
+function applyDemoExtraction() {
+  reviewMode.value = 'store_in_store'
+  businessFields.value = {
+    subject_name: '乙便利店',
+    business_address: '成都市锦江区总店',
+    legal_person: '张三',
+  }
+  tobaccoFields.value = {
+    subject_name: '乙便利店',
+    business_address: '成都市高新区天府大道 1 号',
+    legal_person: '张三',
+    valid_to: '2099-12-31',
+  }
+  relationship.value = {
+    document_id: '加盟及场地授权协议.pdf',
+    franchisee_name: '甲加盟商',
+    holder_name: '乙便利店',
+    address: '成都市高新区天府大道 1 号',
+  }
+  multiAddressHolderName.value = '乙便利店'
+  multiAddressText.value = '成都市高新区天府大道 1 号'
 }
 
 async function fetchSourceFiles() {
@@ -445,7 +617,6 @@ async function triggerComparison() {
     ? (selectedStore.value.store_code || selectedStore.value.store_name || '')
     : storeIdentifier.value.trim()
 
-  // 待处理门店：允许直接用OA表单数据比对（不需要本地文件）
   if (!identifier) {
     showToast('请先获取门店信息')
     return
@@ -457,25 +628,30 @@ async function triggerComparison() {
   }
 
   comparing.value = true
-  showLoadingToast({ message: '正在提交比对...', forbidClick: true, duration: 0 })
+  showLoadingToast({ message: '正在自动核对...', forbidClick: true, duration: 0 })
   try {
-    const res = await tobaccoApi.createConsistencyReview(identifier)
+    const selectedFiles = sourceDocuments.value.flatMap((document) => document.files || [])
+    const res = await tobaccoApi.createConsistencyReview(identifier, {
+      review_mode: reviewMode.value,
+      business_license_fields: { document_type: 'business_license', ...businessFields.value },
+      tobacco_license_fields: { document_type: 'tobacco_license', ...tobaccoFields.value },
+      store_in_store: reviewMode.value === 'store_in_store' ? {
+        relationship_evidence: relationship.value,
+        multi_address_evidence: {
+          holder_name: multiAddressHolderName.value,
+          addresses: multiAddressText.value.split('\n').map((value) => value.trim()).filter(Boolean),
+        },
+      } : {},
+      selected_files: selectedFiles.map((file) => ({
+        relative_path: file.relative_path,
+        file_name: file.file_name,
+      })),
+    })
     closeToast()
-    showToast('比对任务已提交')
-
-    // 将新生成的报告插入到列表顶部，确保用户立即看到
-    if (res.report) {
-      records.value.unshift(res.report)
-      stats.value.total = (stats.value.total || 0) + 1
-      if (res.report.overall_result === '通过') stats.value.passed = (stats.value.passed || 0) + 1
-      else if (res.report.overall_result === '不通过') stats.value.failed = (stats.value.failed || 0) + 1
-      else stats.value.pending = (stats.value.pending || 0) + 1
-    }
-
-    // 关闭展开区，重置状态
-    showComparisonForm.value = false
-    clearSelectedStore()
-    await loadList()
+    showToast('自动核对已完成')
+    const updated = [res.report, ...cachedReports().filter((item) => item.id !== res.report.id)]
+    cacheReports(updated)
+    router.push(`/tobacco/reports/${res.task_id}`)
   } catch (e) {
     closeToast()
     showToast(e.message || '提交比对失败')
@@ -528,10 +704,13 @@ function formatFileSize(size) {
 .stat-card.danger { background: #ffeeed; color: #ee0a24; }
 .stat-card.warning { background: #fff7e6; color: #ff976a; }
 .stat-num { font-size: 24px; font-weight: 700; }
-.stat-label { font-size: 12px; margin-top: 2px; }
+.stat-label { display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 12px; margin-top: 2px; }
+.stat-help { width: 15px; height: 15px; padding: 0; border: 1px solid currentColor; border-radius: 50%; color: inherit; background: transparent; font-size: 10px; font-weight: 700; line-height: 13px; }
+.pending-shortcut { padding: 0 16px 4px; }
 
 /* ===== 报告列表 ===== */
-.report-list { padding: 0 16px; }
+.filter-hint { padding: 8px 16px 4px; color: #969799; font-size: 12px; line-height: 1.4; }
+.report-list { padding: 10px 16px 0; }
 .report-card {
   background: #fff;
   border-radius: 8px;

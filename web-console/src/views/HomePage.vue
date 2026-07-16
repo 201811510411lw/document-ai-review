@@ -33,7 +33,7 @@
           <van-icon name="balance-list" size="28" color="#fff" />
         </div>
         <div class="scene-info">
-          <h3>烟草证比对 <van-tag size="small" plain color="#969799" style="vertical-align:middle">暂未上线</van-tag></h3>
+          <h3>烟草证比对</h3>
           <p class="scene-desc">营业执照↔烟草证一致性校验</p>
           <div class="scene-stats">
             <span v-if="tobaccoStats.pending > 0" class="stat-tag warning">待处理 {{ tobaccoStats.pending }}</span>

@@ -145,11 +145,18 @@ export const tobaccoApi = {
   getPendingStores() {
     return http.get('/api/v1/tobacco-license-consistency/pending-stores')
   },
-  createConsistencyReview(storeIdentifier) {
+  createConsistencyReview(storeIdentifier, payload = {}) {
     return http.post('/api/v1/tobacco-license-consistency/reviews', {
       store_identifier: storeIdentifier,
+      ...payload,
     }, {
       timeout: 180000,
+    })
+  },
+  manualReview(taskId, decision, comment = '') {
+    return http.post(`/api/v1/tobacco-license-consistency/reviews/${taskId}/manual-review`, {
+      decision,
+      comment,
     })
   },
 }
