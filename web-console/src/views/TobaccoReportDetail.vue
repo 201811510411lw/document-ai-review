@@ -48,6 +48,37 @@
         </div>
       </template>
 
+      <template v-if="report.oa">
+        <div class="section-title">OA 来源与附件</div>
+        <div class="oa-source">
+          <div class="oa-meta-grid">
+            <div class="oa-meta"><span>流程号</span><strong>{{ report.oa.requestid || '-' }}</strong></div>
+            <div class="oa-meta"><span>流程状态</span><strong>{{ report.oa.request_status || '-' }}</strong></div>
+            <div class="oa-meta oa-meta-wide"><span>流程标题</span><strong>{{ report.oa.request_name || report.oa.summary_title || '-' }}</strong></div>
+            <div class="oa-meta oa-meta-wide"><span>提交时间</span><strong>{{ [report.oa.created_date, report.oa.created_time].filter(Boolean).join(' ') || '-' }}</strong></div>
+          </div>
+          <div v-if="report.oa.content_summary" class="oa-content">
+            <div class="oa-content-label">OA 申请正文</div>
+            <div class="oa-content-text">{{ report.oa.content_summary }}</div>
+          </div>
+          <div v-if="report.oa.unavailable_message" class="oa-unavailable">{{ report.oa.unavailable_message }}</div>
+          <div v-if="report.oa.attachments?.length" class="oa-attachments">
+            <div class="oa-content-label">原始附件</div>
+            <div v-for="(attachment, index) in report.oa.attachments" :key="`${attachment.docid || 'attachment'}-${attachment.relative_path || index}`" class="oa-attachment">
+              <div class="oa-attachment-info">
+                <van-icon name="description" color="#1989fa" />
+                <div>
+                  <div class="oa-attachment-name">{{ attachment.file_name || attachment.doc_subject || 'OA 附件' }}</div>
+                  <div class="oa-attachment-meta">{{ attachmentRoleLabel(attachment.document_role) }}<span v-if="attachment.docid"> · 文档 {{ attachment.docid }}</span></div>
+                </div>
+              </div>
+              <van-button v-if="attachment.relative_path" size="small" plain type="primary" icon="eye-o" @click="previewOaAttachment(attachment)">预览</van-button>
+              <span v-else class="attachment-unavailable">未落盘</span>
+            </div>
+          </div>
+        </div>
+      </template>
+
       <!-- 比对结果表格 -->
       <div class="section-title">字段比对</div>
       <div class="compare-grid">
@@ -159,6 +190,33 @@ async function submitManualReview(decision) {
     manualLoading.value = false
   }
 }
+
+function attachmentRoleLabel(role) {
+  return {
+    tobacco_license: '烟草证',
+    business_license: '营业执照',
+    selected_attachment: '核对选用附件',
+  }[role] || 'OA 附件'
+}
+
+async function previewOaAttachment(attachment) {
+  // Open synchronously so mobile browsers retain the click gesture.
+  const previewWindow = window.open('', '_blank')
+  try {
+    const blob = await tobaccoApi.fetchSourceFile(attachment.relative_path)
+    const url = URL.createObjectURL(blob)
+    if (previewWindow) {
+      previewWindow.opener = null
+      previewWindow.location.href = url
+    } else {
+      window.location.assign(url)
+    }
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000)
+  } catch (error) {
+    previewWindow?.close()
+    showToast(error.message || '附件预览失败')
+  }
+}
 </script>
 
 <style scoped>
@@ -170,6 +228,37 @@ async function submitManualReview(decision) {
   margin-bottom: 12px;
   text-align: center;
 }
+.oa-source {
+  margin: 0 12px 16px;
+  border: 1px solid #ebedf0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.oa-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  border-bottom: 1px solid #ebedf0;
+}
+.oa-meta {
+  min-width: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid #f5f6f8;
+}
+.oa-meta:nth-last-child(-n + 2) { border-bottom: 0; }
+.oa-meta:nth-child(odd) { border-right: 1px solid #f5f6f8; }
+.oa-meta-wide { grid-column: span 2; border-right: 0 !important; }
+.oa-meta span, .oa-content-label { display: block; margin-bottom: 4px; color: #969799; font-size: 12px; }
+.oa-meta strong { display: block; color: #323233; font-size: 13px; font-weight: 500; line-height: 1.45; overflow-wrap: anywhere; }
+.oa-content { padding: 10px 12px; border-bottom: 1px solid #ebedf0; }
+.oa-content-text { color: #323233; font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.oa-unavailable { padding: 10px 12px; color: #969799; font-size: 13px; line-height: 1.5; background: #fafafa; }
+.oa-attachments { padding: 10px 12px; }
+.oa-attachment { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; }
+.oa-attachment + .oa-attachment { border-top: 1px solid #f5f6f8; }
+.oa-attachment-info { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.oa-attachment-name { color: #323233; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oa-attachment-meta, .attachment-unavailable { color: #969799; font-size: 12px; }
 .company-name { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
 .overall-result {
   display: inline-flex;

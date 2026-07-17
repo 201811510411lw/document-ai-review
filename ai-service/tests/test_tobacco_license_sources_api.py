@@ -111,3 +111,22 @@ def test_fetch_tobacco_license_source_files_from_starrocks_returns_not_found(tmp
 
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "TOBACCO_LICENSE_SOURCE_RECORD_NOT_FOUND"
+
+
+def test_demo_source_attachments_can_be_previewed():
+    client = TestClient(app)
+    headers = business_license_auth_headers(client)
+    source_response = client.post(
+        "/api/v1/tobacco-license/source-files/from-starrocks",
+        headers=headers,
+        json={"store_identifier": "DEMO-STORE-001"},
+    )
+
+    assert source_response.status_code == 200
+    preview_url = source_response.json()["documents"][0]["files"][0]["relative_path"]
+    preview_response = client.get(
+        f"/api/v1/tobacco-license/source-files/local/{preview_url}",
+        headers=headers,
+    )
+    assert preview_response.status_code == 200
+    assert preview_response.headers["content-type"].startswith("text/plain")

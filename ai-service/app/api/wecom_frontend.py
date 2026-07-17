@@ -677,18 +677,18 @@ def tobacco_report_detail(
 ) -> dict[str, Any]:
     cached_report = get_tobacco_report(task_id)
     if cached_report is not None:
-        return {"report": cached_report}
+        return {"report": _with_oa_fallback(cached_report)}
     demo_report = next((item for item in _demo_tobacco_reports() if item["id"] == task_id), None)
     if demo_report is not None:
         save_tobacco_report(demo_report)
-        return {"report": demo_report}
+        return {"report": _with_oa_fallback(demo_report)}
     try:
         detail = repository.get_qc_review_detail(task_id)
     except Exception:
         detail = None
     if detail is None or detail.get("document_type") != "business_tobacco_consistency":
         raise HTTPException(status_code=404, detail="烟草证比对报告不存在")
-    return {"report": _frontend_tobacco_report(detail, detail=True)}
+    return {"report": _with_oa_fallback(_frontend_tobacco_report(detail, detail=True))}
 
 
 @api_router.get("/contract/reports")
@@ -757,6 +757,9 @@ def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> di
     business = dict(row.get("business_license_fields") or comparison.get("business_license") or {})
     tobacco = dict(row.get("tobacco_license_fields") or comparison.get("tobacco_license") or {})
     rules = list(row.get("rule_results") or [])
+    source_evidence = dict(row.get("source_evidence") or {})
+    source = dict(source_evidence.get("source") or {})
+    oa = dict(row.get("oa") or source.get("oa") or {})
     failed_codes = {rule.get("rule_code") for rule in rules if not rule.get("passed")}
     overall_result = "待校验" if row.get("needs_manual_review") else ("通过" if row.get("risk_level") == "NONE" else "不通过")
     return {
@@ -779,7 +782,22 @@ def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> di
         "tobacco_license_person": tobacco.get("legal_person"),
         "comparison": comparison if detail else None,
         "rule_results": rules if detail else None,
+        "needs_manual_review": bool(row.get("needs_manual_review")),
+        "risk_level": row.get("risk_level"),
+        "oa": oa if detail and oa else None,
     }
+
+
+def _with_oa_fallback(report: dict[str, Any]) -> dict[str, Any]:
+    result = dict(report)
+    if result.get("oa"):
+        return result
+    result["oa"] = {
+        "requestid": result.get("source_request_id"),
+        "attachments": [],
+        "unavailable_message": "该历史报告生成时未保存 OA 原文和附件证据，请重新发起核对以补齐来源信息。",
+    }
+    return result
 
 
 def _demo_tobacco_reports() -> list[dict[str, Any]]:
@@ -795,6 +813,19 @@ def _demo_tobacco_reports() -> list[dict[str, Any]]:
         "business_license_person": "张三",
         "tobacco_license_person": "张三",
         "rule_results": [],
+        "oa": {
+            "requestid": "DEMO-10001",
+            "workflow_id": 614,
+            "request_name": "烟草商品建档申请 - 演示门店",
+            "content_summary": "演示用 OA 申请内容，材料已由系统归档。",
+            "created_date": "2026-07-16",
+            "created_time": "09:00:00",
+            "request_status": "待处理",
+            "attachments": [
+                {"document_role": "business_license", "docid": "DEMO-01", "file_name": "持证主体营业执照.pdf"},
+                {"document_role": "tobacco_license", "docid": "DEMO-02", "file_name": "烟草专卖零售许可证.pdf"},
+            ],
+        },
     }
     return [
         {

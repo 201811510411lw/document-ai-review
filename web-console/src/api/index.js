@@ -142,13 +142,22 @@ export const tobaccoApi = {
       timeout: 120000,
     })
   },
-  getPendingStores() {
-    return http.get('/api/v1/tobacco-license-consistency/pending-stores')
+  getPendingStores(page = 1, pageSize = 20) {
+    return http.get('/api/v1/tobacco-license-consistency/pending-stores', {
+      params: { page, page_size: pageSize },
+    })
   },
   createConsistencyReview(storeIdentifier, payload = {}) {
     return http.post('/api/v1/tobacco-license-consistency/reviews', {
       store_identifier: storeIdentifier,
       ...payload,
+    }, {
+      timeout: 180000,
+    })
+  },
+  createConsistencyReviewsBatch(storeIdentifiers) {
+    return http.post('/api/v1/tobacco-license-consistency/reviews/batch', {
+      store_identifiers: storeIdentifiers,
     }, {
       timeout: 180000,
     })

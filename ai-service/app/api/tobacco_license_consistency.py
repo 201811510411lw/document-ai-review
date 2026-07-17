@@ -1,13 +1,14 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.api.auth import require_web_console_user
 from app.integrations.mysql_client import MySqlFetchClient, mysql_settings_from_env
 from app.integrations.starrocks.tobacco_license_sources import (
     SqlFetchClient,
+    build_pending_stores_sql,
     fetch_pending_stores,
     fetch_latest_tobacco_license_source_files,
     TobaccoLicenseSourceTaskError,
@@ -20,6 +21,7 @@ from app.services.tobacco_license_files import (
     TobaccoLicenseFileStoreError,
 )
 from app.services.tobacco_license_demo import (
+    demo_consistency_payload,
     demo_pending_stores,
     demo_source_files,
     is_demo_store,
@@ -54,6 +56,10 @@ class TobaccoManualReviewRequest(BaseModel):
     comment: str = ""
 
 
+class BatchConsistencyReviewRequest(BaseModel):
+    store_identifiers: list[str] = Field(min_length=1, max_length=20)
+
+
 def get_starrocks_sql_client() -> SqlFetchClient:
     return MySqlFetchClient(mysql_settings_from_env("STARROCKS"))
 
@@ -68,12 +74,18 @@ def get_review_repository():
 
 @router.get("/pending-stores")
 def list_pending_stores(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     _current_user: dict[str, Any] = Depends(require_web_console_user),
     sql_client: SqlFetchClient = Depends(get_starrocks_sql_client),
 ) -> dict[str, Any]:
     """返回有待处理 OA 烟草证提交流程的门店列表"""
     try:
-        stores = fetch_pending_stores(sql_client)
+        rows = fetch_pending_stores(
+            sql_client,
+            sql=build_pending_stores_sql(page=page, page_size=page_size + 1),
+        )
+        stores = rows[:page_size]
     except TobaccoLicenseSourceTaskError as error:
         raise HTTPException(
             status_code=400,
@@ -84,9 +96,23 @@ def list_pending_stores(
         ) from error
     except Exception as error:
         # 本地开发无法访问 StarRocks 时，保留一条明确标识的演示任务供工作台验收。
-        return {"stores": demo_pending_stores(), "source_unavailable": True}
+        all_stores = demo_pending_stores()
+        offset = (page - 1) * page_size
+        stores = all_stores[offset:offset + page_size]
+        return {
+            "stores": stores,
+            "page": page,
+            "page_size": page_size,
+            "has_more": offset + page_size < len(all_stores),
+            "source_unavailable": True,
+        }
 
-    return {"stores": stores}
+    return {
+        "stores": stores,
+        "page": page,
+        "page_size": page_size,
+        "has_more": len(rows) > page_size,
+    }
 
 
 @router.post("/reviews")
@@ -111,7 +137,7 @@ def create_consistency_review(
     # 1. 查询 StarRocks 获取来源文件
     try:
         source_files = (
-            demo_source_files()
+            demo_source_files(store_identifier)
             if is_demo_store(store_identifier)
             else fetch_latest_tobacco_license_source_files(sql_client, store_identifier)
         )
@@ -142,11 +168,18 @@ def create_consistency_review(
     tobacco_fields = dict(request.tobacco_license_fields)
 
     # 3. 尝试存储来源文件（可能因为 NAS 不可用而失败，但不阻断流程）
+    stored_documents = []
     if not is_demo_store(store_identifier):
         try:
-            file_store.store_source_files(source_files)
+            stored_documents = file_store.store_source_files(source_files)
         except TobaccoLicenseFileStoreError:
             pass  # 文件存储失败不影响比对流程
+    oa_source = _oa_source_snapshot(
+        first,
+        source_files=source_files,
+        stored_documents=stored_documents,
+        selected_files=request.selected_files,
+    )
 
     # 4. 构建输入并执行一致性比对
     review_input = ReviewInput(
@@ -156,6 +189,7 @@ def create_consistency_review(
         source={
             "store_identifier": store_identifier,
             "requestid": first.requestid,
+            "oa": oa_source,
         },
         options={
             "review_mode": request.review_mode,
@@ -221,6 +255,7 @@ def create_consistency_review(
         "needs_manual_review": result.needs_manual_review,
         "risk_level": result.risk_level.value,
         "source_request_id": first.requestid,
+        "oa": oa_source,
     }
     save_tobacco_report(report)
     return {
@@ -230,6 +265,62 @@ def create_consistency_review(
         "risk_level": result.risk_level.value,
         "needs_manual_review": result.needs_manual_review,
         "report": report,
+    }
+
+
+@router.post("/reviews/batch")
+def create_consistency_reviews_batch(
+    request: BatchConsistencyReviewRequest,
+    current_user: dict[str, Any] = Depends(require_web_console_user),
+    sql_client: SqlFetchClient = Depends(get_starrocks_sql_client),
+    file_store: TobaccoLicenseFileStore = Depends(get_file_store),
+    repository=Depends(get_review_repository),
+) -> dict[str, Any]:
+    """Submit selected OA stores as one batch and return each review outcome."""
+    store_identifiers = list(dict.fromkeys(
+        identifier.strip()
+        for identifier in request.store_identifiers
+        if identifier and identifier.strip()
+    ))
+    if not store_identifiers:
+        raise HTTPException(status_code=400, detail={"code": "STORE_IDENTIFIERS_EMPTY", "message": "请至少选择一条待处理申请"})
+
+    items: list[dict[str, Any]] = []
+    for store_identifier in store_identifiers:
+        payload = {"store_identifier": store_identifier}
+        if is_demo_store(store_identifier):
+            payload.update(demo_consistency_payload(store_identifier))
+        try:
+            result = create_consistency_review(
+                request=CreateConsistencyReviewRequest(**payload),
+                _current_user=current_user,
+                sql_client=sql_client,
+                file_store=file_store,
+                repository=repository,
+            )
+            items.append({
+                "store_identifier": store_identifier,
+                "status": "completed",
+                "task_id": result["task_id"],
+                "report": result["report"],
+            })
+        except HTTPException as error:
+            items.append({
+                "store_identifier": store_identifier,
+                "status": "failed",
+                "error": error.detail,
+            })
+        except Exception as error:
+            items.append({
+                "store_identifier": store_identifier,
+                "status": "failed",
+                "error": {"code": "BATCH_REVIEW_FAILED", "message": str(error)},
+            })
+    return {
+        "total": len(items),
+        "completed": sum(item["status"] == "completed" for item in items),
+        "failed": sum(item["status"] == "failed" for item in items),
+        "items": items,
     }
 
 
@@ -296,6 +387,69 @@ def _callback_summary(report: dict[str, Any]) -> str:
         return "烟草证一致性自动核对通过"
     failed = report.get("unmatched_fields") or []
     return "；".join(str(item) for item in failed) or "烟草证一致性核对待人工复核"
+
+
+def _oa_source_snapshot(
+    first,
+    *,
+    source_files: list,
+    stored_documents: list,
+    selected_files: list[dict[str, Any]],
+) -> dict[str, Any]:
+    attachments = []
+    stored_docids = set()
+    for document in stored_documents:
+        stored_docids.add(document.source.docid)
+        for stored_file in document.files:
+            attachments.append({
+                "document_role": document.source.document_role,
+                "docid": document.source.docid,
+                "doc_subject": document.source.doc_subject,
+                "file_name": stored_file.file_name,
+                "relative_path": stored_file.relative_path,
+            })
+    for source_file in source_files:
+        if source_file.docid in stored_docids:
+            continue
+        file_name = source_file.real_filename or source_file.docimage_filename
+        attachments.append({
+            "document_role": source_file.document_role,
+            "docid": source_file.docid,
+            "doc_subject": source_file.doc_subject,
+            "file_name": file_name,
+            "relative_path": _demo_attachment_path(source_file.docid) if str(first.store_code or "").upper().startswith("DEMO-") else None,
+        })
+    attachments.extend({
+        "document_role": "selected_attachment",
+        "file_name": item.get("file_name"),
+        "relative_path": item.get("relative_path"),
+    } for item in selected_files if item.get("relative_path"))
+    deduplicated = []
+    seen = set()
+    for attachment in attachments:
+        key = (attachment.get("docid"), attachment.get("file_name"), attachment.get("relative_path"))
+        if key not in seen:
+            seen.add(key)
+            deduplicated.append(attachment)
+    return {
+        "requestid": first.requestid,
+        "workflow_id": first.workflow_id,
+        "request_name": first.request_name,
+        "summary_title": first.summary_title,
+        "content_summary": first.content_summary,
+        "created_date": first.created_date,
+        "created_time": first.created_time,
+        "request_status": first.request_status,
+        "attachments": deduplicated,
+    }
+
+
+def _demo_attachment_path(docid: int | None) -> str | None:
+    return {
+        1001: "demo/holder-business-license.pdf",
+        1002: "demo/tobacco-license.pdf",
+        1003: "demo/store-in-store-agreement.pdf",
+    }.get(docid)
 
 
 def _generate_task_id(store_identifier: str) -> str:

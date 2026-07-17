@@ -28,7 +28,7 @@
     <!-- 搜索 -->
     <van-search
       v-model="keyword"
-      placeholder="搜索公司名称"
+      placeholder="搜索报告或待处理申请"
       shape="round"
       clearable
       @search="loadList"
@@ -119,23 +119,40 @@
           <!-- 有待处理门店 -->
           <div v-else-if="pendingStores.length" class="comp-phase">
             <div class="pending-header">
-              <van-icon name="records" color="#1989fa" />
-              <span>OA 待处理申请（共 {{ pendingStores.length }} 条）</span>
+              <div class="pending-header__title">
+                <van-icon name="records" color="#1989fa" />
+                <span>OA 待处理申请（{{ filteredPendingStores.length }}/{{ pendingStores.length }} 条）</span>
+              </div>
+              <div class="pending-header__actions">
+                <button class="pending-select-all" @click.stop="toggleSelectAllPending">
+                  {{ allFilteredPendingSelected ? '取消全选' : '全选' }}
+                </button>
+                <van-button size="small" type="primary" icon="balance-list" :loading="batching" :disabled="!selectedPendingStoreCodes.length" @click.stop="runBatchComparison">批量核对（{{ selectedPendingStoreCodes.length }}）</van-button>
+              </div>
             </div>
-            <div
-              v-for="store in pendingStores"
-              :key="store.store_code"
-              class="pending-item"
-              @click="selectPendingStore(store)"
-            >
-              <div class="pending-item-left">
-                <div class="pending-item-icon">📋</div>
+            <van-notice-bar v-if="batchSummary" class="batch-summary" :color="batchSummary.failed ? '#c83b32' : '#1989fa'" :background="batchSummary.failed ? '#fff5f4' : '#f0f9ff'" left-icon="info-o">最近一次批量核对：完成 {{ batchSummary.completed }} 条，失败 {{ batchSummary.failed }} 条</van-notice-bar>
+            <van-checkbox-group v-model="selectedPendingStoreCodes">
+              <div
+                v-for="store in filteredPendingStores"
+                :key="store.store_code"
+                class="pending-item"
+                @click="selectPendingStore(store)"
+              >
+                <div class="pending-item-left" @click.stop>
+                  <van-checkbox :name="pendingStoreKey(store)" />
+                </div>
+                <div class="pending-item-body">
+                  <div class="pending-item-name">{{ store.store_name || store.store_code }}</div>
+                  <div class="pending-item-title">{{ store.request_name || store.summary_title || 'OA 烟草证申请' }}</div>
+                  <div v-if="store.content_summary" class="pending-item-content">{{ store.content_summary }}</div>
+                  <div class="pending-item-meta">门店编码: {{ store.store_code || '-' }} · 提交时间: {{ store.submit_date || '-' }} · 流程 {{ store.requestid || '-' }}</div>
+                </div>
+                <van-icon name="arrow" color="#c8c9cc" />
               </div>
-              <div class="pending-item-body">
-                <div class="pending-item-name">{{ store.store_name || store.store_code }}</div>
-                <div class="pending-item-meta">提交时间: {{ store.submit_date || '-' }}</div>
-              </div>
-              <van-icon name="arrow" color="#c8c9cc" />
+            </van-checkbox-group>
+            <van-empty v-if="!filteredPendingStores.length" image-size="56" description="未找到匹配的待处理申请" />
+            <div v-else-if="pendingHasMore" class="pending-load-more">
+              <van-button size="small" plain type="primary" :loading="pendingMoreLoading" @click="loadMorePendingStores">加载更多申请</van-button>
             </div>
 
             <!-- 手动搜索兜底 -->
@@ -338,9 +355,15 @@ const showComparisonForm = ref(false)
 const pendingSection = ref(null)
 const pendingStores = ref([])
 const pendingLoading = ref(false)
+const pendingMoreLoading = ref(false)
+const pendingPage = ref(0)
+const pendingHasMore = ref(false)
 const pendingError = ref('')
 const showManualSearch = ref(false)
 const selectedStore = ref(null)
+const selectedPendingStoreCodes = ref([])
+const batching = ref(false)
+const batchSummary = ref(null)
 const storeIdentifier = ref('')
 const sourceDocuments = ref([])
 const sourceLoading = ref(false)
@@ -365,6 +388,19 @@ const visibleRecords = computed(() => records.value.filter((record) => {
   const matchesKeyword = !keyword.value.trim() || String(record.company_name || '').includes(keyword.value.trim())
   return matchesResult && matchesKeyword
 }))
+const filteredPendingStores = computed(() => {
+  const term = keyword.value.trim().toLowerCase()
+  if (!term) return pendingStores.value
+  return pendingStores.value.filter((store) => [
+    store.store_code,
+    store.store_name,
+    store.requestid,
+    store.submit_date,
+    store.request_name,
+    store.summary_title,
+    store.content_summary,
+  ].some((value) => String(value || '').toLowerCase().includes(term)))
+})
 const filterHint = computed(() => ({
   '': '全部：展示所有自动核对结果',
   '通过': '通过：所有适用规则均已通过，无需人工复核',
@@ -493,17 +529,91 @@ async function openPendingQueue() {
   pendingSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
-async function loadPendingStores() {
-  pendingLoading.value = true
-  pendingError.value = ''
+async function loadPendingStores({ reset = true } = {}) {
+  const page = reset ? 1 : pendingPage.value + 1
+  if (reset) {
+    pendingLoading.value = true
+    pendingError.value = ''
+  } else {
+    pendingMoreLoading.value = true
+  }
   try {
-    const res = await tobaccoApi.getPendingStores()
-    pendingStores.value = res.stores || []
+    const res = await tobaccoApi.getPendingStores(page)
+    const incoming = res.stores || []
+    pendingStores.value = reset
+      ? incoming
+      : [...pendingStores.value, ...incoming.filter((store) => !pendingStores.value.some((current) => pendingStoreKey(current) === pendingStoreKey(store)))]
+    pendingPage.value = page
+    pendingHasMore.value = Boolean(res.has_more)
+    selectedPendingStoreCodes.value = selectedPendingStoreCodes.value.filter((code) =>
+      pendingStores.value.some((store) => pendingStoreKey(store) === code),
+    )
   } catch (e) {
     pendingError.value = e.message || '获取待处理列表失败'
     pendingStores.value = []
   } finally {
     pendingLoading.value = false
+    pendingMoreLoading.value = false
+  }
+}
+
+function loadMorePendingStores() {
+  if (!pendingHasMore.value || pendingMoreLoading.value) return
+  loadPendingStores({ reset: false })
+}
+
+function pendingStoreKey(store) {
+  return String(store.store_code || store.store_name || '')
+}
+
+const selectedPendingStores = computed(() => pendingStores.value.filter((store) =>
+  selectedPendingStoreCodes.value.includes(pendingStoreKey(store)),
+))
+const allFilteredPendingSelected = computed(() => {
+  const visibleKeys = filteredPendingStores.value.map(pendingStoreKey)
+  return visibleKeys.length > 0 && visibleKeys.every((key) => selectedPendingStoreCodes.value.includes(key))
+})
+
+function toggleSelectAllPending() {
+  const visibleKeys = filteredPendingStores.value.map(pendingStoreKey)
+  const allVisibleSelected = visibleKeys.length > 0 && visibleKeys.every((key) =>
+    selectedPendingStoreCodes.value.includes(key),
+  )
+  selectedPendingStoreCodes.value = allVisibleSelected
+    ? selectedPendingStoreCodes.value.filter((key) => !visibleKeys.includes(key))
+    : [...new Set([...selectedPendingStoreCodes.value, ...visibleKeys])]
+}
+
+async function runBatchComparison() {
+  const stores = selectedPendingStores.value
+  if (!stores.length) return
+
+  batching.value = true
+  showLoadingToast({ message: `正在核对 ${stores.length} 条申请...`, forbidClick: true, duration: 0 })
+  try {
+    const response = await tobaccoApi.createConsistencyReviewsBatch(stores.map(pendingStoreKey))
+    const completedReports = (response.items || [])
+      .filter((item) => item.status === 'completed' && item.report)
+      .map((item) => item.report)
+    const completedIds = new Set((response.items || [])
+      .filter((item) => item.status === 'completed')
+      .map((item) => item.store_identifier))
+    records.value = [
+      ...completedReports,
+      ...records.value.filter((item) => !completedReports.some((report) => report.id === item.id)),
+    ]
+    stats.value = reportStats(records.value)
+    cacheReports(records.value)
+    pendingStores.value = pendingStores.value.filter((store) => !completedIds.has(pendingStoreKey(store)))
+    selectedPendingStoreCodes.value = []
+    batchSummary.value = { completed: response.completed || 0, failed: response.failed || 0 }
+    closeToast()
+    showToast(`批量核对完成：${response.completed || 0} 条`)
+  } catch (error) {
+    closeToast()
+    showToast(error.message || '批量核对提交失败')
+  } finally {
+    batching.value = false
   }
 }
 
@@ -578,10 +688,17 @@ async function fetchSourceFiles() {
 }
 
 async function previewFile(file) {
+  // Mobile browsers block windows opened after an awaited network request.
+  const previewWindow = window.open('', '_blank')
   const objectUrl = await fetchFileObjectUrl(file)
-  if (!objectUrl) return
-  const previewWindow = window.open(objectUrl, '_blank', 'noopener')
-  if (!previewWindow) {
+  if (!objectUrl) {
+    previewWindow?.close()
+    return
+  }
+  if (previewWindow) {
+    previewWindow.opener = null
+    previewWindow.location.href = objectUrl
+  } else {
     window.location.assign(objectUrl)
   }
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000)
@@ -821,13 +938,44 @@ function formatFileSize(size) {
 .pending-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 10px;
   font-size: 13px;
   font-weight: 600;
   color: #323233;
   padding: 0 0 10px;
   border-bottom: 1px solid #f5f6f8;
   margin-bottom: 6px;
+}
+.pending-header__title,
+.pending-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pending-header__title { min-width: 0; flex: 1; }
+.pending-header__actions { flex-shrink: 0; }
+.pending-select-all {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1989fa;
+  font-size: 12px;
+}
+.batch-summary { margin: 8px 0; }
+.pending-load-more { display: flex; justify-content: center; padding: 10px 0 2px; }
+@media (max-width: 420px) {
+  .pending-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .pending-header__title {
+    flex: 1 1 100%;
+  }
+  .pending-header__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
 }
 .pending-item {
   display: flex;
@@ -840,13 +988,14 @@ function formatFileSize(size) {
 }
 .pending-item:active { background: #f5f6f8; }
 .pending-item + .pending-item { border-top: 1px solid #f5f6f8; }
-.pending-item-icon { font-size: 20px; line-height: 1; }
 .pending-item-body { flex: 1; min-width: 0; }
 .pending-item-name {
   font-size: 14px;
   font-weight: 500;
   color: #323233;
 }
+.pending-item-title { margin-top: 3px; color: #646566; font-size: 12px; line-height: 1.4; }
+.pending-item-content { margin-top: 2px; color: #969799; font-size: 12px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pending-item-meta {
   font-size: 12px;
   color: #969799;
