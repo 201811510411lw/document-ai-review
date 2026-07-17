@@ -95,7 +95,18 @@ def list_pending_stores(
             },
         ) from error
     except Exception as error:
-        # 本地开发无法访问 StarRocks 时，保留一条明确标识的演示任务供工作台验收。
+        # 本地开发无法访问 StarRocks 时，保留演示任务供工作台验收。
+        # 生产环境不返回 demo 数据，避免用户误以为真。
+        import os
+        is_dev = os.environ.get("DOCUMENT_AI_REVIEW_DEBUG", "").strip().lower() in ("true", "1", "yes")
+        if not is_dev:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "STARROCKS_UNAVAILABLE",
+                    "message": f"StarRocks 不可用，无法获取待处理列表: {error}",
+                },
+            ) from error
         all_stores = demo_pending_stores()
         offset = (page - 1) * page_size
         stores = all_stores[offset:offset + page_size]

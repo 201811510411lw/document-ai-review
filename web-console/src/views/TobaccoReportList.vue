@@ -130,6 +130,7 @@
                 <van-button size="small" type="primary" icon="balance-list" :loading="batching" :disabled="!selectedPendingStoreCodes.length" @click.stop="runBatchComparison">批量核对（{{ selectedPendingStoreCodes.length }}）</van-button>
               </div>
             </div>
+            <van-notice-bar v-if="sourceUnavailable" class="batch-summary" color="#c83b32" background="#fff5f4" left-icon="info-o" wrapable>⚠ 当前无法连接数据源，展示的是演示数据。请运维检查 StarRocks 连通性。</van-notice-bar>
             <van-notice-bar v-if="batchSummary" class="batch-summary" :color="batchSummary.failed ? '#c83b32' : '#1989fa'" :background="batchSummary.failed ? '#fff5f4' : '#f0f9ff'" left-icon="info-o">最近一次批量核对：完成 {{ batchSummary.completed }} 条，失败 {{ batchSummary.failed }} 条</van-notice-bar>
             <van-checkbox-group v-model="selectedPendingStoreCodes">
               <div
@@ -359,6 +360,7 @@ const pendingMoreLoading = ref(false)
 const pendingPage = ref(0)
 const pendingHasMore = ref(false)
 const pendingError = ref('')
+const sourceUnavailable = ref(false)
 const showManualSearch = ref(false)
 const selectedStore = ref(null)
 const selectedPendingStoreCodes = ref([])
@@ -546,12 +548,14 @@ async function loadPendingStores({ reset = true } = {}) {
   if (reset) {
     pendingLoading.value = true
     pendingError.value = ''
+    sourceUnavailable.value = false
   } else {
     pendingMoreLoading.value = true
   }
   try {
     const res = await tobaccoApi.getPendingStores(page)
     const incoming = res.stores || []
+    sourceUnavailable.value = Boolean(res.source_unavailable)
     pendingStores.value = reset
       ? incoming
       : [...pendingStores.value, ...incoming.filter((store) => !pendingStores.value.some((current) => pendingStoreKey(current) === pendingStoreKey(store)))]
