@@ -1,7 +1,7 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from app.api.auth import require_web_console_user
@@ -54,7 +54,7 @@ def fetch_tobacco_license_source_files_from_starrocks(
 
     try:
         source_files = (
-            demo_source_files()
+            demo_source_files(store_identifier)
             if is_demo_store(store_identifier)
             else fetch_latest_tobacco_license_source_files(sql_client, store_identifier)
         )
@@ -119,6 +119,17 @@ def get_tobacco_license_local_file(
     _current_user: dict[str, Any] = Depends(require_web_console_user),
     file_store: TobaccoLicenseFileStore = Depends(get_tobacco_license_file_store),
 ) -> FileResponse:
+    if relative_path.startswith("demo/"):
+        return Response(
+            content=b"Demo OA attachment preview. Use a real OA attachment in production.",
+            media_type="text/plain",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="{relative_path.rsplit("/", 1)[-1]}"'
+                    if download else "inline"
+                )
+            },
+        )
     try:
         path = file_store.resolve_local_file(relative_path)
     except TobaccoLicenseFileStoreError as error:

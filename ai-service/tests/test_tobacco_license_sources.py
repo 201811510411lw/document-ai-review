@@ -1,5 +1,7 @@
 from app.integrations.starrocks.tobacco_license_sources import (
+    build_pending_stores_sql,
     build_tobacco_license_source_sql,
+    fetch_pending_stores,
     fetch_latest_tobacco_license_source_files,
 )
 
@@ -83,3 +85,31 @@ def test_fetch_latest_tobacco_license_source_files_returns_empty_list():
     files = fetch_latest_tobacco_license_source_files(StubSqlClient([]), "unknown")
 
     assert files == []
+
+
+def test_pending_stores_include_latest_oa_title_and_content():
+    sql = build_pending_stores_sql(page=2, page_size=20)
+    assert "ROW_NUMBER() OVER" in sql
+    assert "r.REQUESTNAME AS request_name" in sql
+    assert "f.nrgk AS content_summary" in sql
+    assert "LIMIT 20, 20" in sql
+
+    stores = fetch_pending_stores(StubSqlClient([{
+        "store_code": "B65230024",
+        "store_name": "成都示例门店",
+        "requestid": 2801287,
+        "request_name": "烟草商品建档申请 - 成都示例门店",
+        "summary_title": "烟草销售申请",
+        "content_summary": "提交营业执照和烟草专卖零售许可证。",
+        "submit_time": "2026-07-16 10:00:00",
+    }]))
+
+    assert stores == [{
+        "store_code": "B65230024",
+        "store_name": "成都示例门店",
+        "requestid": 2801287,
+        "submit_date": "2026-07-16",
+        "request_name": "烟草商品建档申请 - 成都示例门店",
+        "summary_title": "烟草销售申请",
+        "content_summary": "提交营业执照和烟草专卖零售许可证。",
+    }]

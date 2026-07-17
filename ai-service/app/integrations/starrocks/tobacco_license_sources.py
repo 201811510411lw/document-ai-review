@@ -109,24 +109,43 @@ LIMIT {safe_limit}
 """.strip()
 
 
-def build_pending_stores_sql(*, limit: int = 50) -> str:
-    safe_limit = max(1, min(int(limit), 200))
+def build_pending_stores_sql(*, page: int = 1, page_size: int = 20) -> str:
+    safe_page = max(1, int(page))
+    safe_page_size = max(1, min(int(page_size), 100))
+    offset = (safe_page - 1) * safe_page_size
     return f"""
 SELECT
-    f.mdbm AS store_code,
-    f.mdmc AS store_name,
-    MAX(f.requestid) AS requestid,
-    MAX(CAST(CONCAT(r.CREATEDATE, ' ', r.CREATETIME) AS CHAR)) AS submit_time
-FROM ods_oa_ecology_formtable_main_283_df f
-JOIN ods_oa_ecology_workflow_requestbase_df r
-  ON r.REQUESTID = f.requestid
-WHERE r.WORKFLOWID = 614
-  AND f.ycxsxkz IS NOT NULL
-  AND TRIM(f.ycxsxkz) <> ''
-  AND r.CREATEDATE IS NOT NULL
-GROUP BY f.mdbm, f.mdmc
-ORDER BY MAX(r.CREATEDATE) DESC, MAX(r.CREATETIME) DESC
-LIMIT {safe_limit}
+    store_code,
+    store_name,
+    requestid,
+    request_name,
+    summary_title,
+    content_summary,
+    submit_time
+FROM (
+    SELECT
+        f.mdbm AS store_code,
+        f.mdmc AS store_name,
+        f.requestid,
+        r.REQUESTNAME AS request_name,
+        f.qsbt AS summary_title,
+        f.nrgk AS content_summary,
+        CAST(CONCAT(r.CREATEDATE, ' ', r.CREATETIME) AS CHAR) AS submit_time,
+        ROW_NUMBER() OVER (
+            PARTITION BY COALESCE(NULLIF(f.mdbm, ''), f.mdmc)
+            ORDER BY r.CREATEDATE DESC, r.CREATETIME DESC, f.id DESC
+        ) AS row_number
+    FROM ods_oa_ecology_formtable_main_283_df f
+    JOIN ods_oa_ecology_workflow_requestbase_df r
+      ON r.REQUESTID = f.requestid
+    WHERE r.WORKFLOWID = 614
+      AND f.ycxsxkz IS NOT NULL
+      AND TRIM(f.ycxsxkz) <> ''
+      AND r.CREATEDATE IS NOT NULL
+) pending
+WHERE row_number = 1
+ORDER BY submit_time DESC
+LIMIT {offset}, {safe_page_size}
 """.strip()
 
 
@@ -134,14 +153,19 @@ def fetch_pending_stores(
     sql_client: SqlFetchClient,
     *,
     sql: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
 ) -> list[dict[str, object]]:
-    rows = sql_client.fetch_all(sql or build_pending_stores_sql())
+    rows = sql_client.fetch_all(sql or build_pending_stores_sql(page=page, page_size=page_size))
     return [
         {
             "store_code": str(row.get("store_code") or ""),
             "store_name": str(row.get("store_name") or ""),
             "requestid": row.get("requestid"),
             "submit_date": str(row.get("submit_time") or "")[:10],
+            "request_name": str(row.get("request_name") or ""),
+            "summary_title": str(row.get("summary_title") or ""),
+            "content_summary": str(row.get("content_summary") or ""),
         }
         for row in rows
         if row.get("store_code") or row.get("store_name")
