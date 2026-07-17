@@ -426,11 +426,12 @@ async function loadList() {
       keyword: keyword.value,
       limit: 200,
     })
-    records.value = res.records?.length ? res.records : demoReports()
-    stats.value = res.stats?.total ? res.stats : reportStats(records.value)
+    const merged = mergeReports(res.records || [], cached)
+    records.value = merged.length ? merged : demoReports()
+    stats.value = reportStats(records.value)
     cacheReports(records.value)
   } catch (e) {
-    records.value = demoReports()
+    records.value = cached.length ? cached : demoReports()
     stats.value = reportStats(records.value)
     showToast('报告服务暂不可用，已展示演示报告')
   } finally {
@@ -512,6 +513,17 @@ function cachedReports() {
 
 function cacheReports(items) {
   sessionStorage.setItem(tobaccoReportCacheKey, JSON.stringify(items))
+}
+
+function mergeReports(serverReports, cached) {
+  const byId = new Map()
+  for (const report of cached) {
+    if (report?.id) byId.set(report.id, report)
+  }
+  for (const report of serverReports) {
+    if (report?.id) byId.set(report.id, report)
+  }
+  return Array.from(byId.values())
 }
 
 // ========== 发起新比对 ==========
