@@ -134,7 +134,7 @@ FROM (
         ROW_NUMBER() OVER (
             PARTITION BY COALESCE(NULLIF(f.mdbm, ''), f.mdmc)
             ORDER BY r.CREATEDATE DESC, r.CREATETIME DESC, f.id DESC
-        ) AS row_number
+        ) AS latest_row_num
     FROM ods_oa_ecology_formtable_main_283_df f
     JOIN ods_oa_ecology_workflow_requestbase_df r
       ON r.REQUESTID = f.requestid
@@ -143,7 +143,7 @@ FROM (
       AND TRIM(f.ycxsxkz) <> ''
       AND r.CREATEDATE IS NOT NULL
 ) pending
-WHERE row_number = 1
+WHERE latest_row_num = 1
 ORDER BY submit_time DESC
 LIMIT {offset}, {safe_page_size}
 """.strip()

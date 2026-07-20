@@ -199,8 +199,8 @@ def test_fetch_one_food_license_source_task_uses_default_srm_sql():
     assert task is not None
     assert task.review_input.file.file_uri == "https://files.example.test/food-license.png"
     normalized_sql = " ".join(DEFAULT_FOOD_LICENSE_SOURCE_SQL.split())
-    assert "srm.certification t1" in DEFAULT_FOOD_LICENSE_SOURCE_SQL
-    assert "srm.attachment t2" in DEFAULT_FOOD_LICENSE_SOURCE_SQL
+    assert "ods_srm_srm_certification_df t1" in DEFAULT_FOOD_LICENSE_SOURCE_SQL
+    assert "ods_srm_srm_attachment_df t2" in DEFAULT_FOOD_LICENSE_SOURCE_SQL
     assert "t1.typeName = '食品经营许可证'" in normalized_sql
     assert "t2.url is not null" in DEFAULT_FOOD_LICENSE_SOURCE_SQL.lower()
     assert "t2.url <> ''" in DEFAULT_FOOD_LICENSE_SOURCE_SQL.lower()

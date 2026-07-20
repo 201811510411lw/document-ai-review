@@ -26,11 +26,11 @@ _ENV_KEYS = {
     "BUSINESS_LICENSE_VISION_PROVIDER",
     "BUSINESS_LICENSE_QWEN_OCR_MODEL",
     "ALIYUN_OCR_LLM_PARSE_MODEL",
-    "SRM_MYSQL_HOST",
-    "SRM_MYSQL_PORT",
-    "SRM_MYSQL_USER",
-    "SRM_MYSQL_PASSWORD",
-    "SRM_MYSQL_DATABASE",
+    "STARROCKS_HOST",
+    "STARROCKS_PORT",
+    "STARROCKS_USER",
+    "STARROCKS_PASSWORD",
+    "STARROCKS_DATABASE",
 }
 
 
@@ -38,7 +38,7 @@ def test_manual_mysql_pdf_llm_extraction_snapshot():
     _load_test_env()
 
     task = fetch_one_business_license_source_task(
-        MySqlFetchClient(mysql_settings_from_env())
+        MySqlFetchClient(mysql_settings_from_env("STARROCKS"))
     )
     if task is None:
         pytest.skip("business_license_tasks default SQL returned no rows")

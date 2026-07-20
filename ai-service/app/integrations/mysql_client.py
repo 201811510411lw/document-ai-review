@@ -52,7 +52,7 @@ class MySqlFetchClient:
         return self._connection
 
 
-def mysql_settings_from_env(prefix: str = "SRM_MYSQL") -> MySqlSettings:
+def mysql_settings_from_env(prefix: str = "STARROCKS") -> MySqlSettings:
     return MySqlSettings(
         host=_required_env(f"{prefix}_HOST"),
         port=int(os.environ.get(f"{prefix}_PORT", "3306")),

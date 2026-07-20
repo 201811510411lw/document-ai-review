@@ -132,7 +132,7 @@ Guardrails:
 | --- | --- | --- |
 | OpenAI / 兼容模型 API | 通过环境变量配置 | 用于 LLM 抽取、结构化输出、规则解释 |
 | 阿里云 OCR / Qwen OCR | 通过 adapter 预留和测试 | 用于证照图片/PDF 识别 |
-| SRM MySQL | 通过 `SRM_MYSQL_*` 配置 | 拉取食品证照、生产许可证等来源记录 |
+| StarRocks | 通过 `STARROCKS_*` 配置 | 查询同步后的 SRM 证照、批次报告和 OA 烟草证来源记录 |
 | Review Result MySQL | 通过 `REVIEW_RESULT_MYSQL_*` 配置 | 保存审核结果、投影表、人工复核和通知队列 |
 | 企业微信 | 通过 `WECOM_*` 配置 | 登录、通知 worker、前端工作台 |
 
@@ -305,12 +305,12 @@ QC 商品批次报告 / 第三方检验报告投影表。
 | `product_report_reviews` | 保存商品名称、供应商、批号、生产日期、签发日期/批准日期、有效截止日、检验结论、审核结论等 |
 | `product_report_inspection_items` | 保存检验项目明细，主键为 `task_id + item_index` |
 
-产品报告首期来源为当前 SRM MySQL 商品维度材料：
+产品报告首期来源为 StarRocks 中同步的 SRM 商品维度材料：
 
 ```sql
 select *
-from srm.certification t1
-left join srm.attachment t2 on t1.uuid = t2.refId
+from ods_srm_srm_certification_df t1
+left join ods_srm_srm_attachment_df t2 on t1.uuid = t2.refId
 where t2.tenant = '8560'
   and t1.category = 'sku'
   and t1.typeName = '产品报告'

@@ -90,6 +90,9 @@ def test_fetch_latest_tobacco_license_source_files_returns_empty_list():
 def test_pending_stores_include_latest_oa_title_and_content():
     sql = build_pending_stores_sql(page=2, page_size=20)
     assert "ROW_NUMBER() OVER" in sql
+    assert ") AS latest_row_num" in sql
+    assert "WHERE latest_row_num = 1" in sql
+    assert ") AS row_number" not in sql
     assert "r.REQUESTNAME AS request_name" in sql
     assert "f.nrgk AS content_summary" in sql
     assert "LIMIT 20, 20" in sql

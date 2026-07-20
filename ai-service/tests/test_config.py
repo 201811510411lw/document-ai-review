@@ -34,10 +34,6 @@ aliyun_ocr:
   rotation_order:
     - 270
     - 0
-srm_mysql:
-  host: 127.0.0.1
-  port: 3306
-  database: srm
 starrocks:
   host: starrocks.example.test
   port: 9030
@@ -51,7 +47,6 @@ wecom:
     )
     (project_root / ".env").write_text(
         "OPENAI_API_KEY=secret-key\n"
-        "SRM_MYSQL_PASSWORD=secret-password\n"
         "STARROCKS_USER=starrocks-user\n"
         "STARROCKS_PASSWORD=starrocks-password\n",
         encoding="utf-8",
@@ -73,7 +68,6 @@ wecom:
     assert os.environ["STARROCKS_USER"] == "starrocks-user"
     assert os.environ["STARROCKS_PASSWORD"] == "starrocks-password"
     assert os.environ["OPENAI_API_KEY"] == "secret-key"
-    assert os.environ["SRM_MYSQL_PASSWORD"] == "secret-password"
 
 
 def test_load_local_env_keeps_explicit_shell_env(tmp_path, monkeypatch):

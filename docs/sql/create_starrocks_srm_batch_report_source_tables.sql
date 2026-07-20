@@ -1,11 +1,49 @@
--- StarRocks source tables for SRM batch report validation.
+-- StarRocks source tables for SRM certificate and batch report validation.
 -- Tables:
---   srm_orders
---   srm_orderline
---   srm_orderdeliverybatch
---   srm_attachment
+--   ods_srm_srm_certification_df
+--   ods_srm_srm_orders_df
+--   ods_srm_srm_orderline_df
+--   ods_srm_srm_orderdeliverybatch_df
+--   ods_srm_srm_attachment_df
 
-CREATE TABLE IF NOT EXISTS srm_orders (
+CREATE TABLE IF NOT EXISTS ods_srm_srm_certification_df (
+    `uuid` VARCHAR(64) NOT NULL,
+    `version` BIGINT NULL,
+    `created` DATETIME NULL,
+    `creatorNS` VARCHAR(128) NULL,
+    `creatorId` VARCHAR(128) NULL,
+    `creatorName` VARCHAR(255) NULL,
+    `lastModified` DATETIME NULL,
+    `lastModifierNS` VARCHAR(128) NULL,
+    `lastModifierId` VARCHAR(128) NULL,
+    `lastModifierName` VARCHAR(255) NULL,
+    `tenant` VARCHAR(64) NULL,
+    `category` VARCHAR(64) NULL,
+    `typeName` VARCHAR(255) NULL,
+    `typeCode` VARCHAR(128) NULL,
+    `vendorId` VARCHAR(128) NULL,
+    `vendorName` VARCHAR(512) NULL,
+    `num` VARCHAR(255) NULL,
+    `number` VARCHAR(255) NULL,
+    `state` VARCHAR(64) NULL,
+    `remark` STRING NULL,
+    `expiredBegin` DATETIME NULL,
+    `expiredEnd` DATETIME NULL,
+    `deleted` TINYINT NULL
+)
+DUPLICATE KEY(`uuid`)
+DISTRIBUTED BY HASH(`uuid`) BUCKETS 12
+PROPERTIES (
+    "compression" = "LZ4",
+    "datacache.enable" = "true",
+    "enable_async_write_back" = "false",
+    "enable_persistent_index" = "true",
+    "persistent_index_type" = "LOCAL",
+    "replication_num" = "1",
+    "storage_volume" = "def_volume"
+);
+
+CREATE TABLE IF NOT EXISTS ods_srm_srm_orders_df (
     `uuid` VARCHAR(64) NOT NULL,
     `version` BIGINT NULL,
     `created` DATETIME NULL,
@@ -139,7 +177,7 @@ PROPERTIES (
     "storage_volume" = "def_volume"
 );
 
-CREATE TABLE IF NOT EXISTS srm_orderline (
+CREATE TABLE IF NOT EXISTS ods_srm_srm_orderline_df (
     `uuid` VARCHAR(64) NOT NULL,
     `version` BIGINT NULL,
     `created` DATETIME NULL,
@@ -249,7 +287,7 @@ PROPERTIES (
     "storage_volume" = "def_volume"
 );
 
-CREATE TABLE IF NOT EXISTS srm_orderdeliverybatch (
+CREATE TABLE IF NOT EXISTS ods_srm_srm_orderdeliverybatch_df (
     `uuid` VARCHAR(64) NOT NULL,
     `tenant` VARCHAR(64) NULL,
     `orderId` VARCHAR(64) NULL,
@@ -290,7 +328,7 @@ PROPERTIES (
     "storage_volume" = "def_volume"
 );
 
-CREATE TABLE IF NOT EXISTS srm_attachment (
+CREATE TABLE IF NOT EXISTS ods_srm_srm_attachment_df (
     `uuid` VARCHAR(64) NOT NULL,
     `version` BIGINT NULL,
     `created` DATETIME NULL,

@@ -160,8 +160,8 @@ def test_fetch_one_product_report_source_task_uses_default_srm_sql():
     assert client.executed_sql == [DEFAULT_PRODUCT_REPORT_SOURCE_SQL]
     assert task is not None
     normalized_sql = " ".join(DEFAULT_PRODUCT_REPORT_SOURCE_SQL.split())
-    assert "srm.certification t1" in DEFAULT_PRODUCT_REPORT_SOURCE_SQL
-    assert "srm.attachment t2" in DEFAULT_PRODUCT_REPORT_SOURCE_SQL
+    assert "ods_srm_srm_certification_df t1" in DEFAULT_PRODUCT_REPORT_SOURCE_SQL
+    assert "ods_srm_srm_attachment_df t2" in DEFAULT_PRODUCT_REPORT_SOURCE_SQL
     assert "t2.tenant = '8560'" in normalized_sql
     assert "t1.category = 'sku'" in normalized_sql
     assert "t1.typeName = '产品报告'" in normalized_sql

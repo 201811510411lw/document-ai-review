@@ -83,7 +83,7 @@ def get_review_read_repository() -> BusinessLicenseReviewReadRepository:
 
 
 def get_srm_sql_client() -> SqlFetchClient:
-    return MySqlFetchClient(mysql_settings_from_env("SRM_MYSQL"))
+    return MySqlFetchClient(mysql_settings_from_env("STARROCKS"))
 
 
 @router.post("/reviews")

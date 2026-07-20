@@ -31,8 +31,8 @@ DEFAULT_FOOD_PRODUCTION_LICENSE_SOURCE_SQL = """
 select
 	*
 from
-	srm.certification t1
-left join srm.attachment t2 on
+	ods_srm_srm_certification_df t1
+left join ods_srm_srm_attachment_df t2 on
 	t1.uuid = t2.refId
 where
 	t1.category = 'vendor'

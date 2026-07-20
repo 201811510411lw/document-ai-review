@@ -528,10 +528,10 @@ def trigger_daily_sync(
     from app.repositories import build_review_result_repository_from_env
     from app.services.scheduled_review_service import run_daily_sync, MySqlFetchClient
     since = str((request or {}).get("since_date") or "").strip() or None
-    srm_client = MySqlFetchClient(mysql_settings_from_env("SRM_MYSQL"))
+    source_client = MySqlFetchClient(mysql_settings_from_env("STARROCKS"))
     review_db_client = MySqlFetchClient(mysql_settings_from_env("REVIEW_RESULT_MYSQL"))
     review_service = ReviewService(repository=build_review_result_repository_from_env())
-    progress = run_daily_sync(srm_client, review_db_client, review_service, since_date=since)
+    progress = run_daily_sync(source_client, review_db_client, review_service, since_date=since)
     return {
         "status": "ok",
         "message": f"同步完成: 新增{progress.new}, 跳过{progress.skipped}, 成功{progress.succeeded}, 失败{progress.failed}",

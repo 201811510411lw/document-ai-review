@@ -63,8 +63,8 @@ select
     t2.removed,
     t2.url
 from
-    srm.certification t1
-left join srm.attachment t2 on
+    ods_srm_srm_certification_df t1
+left join ods_srm_srm_attachment_df t2 on
     t1.uuid = t2.refId
 where
     t2.tenant = '8560'
@@ -78,7 +78,7 @@ where
     and t1.created >= '{since_iso}'
 """
 
-# 商品报告 category = 'sku'
+# 商品报告仅处理商品维度材料 category = 'sku'
 SRM_PRODUCT_SQL_TEMPLATE = """
 select
     t1.uuid, t1.tenant, t1.category, t1.typeName, t1.typeCode,
@@ -88,12 +88,12 @@ select
     t2.attachmentName, t2.storeId, t2.url,
     t1.created, t1.lastModified, t1.expiredBegin, t1.expiredEnd
 from
-    srm.certification t1
-left join srm.attachment t2 on
+    ods_srm_srm_certification_df t1
+left join ods_srm_srm_attachment_df t2 on
     t1.uuid = t2.refId
 where
     t2.tenant = '8560'
-    and t1.category in ('sku', 'vendor', 'manufacturer')
+    and t1.category = 'sku'
     and t1.typeName = '产品报告'
     and t1.deleted = 0
     and t2.removed = 0
@@ -291,7 +291,7 @@ def _sync_batch_reports_from_starrocks(
 
 
 def run_daily_sync(
-    srm_client: MySqlFetchClient,
+    source_client: MySqlFetchClient,
     review_db: MySqlFetchClient,
     review_service: ReviewService,
     starrocks_client: MySqlFetchClient | None = None,
@@ -330,7 +330,7 @@ def run_daily_sync(
             logger.info("[scheduled-review] 查询 %s: created >= %s", doc_type, since_iso)
 
             try:
-                rows = srm_client.fetch_all(sql)
+                rows = source_client.fetch_all(sql)
             except Exception as e:
                 logger.error("[scheduled-review] 查询 %s 失败: %s", doc_type, e)
                 progress.errors.append(f"查询 {doc_type} 失败: {e}")
@@ -342,7 +342,7 @@ def run_daily_sync(
 
             # 用现有的 fetch_tasks_fn 处理原始行 → task 对象
             try:
-                tasks = cfg["fetch_tasks_fn"](srm_client, sql)
+                tasks = cfg["fetch_tasks_fn"](source_client, sql)
             except Exception as e:
                 logger.warning("[scheduled-review] fetch_tasks_fn 处理 %s 失败: %s，改用直接映射", doc_type, e)
                 # 降级方案：手动映射
@@ -385,7 +385,7 @@ def run_daily_sync(
         # 全部处理完毕，更新时间戳（即使有失败也更新，避免重复处理已成功的）
         _update_last_sync_time_in_db(review_db)
         logger.info(
-            "[scheduled-review] SRM 同步完成: 总计=%d, 跳过=%d, 新增=%d, 成功=%d, 失败=%d",
+            "[scheduled-review] StarRocks 证照同步完成: 总计=%d, 跳过=%d, 新增=%d, 成功=%d, 失败=%d",
             progress.total, progress.skipped, progress.new,
             progress.succeeded, progress.failed,
         )
@@ -467,14 +467,14 @@ class DailyReviewScheduler:
 
     def __init__(
         self,
-        srm_settings: MySqlSettings | None = None,
+        source_settings: MySqlSettings | None = None,
         review_db_settings: MySqlSettings | None = None,
         *,
         run_hour: int = 2,
         run_minute: int = 0,
         check_interval_seconds: int = 60,
     ):
-        self.srm_settings = srm_settings or mysql_settings_from_env("SRM_MYSQL")
+        self.source_settings = source_settings or mysql_settings_from_env("STARROCKS")
         self.review_db_settings = review_db_settings or mysql_settings_from_env("REVIEW_RESULT_MYSQL")
         self.run_hour = run_hour
         self.run_minute = run_minute
@@ -530,7 +530,7 @@ class DailyReviewScheduler:
     def _execute_sync(self) -> None:
         """执行一次同步（含 SRM 证照 + StarRocks 批次报告）"""
         try:
-            srm_client = MySqlFetchClient(self.srm_settings)
+            source_client = MySqlFetchClient(self.source_settings)
             review_db_client = MySqlFetchClient(self.review_db_settings)
             starrocks_client = MySqlFetchClient(
                 mysql_settings_from_env("STARROCKS"),
@@ -539,7 +539,7 @@ class DailyReviewScheduler:
             review_repo = build_review_result_repository_from_env()
             review_service = ReviewService(repository=review_repo)
             progress = run_daily_sync(
-                srm_client, review_db_client, review_service,
+                source_client, review_db_client, review_service,
                 starrocks_client=starrocks_client,
             )
             logger.info(

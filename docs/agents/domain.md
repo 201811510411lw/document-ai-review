@@ -33,6 +33,6 @@ Use the project's existing domain terms:
 
 ## Current Product Report Scope
 
-Product report work belongs to `qc_document_review`. The source data is current SRM MySQL SKU material where `category='sku'`, `typeName='产品报告'`, `deleted=0`, and attachment `removed=0`.
+Product report work belongs to `qc_document_review`. The source data is SRM SKU material synchronized to StarRocks, where `category='sku'`, `typeName='产品报告'`, `deleted=0`, and attachment `removed=0`.
 
 The first product report vertical slice should keep final compliance decisions in deterministic rules and use LLM/OCR only for extraction and structure.

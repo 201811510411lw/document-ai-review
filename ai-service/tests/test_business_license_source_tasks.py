@@ -159,8 +159,8 @@ def test_fetch_one_business_license_source_task_uses_default_srm_sql():
     assert task is not None
     assert task.review_input.file.file_uri == "https://files.example.test/business-license.png"
     normalized_sql = " ".join(DEFAULT_BUSINESS_LICENSE_SOURCE_SQL.split())
-    assert "srm.certification t1" in DEFAULT_BUSINESS_LICENSE_SOURCE_SQL
-    assert "srm.attachment t2" in DEFAULT_BUSINESS_LICENSE_SOURCE_SQL
+    assert "ods_srm_srm_certification_df t1" in DEFAULT_BUSINESS_LICENSE_SOURCE_SQL
+    assert "ods_srm_srm_attachment_df t2" in DEFAULT_BUSINESS_LICENSE_SOURCE_SQL
     assert "t2.refId as attachmentRefId" in DEFAULT_BUSINESS_LICENSE_SOURCE_SQL
     assert "typeName = '营业执照'" in normalized_sql
     assert "t2.url is not null" in DEFAULT_BUSINESS_LICENSE_SOURCE_SQL.lower()

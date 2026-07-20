@@ -57,9 +57,9 @@ def _batch_report_columns() -> str:
 
 def _batch_report_from_clause() -> str:
     return """
-from srm_orders t1
-join srm_orderdeliverybatch t2 on t1.uuid = t2.orderId
-join srm_attachment t3 on t2.uuid = t3.refId
+from ods_srm_srm_orders_df t1
+join ods_srm_srm_orderdeliverybatch_df t2 on t1.uuid = t2.orderId
+join ods_srm_srm_attachment_df t3 on t2.uuid = t3.refId
 """.strip()
 
 

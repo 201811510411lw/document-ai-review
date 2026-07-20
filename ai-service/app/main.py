@@ -35,10 +35,10 @@ _scheduler: DailyReviewScheduler | None = None
 def start_scheduler():
     global _scheduler
     try:
-        srm_settings = mysql_settings_from_env("SRM_MYSQL")
+        source_settings = mysql_settings_from_env("STARROCKS")
         review_db_settings = mysql_settings_from_env("REVIEW_RESULT_MYSQL")
         _scheduler = DailyReviewScheduler(
-            srm_settings=srm_settings,
+            source_settings=source_settings,
             review_db_settings=review_db_settings,
         )
         _scheduler.start()

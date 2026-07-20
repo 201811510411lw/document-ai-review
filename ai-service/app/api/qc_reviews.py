@@ -88,11 +88,11 @@ def get_review_service() -> ReviewService:
 
 
 def get_food_production_license_srm_sql_client() -> SqlFetchClient:
-    return MySqlFetchClient(mysql_settings_from_env("SRM_MYSQL"))
+    return MySqlFetchClient(mysql_settings_from_env("STARROCKS"))
 
 
 def get_product_report_srm_sql_client() -> SqlFetchClient:
-    return MySqlFetchClient(mysql_settings_from_env("SRM_MYSQL"))
+    return MySqlFetchClient(mysql_settings_from_env("STARROCKS"))
 
 
 def get_batch_report_starrocks_sql_client() -> SqlFetchClient:

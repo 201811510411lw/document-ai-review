@@ -52,7 +52,7 @@
 
     数据源详见sheet2：https://doc\.weixin\.qq\.com/sheet/e3\_Aa4A1QYLAC8CNFcG8K0MzRUeS2Rw8?scode=ANUAYwfAAA4DB01oA6AfoARgaQALw\&tab=2m7417
 
-    当前产品报告首期以 SRM MySQL 为准：从 `srm.certification t1 left join srm.attachment t2 on t1.uuid=t2.refId` 拉取 `t2.tenant='8560'`、`t1.category='sku'`、`t1.typeName='产品报告'`、`t1.deleted=0`、`t2.removed=0` 的商品维度材料。
+    当前产品报告从 StarRocks 中同步的 SRM 数据拉取：从 `ods_srm_srm_certification_df t1 left join ods_srm_srm_attachment_df t2 on t1.uuid=t2.refId` 拉取 `t2.tenant='8560'`、`t1.category='sku'`、`t1.typeName='产品报告'`、`t1.deleted=0`、`t2.removed=0` 的商品维度材料。
 
 2. 自动OCR识别并提取关键字段并作报表留存。
 

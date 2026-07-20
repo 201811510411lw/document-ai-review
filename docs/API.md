@@ -402,14 +402,14 @@ API 中的日期和时间使用：
 
 ### 8.1 `POST /api/v1/qc/product-report/reviews/from-srm`
 
-从当前 SRM MySQL 拉取一条商品维度产品报告 / 第三方检验报告来源记录，下载附件并执行 `qc_document_review`。
+从 StarRocks 中同步的 SRM 商品维度产品报告 / 第三方检验报告来源记录拉取一条材料，下载附件并执行 `qc_document_review`。
 
 #### SRM 来源筛选
 
 ```sql
 select *
-from srm.certification t1
-left join srm.attachment t2 on t1.uuid = t2.refId
+from ods_srm_srm_certification_df t1
+left join ods_srm_srm_attachment_df t2 on t1.uuid = t2.refId
 where t2.tenant = '8560'
   and t1.category = 'sku'
   and t1.typeName = '产品报告'
@@ -475,9 +475,9 @@ POST /api/v1/qc/batch-report/reviews/from-starrocks?review_date=2026-05-05
 来源表：
 
 ```text
-srm_orders
-srm_orderdeliverybatch
-srm_attachment
+ods_srm_srm_orders_df
+ods_srm_srm_orderdeliverybatch_df
+ods_srm_srm_attachment_df
 ```
 
 核心筛选：

@@ -50,8 +50,8 @@ select
 	t1.expiredBegin,
 	t1.expiredEnd
 from
-	srm.certification t1
-left join srm.attachment t2 on
+	ods_srm_srm_certification_df t1
+left join ods_srm_srm_attachment_df t2 on
 	t1.uuid = t2.refId
 where
 	t2.tenant = '8560'
@@ -86,7 +86,7 @@ def fetch_product_report_source_tasks(
         record = map_srm_certification_row(row)
         if record.declared_document_type != "product_report":
             continue
-        if record.document_category not in ("sku", "vendor", "manufacturer"):
+        if record.document_category != "sku":
             continue
         if record.is_deleted:
             continue

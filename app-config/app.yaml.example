@@ -48,12 +48,6 @@ aliyun_ocr:
     - 90
     - 180
 
-# SRM 来源数据库地址；账号和密码放在 .env。
-srm_mysql:
-  host: your-srm-mysql-host
-  port: 3306
-  database: srm
-
 # 审核结果数据库地址；账号和密码放在 .env。
 review_result_mysql:
   host: your-review-mysql-host

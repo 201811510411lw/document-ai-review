@@ -158,9 +158,6 @@ CONFIG_KEY_PATHS = {
         "aliyun_ocr",
         "local_prefilter_provider",
     ),
-    "SRM_MYSQL_HOST": ("srm_mysql", "host"),
-    "SRM_MYSQL_PORT": ("srm_mysql", "port"),
-    "SRM_MYSQL_DATABASE": ("srm_mysql", "database"),
     "REVIEW_RESULT_MYSQL_HOST": ("review_result_mysql", "host"),
     "REVIEW_RESULT_MYSQL_PORT": ("review_result_mysql", "port"),
     "REVIEW_RESULT_MYSQL_DATABASE": ("review_result_mysql", "database"),
@@ -213,8 +210,6 @@ CONFIG_KEY_PATHS = {
 SECRET_ENV_KEYS = {
     "OPENAI_API_KEY",
     "ALIYUN_OCR_APPCODE",
-    "SRM_MYSQL_USER",
-    "SRM_MYSQL_PASSWORD",
     "REVIEW_RESULT_MYSQL_USER",
     "REVIEW_RESULT_MYSQL_PASSWORD",
     "STARROCKS_USER",
