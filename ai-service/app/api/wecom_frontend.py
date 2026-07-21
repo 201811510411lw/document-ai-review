@@ -97,11 +97,10 @@ def dashboard_stats(
     _current_user: dict[str, Any] = Depends(get_wecom_frontend_user),
     repository: FrontendRepository = Depends(get_review_read_repository),
 ) -> dict[str, Any]:
-    payload = repository.list_qc_reviews(page=1, page_size=1)
-    records = _all_qc_records(repository)
+    records = _license_only_records(_all_qc_records(repository))
     metrics = _frontend_record_metrics(records)
     workbench = _frontend_workbench_stats(records)
-    total = int(payload.get("total") or 0)
+    total = len(records)
     return {
         "data": {
             "total": total,
@@ -126,9 +125,9 @@ def dashboard_daily(
     yesterday = (today - __import__("datetime").timedelta(days=1)).isoformat()
     # 昨日新增：只查询昨天创建的记录（走 SQL 层面 created_at 过滤）
     yesterday_rows = repository.list_qc_reviews_created_since(yesterday)
-    yesterday_records = [_frontend_qc_record(row) for row in yesterday_rows]
+    yesterday_records = _license_only_records([_frontend_qc_record(row) for row in yesterday_rows])
     # 全部记录：用于展示当前效期概览
-    all_records = _all_qc_records(repository)
+    all_records = _license_only_records(_all_qc_records(repository))
     return {
         "data": {
             "date": today.isoformat(),
@@ -150,7 +149,7 @@ def dashboard_history(
     _current_user: dict[str, Any] = Depends(get_wecom_frontend_user),
     repository: FrontendRepository = Depends(get_review_read_repository),
 ) -> dict[str, Any]:
-    records = _all_qc_records(repository)
+    records = _license_only_records(_all_qc_records(repository))
     metrics = _frontend_record_metrics(records)
     return {
         "data": [
@@ -269,7 +268,7 @@ def query_single(
 ) -> dict[str, Any]:
     keyword = str((request or {}).get("keyword") or "").strip()
     document_type = str((request or {}).get("document_type") or "").strip() or None
-    records = _all_qc_records(repository, document_type=document_type)
+    records = _license_only_records(_all_qc_records(repository, document_type=document_type))
     records = _filter_frontend_records(records, [keyword] if keyword else [])
     return {"records": records, "stats": _search_stats(records, 1 if keyword else 0)}
 
@@ -281,7 +280,7 @@ def query_batch(
     repository: FrontendRepository = Depends(get_review_read_repository),
 ) -> dict[str, Any]:
     terms = _normalize_query_terms(request.names)
-    records = _filter_frontend_records(_all_qc_records(repository), terms)
+    records = _filter_frontend_records(_license_only_records(_all_qc_records(repository)), terms)
     return {"records": records, "stats": _search_stats(records, len(terms))}
 
 
@@ -294,7 +293,7 @@ async def query_excel(
     content = await file.read()
     parsed = _parse_uploaded_query_table(file.filename or "", content)
     terms = _normalize_query_terms(parsed["terms"])
-    records = _filter_frontend_records(_all_qc_records(repository), terms)
+    records = _filter_frontend_records(_license_only_records(_all_qc_records(repository)), terms)
     return {
         "records": records,
         "stats": _search_stats(records, len(terms)),
@@ -310,7 +309,7 @@ def query_download(
     repository: FrontendRepository = Depends(get_review_read_repository),
 ) -> Response:
     ids = [str(item).strip() for item in (request or {}).get("ids", []) if str(item).strip()]
-    selected = [record for record in _all_qc_records(repository) if record["id"] in set(ids)]
+    selected = [record for record in _license_only_records(_all_qc_records(repository)) if record["id"] in set(ids)]
     with_attachment = [record for record in selected if record.get("source_file_url")]
     missing_attachment_records = [
         {"id": record["id"], "company_name": record["company_name"], "reason": "缺少 source_file_url"}
@@ -370,7 +369,7 @@ def query_recent(
     _current_user: dict[str, Any] = Depends(get_wecom_frontend_user),
     repository: FrontendRepository = Depends(get_review_read_repository),
 ) -> dict[str, list[Any]]:
-    return {"records": _all_qc_records(repository)[:10]}
+    return {"records": _license_only_records(_all_qc_records(repository))[:10]}
 
 
 @api_router.get("/admin/notify-users")
@@ -412,7 +411,7 @@ def records(
     records = [
         record
         for record in _filter_frontend_records(
-            _all_qc_records(repository),
+            _license_only_records(_all_qc_records(repository)),
             [keyword.strip()] if keyword.strip() else [],
         )
         if record["id"] not in ignored_ids
@@ -430,7 +429,7 @@ def export_records(
     records = [
         record
         for record in _filter_frontend_records(
-            _all_qc_records(repository),
+            _license_only_records(_all_qc_records(repository)),
             [keyword.strip()] if keyword.strip() else [],
         )
         if record["id"] not in ignored_ids
@@ -1014,6 +1013,7 @@ def _frontend_qc_record(
         "order_number": source.get("order_number") or "",
         "sku_name": source.get("sku_name") or "",
         "vendor_name": source.get("vendor_name") or "",
+        "source_system": source.get("source_system") or "",
     }
 
 
@@ -1119,6 +1119,33 @@ def _frontend_workbench_stats(records: list[dict[str, Any]]) -> dict[str, int]:
         "confirmed": sum(1 for row in records if row.get("review_status") == "confirmed"),
         "flagged": sum(1 for row in records if row.get("review_status") == "flagged"),
     }
+
+
+# 效期看板只展示纯证照类型，不包含烟草比对相关记录
+_LICENSE_ONLY_DOCUMENT_TYPES = frozenset({
+    "business_license",
+    "food_license",
+    "food_production_license",
+    "product_report",
+    "batch_report",
+})
+
+
+def _license_only_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """从记录列表中过滤出纯证照类记录（排除烟草证及一致性比对）。
+
+    business_license 可能从两条管线来：
+      - SRM 来源（source_system="srm"）→ 纯营业执照 → ✅ 保留
+      - OA 烟草附件（source_system="oa_starrocks"）→ ❌ 排除
+    """
+    filtered = []
+    for r in records:
+        doc_type = r.get("document_type")
+        if doc_type in _LICENSE_ONLY_DOCUMENT_TYPES:
+            if doc_type == "business_license" and r.get("source_system") != "srm":
+                continue
+            filtered.append(r)
+    return filtered
 
 
 def _frontend_record_matches_review_filter(record: dict[str, Any], review_filter: dict[str, str]) -> bool:

@@ -36,7 +36,7 @@
           <h3>烟草证比对</h3>
           <p class="scene-desc">营业执照↔烟草证一致性校验</p>
           <div class="scene-stats">
-            <span v-if="tobaccoStats.pending > 0" class="stat-tag warning">待处理 {{ tobaccoStats.pending }}</span>
+            <span v-if="tobaccoStats.pending > 0" class="stat-tag warning">异常 {{ tobaccoStats.pending }}</span>
             <span class="stat-tag success">通过 {{ tobaccoStats.passed || 0 }}</span>
             <span class="stat-tag danger">不通过 {{ tobaccoStats.failed || 0 }}</span>
           </div>

@@ -15,7 +15,7 @@
       </section>
 
       <section v-if="canManualReview" class="manual-actions" aria-label="人工处置">
-        <div><strong>需要人工处置</strong><span>自动核对结论及 OA 附件会保留在当前报告中。</span></div>
+        <div><strong>异常待处理 — 需要人工复核</strong><span>系统无法自动完成核对，请检查 OA 附件后人工确认。</span></div>
         <div class="manual-actions__buttons">
           <van-button size="small" type="primary" :loading="manualLoading" @click="submitManualReview('APPROVE')">人工通过</van-button>
           <van-button size="small" plain type="danger" :loading="manualLoading" @click="submitManualReview('REJECT')">驳回</van-button>
@@ -36,11 +36,18 @@
       </section>
 
       <section v-if="report.rule_results?.length" class="content-section">
-        <header class="section-header"><div><p>规则明细</p><h2>自动审核结果</h2></div></header>
+        <header class="section-header"><div><p>规则明细</p><h2>一致性核对结论</h2></div></header>
         <div class="rule-list">
           <article v-for="rule in report.rule_results" :key="rule.rule_code" :class="rule.passed ? 'passed' : 'failed'">
             <van-icon :name="rule.passed ? 'success' : 'warning-o'" />
-            <div><strong>{{ rule.rule_name }}</strong><span>{{ rule.message }}</span></div>
+            <div>
+              <strong>{{ rule.rule_name }}</strong>
+              <span>{{ rule.message }}</span>
+              <!-- 失败规则展示解决方案 -->
+              <div v-if="!rule.passed" class="rule-solution">
+                <van-icon name="info-o" /> {{ ruleSolution(rule.rule_code) }}
+              </div>
+            </div>
           </article>
         </div>
       </section>
@@ -88,12 +95,12 @@ const manualLoading = ref(false)
 
 const resultMeta = computed(() => {
   const result = report.value?.overall_result
-  if (result === '通过') return { label: '核对通过', tone: 'passed', icon: 'success' }
-  if (result === '待校验') return { label: '待人工核验', tone: 'pending', icon: 'warning-o' }
-  return { label: result || '核对未通过', tone: 'failed', icon: 'cross' }
+  if (result === '通过') return { label: '自动通过 · 已流转至法务节点', tone: 'passed', icon: 'success' }
+  if (result === '待校验') return { label: '异常待处理', tone: 'pending', icon: 'warning-o' }
+  return { label: '驳回 · 已退回申请人', tone: 'failed', icon: 'cross' }
 })
 
-const canManualReview = computed(() => report.value?.needs_manual_review || report.value?.overall_result === '待校验')
+const canManualReview = computed(() => report.value?.overall_result === '待校验')
 const comparisonFields = computed(() => {
   const item = report.value || {}
   return [
@@ -137,6 +144,21 @@ function modeLabel(mode) { return mode === 'store_in_store' ? '店中店核对' 
 function formatTime(value) { return value ? String(value).replace('T', ' ').slice(0, 19) : '-' }
 function attachmentRoleLabel(role) { return { tobacco_license: '烟草证', business_license: '营业执照', selected_attachment: '核对选用附件' }[role] || 'OA 附件' }
 
+const RULE_SUGGESTIONS = {
+  BUSINESS_TOBACCO_SUBJECT_NAME_MATCH: '请确认营业执照与烟草专卖零售许可证的主体名称一致；如已完成变更请上传更新后的证照',
+  BUSINESS_TOBACCO_ADDRESS_MATCH: '请确认营业执照登记地址与烟草证经营地址一致；如属店中店模式请上传加盟/场地授权协议',
+  BUSINESS_TOBACCO_PERSON_MATCH: '请确认两证的法定代表人或负责人一致；如已变更请上传更新后的证照',
+  BUSINESS_TOBACCO_TOBACCO_VALIDITY: '烟草证已过期或临近过期，请前往烟草专卖局办理续期后重新提交',
+  STORE_IN_STORE_HOLDER_NAME_MATCH: '请确认加盟店实际经营者名称与烟草证主体名称一致',
+  STORE_IN_STORE_HOLDER_PERSON_MATCH: '请确认加盟店负责人信息与加盟协议一致',
+  STORE_IN_STORE_RELATIONSHIP_EVIDENCE: '请上传完整的加盟/联营协议或场地授权证明，需包含持证方签章',
+  STORE_IN_STORE_ADDRESS_COVERAGE: '请确认烟草证经营地址在持证主体登记地址或多地址备案范围内',
+}
+
+function ruleSolution(ruleCode) {
+  return RULE_SUGGESTIONS[ruleCode] || '请核对证照信息后重新提交'
+}
+
 async function previewOaAttachment(attachment) {
   const previewWindow = window.open('', '_blank')
   try {
@@ -161,6 +183,8 @@ async function previewOaAttachment(attachment) {
 .manual-actions { padding: 16px; border: 1px solid #e3d5b8; border-radius: 8px; background: #fffaf0; }.manual-actions strong { color: #5f4a28; }.manual-actions span { color: #7c6a4b; }.manual-actions__buttons :deep(.van-button) { border-radius: 5px; }.manual-actions__buttons :deep(.van-button--primary) { background: var(--tobacco-accent); border-color: var(--tobacco-accent); }
 .content-section { margin-top: 30px; }.section-header { margin-bottom: 11px; padding-bottom: 10px; border-bottom: 1px solid var(--tobacco-line-strong); }.section-header h2 { color: var(--tobacco-ink); font-weight: 700; }.section-header > span { color: var(--tobacco-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .comparison-grid { gap: 10px; }.comparison-card { overflow: hidden; border-color: var(--tobacco-line); border-left: 3px solid #c2524b; border-radius: 7px; }.comparison-card.passed { border-left-color: #2f8b58; }.comparison-card header { padding: 12px 14px; border-bottom-color: var(--tobacco-line); background: var(--tobacco-surface-muted); }.comparison-card header > div { color: #a6443d; }.comparison-card.passed header > div { color: #27784c; }.comparison-card header :deep(.van-tag) { border-radius: 4px; }.comparison-card strong { color: var(--tobacco-ink); }.comparison-card dl { padding: 10px 14px; }.comparison-card dl div { grid-template-columns: 68px minmax(0, 1fr); padding: 4px 0; }.comparison-card dt { color: var(--tobacco-muted); }.comparison-card dd { color: #31495c; line-height: 1.45; }
-.rule-list, .store-evidence, .oa-section { border-color: var(--tobacco-line); border-radius: 8px; }.rule-list article { padding: 13px 14px; border-left: 3px solid #c2524b; }.rule-list article + article { border-top-color: var(--tobacco-line); }.rule-list article.passed { border-left-color: #2f8b58; }.rule-list article > :first-child { color: #b04942; }.rule-list article.passed > :first-child { color: #27784c; }.rule-list span { color: var(--tobacco-muted); }.store-evidence { background: var(--tobacco-line); }.store-evidence div { padding: 13px 14px; }.store-evidence span { color: var(--tobacco-muted); }.oa-section { padding: 16px; background: var(--tobacco-surface); }.oa-meta, .oa-content, .attachment-list { border-top-color: var(--tobacco-line); }.oa-meta .wide { border-top-color: var(--tobacco-line); }.oa-meta dt, .oa-content > span { color: var(--tobacco-muted); }.attachment-list article + article { border-top-color: var(--tobacco-line); }.attachment-list strong { color: #30485d; }.attachment-list small, .attachment-list em { display: flex; flex-wrap: wrap; gap: 0; color: var(--tobacco-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }.attachment-list small b { margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--tobacco-line-strong); font-weight: 400; }.attachment-list :deep(.van-button) { border-radius: 5px; }
+.rule-list, .store-evidence, .oa-section { border-color: var(--tobacco-line); border-radius: 8px; }.rule-list article { padding: 13px 14px; border-left: 3px solid #c2524b; }.rule-list article + article { border-top-color: var(--tobacco-line); }.rule-list article.passed { border-left-color: #2f8b58; }.rule-list article > :first-child { color: #b04942; }.rule-list article.passed > :first-child { color: #27784c; }.rule-list span { color: var(--tobacco-muted); }
+.rule-solution { display: flex; align-items: flex-start; gap: 4px; margin-top: 6px; padding: 6px 8px; border-radius: 4px; background: #fff7e6; color: #7a6500; font-size: 12px; line-height: 1.5; }
+.rule-solution .van-icon { flex-shrink: 0; margin-top: 2px; }.store-evidence { background: var(--tobacco-line); }.store-evidence div { padding: 13px 14px; }.store-evidence span { color: var(--tobacco-muted); }.oa-section { padding: 16px; background: var(--tobacco-surface); }.oa-meta, .oa-content, .attachment-list { border-top-color: var(--tobacco-line); }.oa-meta .wide { border-top-color: var(--tobacco-line); }.oa-meta dt, .oa-content > span { color: var(--tobacco-muted); }.attachment-list article + article { border-top-color: var(--tobacco-line); }.attachment-list strong { color: #30485d; }.attachment-list small, .attachment-list em { display: flex; flex-wrap: wrap; gap: 0; color: var(--tobacco-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }.attachment-list small b { margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--tobacco-line-strong); font-weight: 400; }.attachment-list :deep(.van-button) { border-radius: 5px; }
 @media (prefers-reduced-motion: reduce) { .detail-page *, .detail-page *::before, .detail-page *::after { transition: none !important; } }@media (max-width: 600px) { .detail-shell { padding: 18px 12px; }.decision-summary h1 { font-size: 20px; }.oa-section { padding: 13px; } }
 </style>
