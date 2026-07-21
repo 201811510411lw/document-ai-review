@@ -6,6 +6,7 @@ from app.capabilities.tobacco_license.schemas import (
     TobaccoLicenseDocumentClassification,
     TobaccoLicenseExtractedFields,
     TobaccoLicenseNormalizedFields,
+    normalize_tobacco_license_fields,
 )
 
 
@@ -54,6 +55,4 @@ def tobacco_license_normalize_fields(
 ) -> dict[str, Any]:
     """Normalize extracted tobacco license fields for deterministic rule review."""
     extracted = TobaccoLicenseExtractedFields.model_validate(extracted_fields or {})
-    return TobaccoLicenseNormalizedFields.model_validate(
-        extracted.model_dump(mode="json")
-    ).model_dump(mode="json")
+    return normalize_tobacco_license_fields(extracted).model_dump(mode="json")

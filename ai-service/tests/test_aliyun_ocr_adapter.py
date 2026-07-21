@@ -180,6 +180,33 @@ def test_source_pages_marks_pdf_vs_image(monkeypatch):
     ]
 
 
+def test_aliyun_adapter_applies_orientation_candidates_to_image_sources(monkeypatch):
+    adapter = AliyunCloudMarketOcrAdapter(api_url="https://example.test", appcode="code")
+    calls = []
+
+    monkeypatch.setattr(
+        "app.tools.aliyun_ocr_adapter._source_pages",
+        lambda content, mime_type: [{"base64": "image-page", "source": "image", "page": 1}],
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_recognize_page_with_orientation",
+        lambda client, encoded_image, *, try_rotations, rotation_order: calls.append(
+            (encoded_image, try_rotations, rotation_order)
+        )
+        or {"text": "营业执照", "word_count": 1, "rotation": 90},
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_parse_ocr_text_with_llm",
+        lambda document_text: {"structured_fields": {}, "metadata": {}},
+    )
+
+    adapter.extract_text({"content": b"image", "mime_type": "image/jpeg"})
+
+    assert calls == [("image-page", True, adapter.rotation_order)]
+
+
 def test_aliyun_local_prefilter_selects_business_license_page(monkeypatch):
     pages = [
         {"base64": base64.b64encode(b"page-1").decode("ascii"), "source": "pdf", "page": 1},

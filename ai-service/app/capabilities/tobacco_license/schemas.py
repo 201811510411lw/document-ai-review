@@ -1,3 +1,5 @@
+import re
+
 from pydantic import BaseModel, Field
 
 
@@ -19,6 +21,34 @@ class TobaccoLicenseExtractedFields(BaseModel):
 
 class TobaccoLicenseNormalizedFields(TobaccoLicenseExtractedFields):
     pass
+
+
+def normalize_tobacco_license_fields(
+    extracted: TobaccoLicenseExtractedFields | None,
+) -> TobaccoLicenseNormalizedFields:
+    if extracted is None:
+        return TobaccoLicenseNormalizedFields()
+    payload = extracted.model_dump(mode="json")
+    return TobaccoLicenseNormalizedFields.model_validate(
+        {
+            **payload,
+            "valid_from": _normalize_date_text(payload.get("valid_from")),
+            "valid_to": _normalize_date_text(payload.get("valid_to")),
+        }
+    )
+
+
+def _normalize_date_text(value: str | None) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text in {"长期", "永久", "无固定期限", "长期有效"}:
+        return "长期"
+    match = re.fullmatch(r"(\d{4})年(\d{1,2})月(\d{1,2})日?", text)
+    if match:
+        year, month, day = match.groups()
+        return f"{year}-{int(month):02d}-{int(day):02d}"
+    return text
 
 
 class TobaccoLicenseDocumentInputResult(BaseModel):

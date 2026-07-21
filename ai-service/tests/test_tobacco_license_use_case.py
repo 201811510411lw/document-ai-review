@@ -115,6 +115,22 @@ def test_tobacco_license_expiring_within_thirty_days_routes_manual_review(
     assert result.needs_manual_review is True
 
 
+def test_tobacco_license_normalizes_chinese_validity_date(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        tobacco_license_workflow,
+        "tobacco_license_file_adapter",
+        StubFileAdapter({**BASE_FIELDS, "valid_to": "2029年06月01日"}),
+    )
+
+    result = ReviewService().review(
+        _review_input(tmp_path),
+        use_case_name="tobacco_license",
+    )
+
+    assert result.status == ReviewStatus.REVIEWED
+    assert result.skill_result["normalized_fields"]["valid_to"] == "2029-06-01"
+
+
 def test_non_tobacco_license_input_routes_high_risk_manual_review(tmp_path, monkeypatch):
     monkeypatch.setattr(
         tobacco_license_workflow,

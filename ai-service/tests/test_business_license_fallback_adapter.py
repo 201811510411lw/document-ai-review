@@ -119,6 +119,43 @@ def test_fallback_adapter_uses_aliyun_when_qwen_missing_key_field_evidence():
     }
 
 
+def test_fallback_adapter_preserves_qwen_fields_when_aliyun_request_fails():
+    primary = StubAdapter(
+        {
+            "text": "qwen text",
+            "structured_fields": {
+                "document_type": "business_license",
+                "subject_name": "廖记食品有限责任公司",
+                "credit_code": "91510132MA6AULU68M",
+                "business_address": "成都市高新区 1 号",
+                "legal_person": "张三",
+            },
+            "metadata": {"provider": "qwen_ocr"},
+        }
+    )
+    fallback = StubAdapter(
+        {
+            "text": "",
+            "metadata": {
+                "provider": "aliyun_cloud_market_ocr",
+                "error_code": "ALIYUN_OCR_REQUEST_FAILED",
+            },
+        }
+    )
+
+    result = QwenOcrWithAliyunFallbackBusinessLicenseAdapter(
+        primary_adapter=primary,
+        fallback_adapter=fallback,
+    ).extract_text({})
+
+    assert result["structured_fields"]["subject_name"] == "廖记食品有限责任公司"
+    assert result["structured_fields"]["business_address"] == "成都市高新区 1 号"
+    assert result["metadata"]["final_provider"] == "qwen_ocr"
+    assert result["metadata"]["fallback_used"] is False
+    assert result["metadata"]["fallback_attempted"] is True
+    assert result["metadata"]["fallback_discarded"] is True
+
+
 def test_fallback_adapter_uses_aliyun_when_qwen_missing_secondary_fields():
     primary = StubAdapter(
         {

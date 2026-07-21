@@ -23,7 +23,7 @@ from app.models import (
     RuleResult,
 )
 from app.tools.license_file_recognition import recognize_license_file
-from app.tools.vision_adapter import FakeVisionAdapter
+from app.tools.vision_adapter import build_tobacco_license_file_adapter
 
 
 class TobaccoLicenseWorkflowState(TypedDict, total=False):
@@ -46,11 +46,7 @@ class TobaccoLicenseWorkflowState(TypedDict, total=False):
     artifacts: dict[str, Any]
 
 
-tobacco_license_file_adapter = FakeVisionAdapter(
-    structured_json_env="TOBACCO_LICENSE_FAKE_LLM_FILE_JSON",
-    text_env="TOBACCO_LICENSE_FAKE_LLM_FILE_TEXT",
-    model="fake-tobacco-license-file-recognition",
-)
+tobacco_license_file_adapter = build_tobacco_license_file_adapter()
 
 
 def build_tobacco_license_graph():

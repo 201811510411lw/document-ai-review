@@ -31,9 +31,7 @@
         <div class="ms-document__header">
           <div>
             <div class="ms-document__title">{{ document.source.store_name || document.source.store_code || storeIdentifier }}</div>
-            <div class="ms-document__meta">
-              流程 {{ document.source.requestid || '-' }} · 附件 {{ document.source.docid || '-' }}
-            </div>
+            <div class="ms-document__meta"><span>流程 {{ document.source.requestid || '-' }}</span><span>附件 {{ document.source.docid || '-' }}</span></div>
           </div>
           <van-tag plain type="primary">{{ document.files.length }} 个文件</van-tag>
         </div>
@@ -45,7 +43,7 @@
                 <van-icon :name="fileIcon(file)" size="14" color="#1989fa" />
                 {{ file.file_name }}
               </div>
-              <div class="ms-file__meta">{{ formatFileSize(file.file_size) }}<span v-if="file.content_type"> · {{ file.content_type }}</span></div>
+              <div class="ms-file__meta"><span>{{ formatFileSize(file.file_size) }}</span><span v-if="file.content_type">{{ file.content_type }}</span></div>
             </div>
             <div class="ms-file__actions">
               <van-button size="small" plain type="primary" :loading="activeFilePath === file.relative_path" @click="$emit('preview', file)">预览</van-button>
@@ -59,7 +57,6 @@
         <van-button
           type="primary"
           block
-          round
           :loading="comparing"
           icon="balance-list"
           @click="$emit('trigger')"
@@ -103,60 +100,7 @@ function formatFileSize(size) {
 </script>
 
 <style scoped>
-.manual-search {
-  padding: 0 0 4px;
-}
-.ms-error {
-  padding: 9px 12px;
-  margin: 4px 0 0;
-  border-radius: 6px;
-  background: #fff5f4;
-  color: #c83b32;
-  font-size: 13px;
-  line-height: 1.45;
-}
-.ms-empty { margin: 4px 0 0; }
-.ms-documents { margin-top: 8px; }
-.ms-document {
-  padding: 12px;
-  margin-bottom: 8px;
-  border: 1px solid #f0f2f4;
-  border-radius: 8px;
-  background: #fafbfc;
-}
-.ms-document__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-.ms-document__title { color: #1f2933; font-size: 14px; font-weight: 600; }
-.ms-document__meta, .ms-file__meta { margin-top: 3px; color: #8a949e; font-size: 12px; line-height: 1.4; }
-.ms-file {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 8px 0;
-}
-.ms-file + .ms-file { border-top: 1px solid #f0f2f4; }
-.ms-file__body { min-width: 0; flex: 1; }
-.ms-file__name {
-  overflow: hidden;
-  color: #323233;
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.ms-file__actions { display: flex; flex-shrink: 0; gap: 6px; }
-.ms-action-bar {
-  margin-top: 8px;
-  text-align: center;
-}
-:deep(.van-field) { padding: 12px 0; }
-:deep(.van-field__label) { width: 72px; color: #323233; }
+.manual-search { padding: 0; color: var(--tobacco-ink); }.manual-search :deep(.van-field) { padding: 8px 0 12px; }.manual-search :deep(.van-field__label) { width: 76px; color: var(--tobacco-ink); font-size: 13px; font-weight: 600; }.manual-search :deep(.van-field__control) { color: var(--tobacco-ink); font-size: 13px; }.manual-search :deep(.van-field__button .van-button) { border-radius: 5px; background: var(--tobacco-accent); border-color: var(--tobacco-accent); }
+.ms-error { margin: 4px 0 0; padding: 10px 12px; border-left: 3px solid #c2524b; border-radius: 5px; background: #fff2f1; color: #a4433b; font-size: 13px; line-height: 1.45; }.ms-empty { margin: 4px 0 0; }.ms-documents { margin-top: 8px; }.ms-document { overflow: hidden; margin-bottom: 10px; border: 1px solid var(--tobacco-line); border-radius: 6px; background: var(--tobacco-surface); }.ms-document__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 12px; border-bottom: 1px solid var(--tobacco-line); background: var(--tobacco-surface-muted); }.ms-document__title { color: var(--tobacco-ink); font-size: 14px; font-weight: 650; }.ms-document__meta, .ms-file__meta { display: flex; flex-wrap: wrap; gap: 0; margin-top: 5px; color: var(--tobacco-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 1.4; }.ms-document__meta span + span, .ms-file__meta span + span { margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--tobacco-line-strong); }.ms-document__header :deep(.van-tag) { border-radius: 4px; }.ms-file { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 12px; }.ms-file + .ms-file { border-top: 1px solid var(--tobacco-line); }.ms-file__body { min-width: 0; flex: 1; }.ms-file__name { display: flex; align-items: center; gap: 7px; overflow: hidden; color: #31495c; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }.ms-file__actions { display: flex; flex-shrink: 0; gap: 6px; }.ms-file__actions :deep(.van-button), .ms-action-bar :deep(.van-button) { border-radius: 5px; }.ms-action-bar { margin-top: 10px; }.ms-action-bar :deep(.van-button) { background: var(--tobacco-accent); border-color: var(--tobacco-accent); }
+@media (max-width: 600px) { .ms-file { align-items: flex-start; flex-direction: column; }.ms-file__actions { width: 100%; }.ms-file__actions :deep(.van-button) { flex: 1; } }
 </style>

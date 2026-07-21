@@ -1,3 +1,5 @@
+import re
+import unicodedata
 from datetime import date
 
 from app.models import ReviewInputContext, RiskLevel, RuleResult
@@ -221,8 +223,8 @@ def _same_field_rule(
     expected: str | None,
     actual: str | None,
 ) -> RuleResult:
-    expected_norm = _normalize_text(expected)
-    actual_norm = _normalize_text(actual)
+    expected_norm = _normalize_comparison_value(field, expected)
+    actual_norm = _normalize_comparison_value(field, actual)
     passed = bool(expected_norm) and expected_norm == actual_norm
     return RuleResult(
         rule_code=code,
@@ -259,8 +261,9 @@ def _tobacco_validity_rule(valid_to: str | None) -> RuleResult:
                 "evidence": {"actual_source": "tobacco_license"},
             },
         )
+    normalized_valid_to = _normalize_date_value(valid_to)
     try:
-        days = (date.fromisoformat(valid_to) - date.today()).days
+        days = (date.fromisoformat(normalized_valid_to) - date.today()).days
     except ValueError:
         return RuleResult(
             rule_code="BUSINESS_TOBACCO_TOBACCO_VALIDITY",
@@ -308,6 +311,37 @@ def _manual_reason(rule: RuleResult) -> str:
 
 def _normalize_text(value: str | None) -> str:
     return "".join(str(value or "").split())
+
+
+def _normalize_comparison_value(field: str, value: str | None) -> str:
+    text = unicodedata.normalize("NFKC", _normalize_text(value))
+    if field == "subject_name":
+        text = re.sub(r"[（(]个体工商户[）)]$", "", text)
+        text = re.sub(r"个体工商户$", "", text)
+    if field == "business_address":
+        for formal_name, short_name in _AUTONOMOUS_REGION_SHORT_NAMES.items():
+            if text.startswith(formal_name):
+                text = short_name + text[len(formal_name):]
+                break
+    return text
+
+
+def _normalize_date_value(value: str | None) -> str:
+    text = _normalize_text(value)
+    match = re.fullmatch(r"(\d{4})年(\d{1,2})月(\d{1,2})日?", text)
+    if match:
+        year, month, day = match.groups()
+        return f"{year}-{int(month):02d}-{int(day):02d}"
+    return text
+
+
+_AUTONOMOUS_REGION_SHORT_NAMES = {
+    "内蒙古自治区": "内蒙古",
+    "广西壮族自治区": "广西",
+    "西藏自治区": "西藏",
+    "宁夏回族自治区": "宁夏",
+    "新疆维吾尔自治区": "新疆",
+}
 
 
 def _difference(expected: str | None, actual: str | None) -> str:

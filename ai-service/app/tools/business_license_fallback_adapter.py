@@ -39,19 +39,37 @@ class QwenOcrWithAliyunFallbackBusinessLicenseAdapter:
             expected_subject_name=_get_value(source, "expected_subject_name"),
             expected_credit_code=_get_value(source, "expected_credit_code"),
         )
+        if (
+            fallback_validation["passed"]
+            or _business_license_result_score(fallback_result)
+            > _business_license_result_score(primary_result)
+        ):
+            return _with_fallback_metadata(
+                fallback_result,
+                final_provider=str(
+                    (fallback_result.get("metadata") or {}).get(
+                        "provider",
+                        "aliyun_cloud_market_ocr",
+                    )
+                ),
+                primary_validation=validation,
+                fallback_validation=fallback_validation,
+                fallback_used=True,
+                fallback_trigger=validation["failure_reasons"][0],
+                primary_result=primary_result,
+            )
+
+        # A failed fallback must not erase fields recognized by the primary OCR.
         return _with_fallback_metadata(
-            fallback_result,
-            final_provider=str(
-                (fallback_result.get("metadata") or {}).get(
-                    "provider",
-                    "aliyun_cloud_market_ocr",
-                )
-            ),
+            primary_result,
+            final_provider="qwen_ocr",
             primary_validation=validation,
             fallback_validation=fallback_validation,
-            fallback_used=True,
+            fallback_used=False,
             fallback_trigger=validation["failure_reasons"][0],
-            primary_result=primary_result,
+            fallback_attempted=True,
+            fallback_discarded=True,
+            fallback_error_code=(fallback_result.get("metadata") or {}).get("error_code"),
         )
 
 
@@ -112,6 +130,9 @@ def _with_fallback_metadata(
     fallback_validation: dict[str, Any] | None = None,
     fallback_trigger: str | None = None,
     primary_result: dict[str, Any] | None = None,
+    fallback_attempted: bool | None = None,
+    fallback_discarded: bool = False,
+    fallback_error_code: str | None = None,
 ) -> dict[str, Any]:
     metadata = dict(result.get("metadata") or {})
     metadata["provider"] = "qwen_ocr_with_aliyun_fallback"
@@ -119,6 +140,12 @@ def _with_fallback_metadata(
     metadata["primary_provider"] = "qwen_ocr"
     metadata["fallback_provider"] = "aliyun_cloud_market_ocr"
     metadata["fallback_used"] = fallback_used
+    metadata["fallback_attempted"] = (
+        fallback_used if fallback_attempted is None else fallback_attempted
+    )
+    metadata["fallback_discarded"] = fallback_discarded
+    if fallback_error_code:
+        metadata["fallback_error_code"] = fallback_error_code
     metadata["primary_validation"] = primary_validation
     if fallback_validation is not None:
         metadata["fallback_validation"] = fallback_validation
@@ -163,6 +190,29 @@ def _has_secondary_business_license_fields(fields: dict[str, Any]) -> bool:
         or fields.get("issue_authority")
         or fields.get("issue_date")
     )
+
+
+def _business_license_result_score(result: dict[str, Any]) -> int:
+    metadata = dict(result.get("metadata") or {})
+    if metadata.get("error_code"):
+        return -100
+    fields = dict(result.get("structured_fields") or {})
+    score = 0
+    if str(fields.get("document_type") or "").strip().lower() in {
+        "business_license",
+        "营业执照",
+    }:
+        score += 2
+    for field in ("subject_name", "credit_code"):
+        if _normalize_text(fields.get(field)):
+            score += 2
+    for field in ("business_address", "legal_person", "valid_from", "valid_to"):
+        if _normalize_text(fields.get(field)):
+            score += 1
+    for field in ("subject_name_evidence", "credit_code_evidence"):
+        if _normalize_text(fields.get(field)):
+            score += 1
+    return score
 
 
 def _get_value(source: Any, key: str) -> Any:

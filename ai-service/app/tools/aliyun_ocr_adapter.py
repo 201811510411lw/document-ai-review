@@ -80,7 +80,7 @@ class AliyunCloudMarketOcrAdapter:
                 response_result = self._recognize_page_with_orientation(
                     client,
                     page["base64"],
-                    try_rotations=self.try_rotations and page.get("source") == "pdf",
+                    try_rotations=self.try_rotations,
                     rotation_order=self.rotation_order,
                 )
                 response_result["page"] = page.get("page") or fallback_page_index
@@ -383,6 +383,17 @@ def extract_business_license_fields(text: str) -> dict[str, Any]:
     return fields
 
 
+def extract_business_license_fields_from_rapidocr(
+    content: bytes,
+    *,
+    rotation: int = 0,
+) -> tuple[dict[str, Any], str]:
+    """Read visible business-license text locally for missing-field recovery."""
+    image_content = _rotate_image_content(content, rotation)
+    text = _rapidocr_text(_rapidocr_engine(), image_content)
+    return extract_business_license_fields(text), text
+
+
 def ocr_text_parse_prompt(document_text: str) -> str:
     return (
         "你是营业执照 OCR 文本字段解析器。只允许使用下面 OCR 文本中的内容，"
@@ -657,7 +668,7 @@ def _rapidocr_text(ocr: Any, image_content: bytes) -> str:
     output = ocr(image_content)
     texts = getattr(output, "txts", None)
     if texts is not None:
-        return "".join(str(text) for text in texts if text)
+        return "\n".join(str(text) for text in texts if text)
 
     fallback_texts = []
     try:
@@ -666,7 +677,7 @@ def _rapidocr_text(ocr: Any, image_content: bytes) -> str:
                 fallback_texts.append(str(item[1]))
     except TypeError:
         return ""
-    return "".join(fallback_texts)
+    return "\n".join(fallback_texts)
 
 
 def _local_prefilter_score(text: str) -> int:
@@ -715,6 +726,19 @@ def _rotate_base64_png(encoded_image: str, rotation: int) -> str:
     buffer = BytesIO()
     rotated.save(buffer, format="PNG")
     return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def _rotate_image_content(content: bytes, rotation: int) -> bytes:
+    if rotation == 0:
+        return content
+    from PIL import Image, ImageOps
+
+    with Image.open(BytesIO(content)) as image:
+        oriented = ImageOps.exif_transpose(image)
+        rotated = oriented.rotate(-rotation, expand=True)
+        buffer = BytesIO()
+        rotated.save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
 def _extract_credit_code(text: str) -> str | None:

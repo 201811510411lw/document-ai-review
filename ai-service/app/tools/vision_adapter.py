@@ -143,6 +143,24 @@ def build_food_production_license_file_adapter() -> VisionAdapter:
     )
 
 
+def build_tobacco_license_file_adapter() -> VisionAdapter:
+    _load_project_env()
+    provider = os.environ.get("TOBACCO_LICENSE_FILE_RECOGNITION_PROVIDER", "qwen_ocr").strip().lower()
+    if provider in {"qwen_ocr", "qwen-ocr", "qwen3.5-ocr", ""}:
+        from app.tools.tobacco_license_ocr_adapter import QwenOcrTobaccoLicenseAdapter
+
+        return QwenOcrTobaccoLicenseAdapter()
+    if provider == "fake":
+        return FakeVisionAdapter(
+            structured_json_env="TOBACCO_LICENSE_FAKE_LLM_FILE_JSON",
+            text_env="TOBACCO_LICENSE_FAKE_LLM_FILE_TEXT",
+            model="fake-tobacco-license-file-recognition",
+        )
+    raise UnsupportedVisionProviderError(
+        "Unsupported TOBACCO_LICENSE_FILE_RECOGNITION_PROVIDER: " f"{provider}"
+    )
+
+
 def _load_project_env() -> None:
     try:
         from app.core.config import load_local_env

@@ -50,6 +50,28 @@ def test_tobacco_license_consistency_person_mismatch_routes_manual_review():
     assert "BUSINESS_TOBACCO_PERSON_MATCH" in _failed_codes(result)
 
 
+def test_tobacco_license_consistency_accepts_individual_business_suffix_and_region_alias():
+    result = _review(
+        business_fields={
+            **BASE_BUSINESS_FIELDS,
+            "subject_name": "木垒哈萨克自治县疆小垒零食店（个体工商户）",
+            "business_address": "新疆昌吉回族自治州木垒哈萨克自治县人民北路1号",
+            "legal_person": "李月亮",
+        },
+        tobacco_fields={
+            **BASE_TOBACCO_FIELDS,
+            "subject_name": "木垒哈萨克自治县疆小垒零食店",
+            "business_address": "新疆维吾尔自治区昌吉回族自治州木垒哈萨克自治县人民北路1号",
+            "legal_person": "李月亮",
+            "valid_to": "2029年06月01日",
+        },
+    )
+
+    assert result.status == ReviewStatus.REVIEWED
+    assert result.risk_level == RiskLevel.NONE
+    assert result.skill_result["comparison"]["differences"] == []
+
+
 def test_tobacco_license_consistency_expired_tobacco_license_is_high_risk():
     result = _review(tobacco_fields={**BASE_TOBACCO_FIELDS, "valid_to": "2000-01-01"})
 

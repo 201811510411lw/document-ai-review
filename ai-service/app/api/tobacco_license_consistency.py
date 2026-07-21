@@ -15,7 +15,11 @@ from app.integrations.starrocks.tobacco_license_sources import (
 )
 from app.models import ReviewInput, ReviewInputContext, ReviewResult
 from app.repositories import build_review_result_repository_from_env
-from app.services.review_service import ReviewService, review_service
+from app.services.review_service import ReviewService
+from app.services.tobacco_consistency_extraction import (
+    extract_consistency_document_results,
+    resolved_consistency_fields,
+)
 from app.services.tobacco_license_files import (
     TobaccoLicenseFileStore,
     TobaccoLicenseFileStoreError,
@@ -70,6 +74,12 @@ def get_file_store() -> TobaccoLicenseFileStore:
 
 def get_review_repository():
     return build_review_result_repository_from_env()
+
+
+def get_document_review_service(
+    repository=Depends(get_review_repository),
+) -> ReviewService:
+    return ReviewService(repository=repository)
 
 
 @router.get("/pending-stores")
@@ -133,6 +143,7 @@ def create_consistency_review(
     sql_client: SqlFetchClient = Depends(get_starrocks_sql_client),
     file_store: TobaccoLicenseFileStore = Depends(get_file_store),
     repository=Depends(get_review_repository),
+    document_review_service: ReviewService = Depends(get_document_review_service),
 ) -> dict[str, Any]:
     """获取门店来源文件并触发营业执照与烟草证一致性比对"""
     store_identifier = request.store_identifier.strip()
@@ -185,12 +196,44 @@ def create_consistency_review(
             stored_documents = file_store.store_source_files(source_files)
         except TobaccoLicenseFileStoreError:
             pass  # 文件存储失败不影响比对流程
+
+    document_results = {}
+    extraction_errors = {}
+    if stored_documents:
+        document_results, extraction_errors = extract_consistency_document_results(
+            stored_documents,
+            review_service=document_review_service,
+            store_identifier=store_identifier,
+        )
+
+    if is_demo_store(store_identifier):
+        business_fields = dict(request.business_license_fields)
+        tobacco_fields = dict(request.tobacco_license_fields)
+    else:
+        business_fields = resolved_consistency_fields(
+            document_results.get("business_license"),
+            request.business_license_fields,
+        )
+        tobacco_fields = resolved_consistency_fields(
+            document_results.get("tobacco_license"),
+            request.tobacco_license_fields,
+        )
     oa_source = _oa_source_snapshot(
         first,
         source_files=source_files,
         stored_documents=stored_documents,
         selected_files=request.selected_files,
     )
+    oa_source["document_extraction"] = {
+        role: {
+            "task_id": result.task_id,
+            "status": result.status.value,
+            "document_type": result.document_type,
+        }
+        for role, result in document_results.items()
+    }
+    if extraction_errors:
+        oa_source["document_extraction_errors"] = extraction_errors
 
     # 4. 构建输入并执行一致性比对
     review_input = ReviewInput(
@@ -206,6 +249,8 @@ def create_consistency_review(
             "review_mode": request.review_mode,
             "business_license_fields": business_fields,
             "tobacco_license_fields": tobacco_fields,
+            "business_license_result": document_results.get("business_license"),
+            "tobacco_license_result": document_results.get("tobacco_license"),
             "store_in_store": request.store_in_store,
             "selected_files": request.selected_files,
         },
@@ -308,6 +353,7 @@ def create_consistency_reviews_batch(
                 sql_client=sql_client,
                 file_store=file_store,
                 repository=repository,
+                document_review_service=ReviewService(repository=repository),
             )
             items.append({
                 "store_identifier": store_identifier,

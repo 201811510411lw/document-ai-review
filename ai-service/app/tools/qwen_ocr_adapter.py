@@ -1,9 +1,13 @@
 import base64
 import os
 import re
+from io import BytesIO
 from typing import Any
 
-from app.tools.aliyun_ocr_adapter import extract_business_license_fields
+from app.tools.aliyun_ocr_adapter import (
+    extract_business_license_fields,
+    extract_business_license_fields_from_rapidocr,
+)
 from app.tools.vision_adapter import (
     convert_pdf_pages_to_png_data_urls,
     parse_business_license_vision_json,
@@ -45,6 +49,11 @@ class QwenOcrBusinessLicenseAdapter:
             "BUSINESS_LICENSE_QWEN_OCR_STOP_AFTER_FIRST_LICENSE",
             default=True,
         )
+        self.try_rotations = _env_bool(
+            "BUSINESS_LICENSE_QWEN_OCR_TRY_ROTATIONS",
+            default=True,
+        )
+        self.rotation_order = _rotation_order_from_env()
 
     def extract_text(self, source: Any) -> dict[str, Any]:
         if not self.model:
@@ -86,8 +95,47 @@ class QwenOcrBusinessLicenseAdapter:
                 expected_credit_code=_get_value(source, "expected_credit_code"),
             )
 
+        return self._extract_image_with_orientation(
+            client,
+            content=content,
+            mime_type=mime_type,
+            expected_subject_name=_get_value(source, "expected_subject_name"),
+            expected_credit_code=_get_value(source, "expected_credit_code"),
+        )
+
+    def _extract_image_with_orientation(
+        self,
+        client: Any,
+        *,
+        content: bytes,
+        mime_type: str,
+        expected_subject_name: str | None,
+        expected_credit_code: str | None,
+    ) -> dict[str, Any]:
+        candidates: list[dict[str, Any]] = []
         try:
-            content_text, attempts = self._recognize_page(client, page_data_urls[0])
+            for rotation, data_url in _image_data_url_candidates(
+                content,
+                mime_type,
+                try_rotations=self.try_rotations,
+                rotation_order=self.rotation_order,
+            ):
+                content_text, attempts = self._recognize_page(client, data_url)
+                fields, used_text_fallback = _structured_fields_from_ocr_response(
+                    content_text
+                )
+                candidates.append(
+                    {
+                        "rotation": rotation,
+                        "data_url": data_url,
+                        "content_text": content_text,
+                        "attempts": attempts,
+                        "fields": fields,
+                        "used_text_fallback": used_text_fallback,
+                    }
+                )
+                if _image_candidate_score(fields) >= 16:
+                    break
         except Exception as error:
             return self._error(
                 "failed",
@@ -96,18 +144,38 @@ class QwenOcrBusinessLicenseAdapter:
                 error_message=str(error),
             )
 
-        structured_fields = parse_business_license_vision_json(content_text)
+        selected = max(candidates, key=lambda item: _image_candidate_score(item["fields"]))
+        content_text = selected["content_text"]
+        structured_fields = selected["fields"]
         metadata = {
             "implementation_status": self.implementation_status,
             "provider": "qwen_ocr",
             "model": self.model,
             "api": "chat.completions",
-            "pages": len(page_data_urls),
-            "attempts": attempts,
-            "structured_extraction": "qwen_ocr_multimodal_parse",
+            "pages": 1,
+            "attempts": sum(item["attempts"] for item in candidates),
+            "structured_extraction": (
+                "qwen_ocr_text_fallback"
+                if selected["used_text_fallback"]
+                else "qwen_ocr_multimodal_parse"
+            ),
             "raw_response_suppressed": True,
+            "try_rotations": self.try_rotations,
+            "rotation_order": list(self.rotation_order),
+            "rotations_attempted": [item["rotation"] for item in candidates],
+            "selected_rotation": selected["rotation"],
         }
-        if structured_fields is None:
+        if structured_fields:
+            recovered_fields, local_ocr_metadata = _recover_missing_fields_with_rapidocr(
+                content,
+                rotation=selected["rotation"],
+                fields=structured_fields,
+            )
+            if local_ocr_metadata is not None:
+                metadata["local_ocr_recovery"] = local_ocr_metadata
+            if recovered_fields:
+                structured_fields = {**structured_fields, **recovered_fields}
+        if not structured_fields:
             fallback_text = _ocr_response_to_plain_text(content_text)
             structured_fields = _sanitize_structured_fields(
                 extract_business_license_fields(fallback_text)
@@ -121,8 +189,8 @@ class QwenOcrBusinessLicenseAdapter:
                 }
                 return reject_source_mismatched_fields(
                     result,
-                    expected_subject_name=_get_value(source, "expected_subject_name"),
-                    expected_credit_code=_get_value(source, "expected_credit_code"),
+                    expected_subject_name=expected_subject_name,
+                    expected_credit_code=expected_credit_code,
                 )
             metadata["error_code"] = "QWEN_OCR_STRUCTURED_JSON_MISSING"
             metadata["raw_response_preview"] = content_text[:500]
@@ -138,8 +206,8 @@ class QwenOcrBusinessLicenseAdapter:
             }
         return reject_source_mismatched_fields(
             result,
-            expected_subject_name=_get_value(source, "expected_subject_name"),
-            expected_credit_code=_get_value(source, "expected_credit_code"),
+            expected_subject_name=expected_subject_name,
+            expected_credit_code=expected_credit_code,
         )
 
     def _extract_pdf_pages(
@@ -259,7 +327,11 @@ class QwenOcrBusinessLicenseAdapter:
             expected_credit_code=expected_credit_code,
         )
 
-    def _recognize_page(self, client: Any, data_url: str) -> tuple[str, int]:
+    def _recognize_page(
+        self,
+        client: Any,
+        data_url: str,
+    ) -> tuple[str, int]:
         return _create_chat_completion_content(
             client=client,
             model=self.model,
@@ -310,7 +382,8 @@ def qwen_ocr_parse_prompt() -> str:
         "规则：\n"
         "1. document_type 如果能确认是营业执照，输出 business_license；否则输出 null。\n"
         "2. credit_code 提取统一社会信用代码，必须来自证照原文。\n"
-        "3. subject_name 提取企业/主体名称本体，不要包含字段标签、类型、法定代表人或经营范围。\n"
+        "3. subject_name 提取企业/主体名称本体，不要包含字段标签、类型、法定代表人或经营范围。"
+        "legal_person 需提取法定代表人、负责人或个体工商户的营业者。\n"
         "4. 日期尽量规范为 YYYY-MM-DD；长期、永久、无固定期限输出 长期；无法确定输出 null。\n"
         "5. subject_name、credit_code 只要输出字段值，就必须同时输出对应 evidence；"
         "evidence 字段必须包含能支撑对应字段的图片/PDF 可见原文片段，不能只重复字段值；没有原文片段输出 null。\n"
@@ -323,6 +396,117 @@ def _source_page_data_urls(content: bytes, mime_type: str) -> list[str]:
         return convert_pdf_pages_to_png_data_urls(content, dpi=200)
     encoded_content = base64.b64encode(content).decode("ascii")
     return [f"data:{mime_type};base64,{encoded_content}"]
+
+
+def _image_data_url_candidates(
+    content: bytes,
+    mime_type: str,
+    *,
+    try_rotations: bool,
+    rotation_order: tuple[int, ...],
+) -> list[tuple[int, str]]:
+    original = _source_page_data_urls(content, mime_type)[0]
+    rotations = rotation_order if try_rotations else (0,)
+    candidates: list[tuple[int, str]] = []
+    for rotation in rotations:
+        if rotation == 0:
+            candidates.append((rotation, original))
+            continue
+        rotated = _rotated_image_data_url(content, rotation)
+        if rotated is not None:
+            candidates.append((rotation, rotated))
+    return candidates or [(0, original)]
+
+
+def _rotated_image_data_url(content: bytes, rotation: int) -> str | None:
+    try:
+        from PIL import Image, ImageOps
+
+        with Image.open(BytesIO(content)) as image:
+            oriented = ImageOps.exif_transpose(image)
+            rotated = oriented.rotate(-rotation, expand=True)
+            buffer = BytesIO()
+            rotated.save(buffer, format="PNG")
+    except Exception:
+        return None
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
+def _structured_fields_from_ocr_response(content_text: str) -> tuple[dict[str, Any], bool]:
+    fields = parse_business_license_vision_json(content_text)
+    used_text_fallback = fields is None
+    if fields is None:
+        fields = extract_business_license_fields(_ocr_response_to_plain_text(content_text))
+    sanitized = _sanitize_structured_fields(fields or {})
+    if sanitized.get("document_type") == "营业执照":
+        sanitized["document_type"] = "business_license"
+    return (sanitized if _has_key_fields(sanitized) else {}), used_text_fallback
+
+
+def _recover_missing_fields_with_rapidocr(
+    content: bytes,
+    *,
+    rotation: int,
+    fields: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    missing_fields = [
+        field
+        for field in ("business_address", "legal_person")
+        if not fields.get(field)
+    ]
+    if not missing_fields:
+        return {}, None
+    try:
+        local_fields, _text = extract_business_license_fields_from_rapidocr(
+            content,
+            rotation=rotation,
+        )
+    except Exception as error:
+        return {}, {
+            "provider": "rapidocr",
+            "status": "failed",
+            "rotation": rotation,
+            "error_type": type(error).__name__,
+        }
+    recovered_fields = {
+        field: local_fields[field]
+        for field in missing_fields
+        if local_fields.get(field)
+    }
+    return recovered_fields, {
+        "provider": "rapidocr",
+        "status": "recovered" if recovered_fields else "no_missing_field_found",
+        "rotation": rotation,
+        "recovered_fields": sorted(recovered_fields),
+        "raw_text_suppressed": True,
+    }
+
+
+def _image_candidate_score(fields: dict[str, Any]) -> int:
+    score = 0
+    if str(fields.get("document_type") or "").strip().lower() == "business_license":
+        score += 4
+    for field in ("subject_name", "credit_code", "business_address", "legal_person"):
+        if fields.get(field):
+            score += 3
+    for field in ("subject_name_evidence", "credit_code_evidence", "valid_to"):
+        if fields.get(field):
+            score += 1
+    return score
+
+
+def _rotation_order_from_env() -> tuple[int, ...]:
+    raw_value = os.environ.get("BUSINESS_LICENSE_QWEN_OCR_ROTATION_ORDER", "0,90,180,270")
+    rotations: list[int] = []
+    for value in raw_value.split(","):
+        try:
+            rotation = int(value.strip()) % 360
+        except ValueError:
+            continue
+        if rotation in {0, 90, 180, 270} and rotation not in rotations:
+            rotations.append(rotation)
+    return tuple(rotations or [0, 90, 180, 270])
 
 
 def _create_chat_completion_content(

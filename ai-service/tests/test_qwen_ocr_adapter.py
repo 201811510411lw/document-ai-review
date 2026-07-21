@@ -73,6 +73,119 @@ def test_qwen_ocr_adapter_calls_openai_compatible_multimodal_api(monkeypatch):
     assert message_content[1]["image_url"]["url"].startswith("data:image/png;base64,")
 
 
+def test_qwen_ocr_adapter_retries_sideways_image_and_uses_best_rotation(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("BUSINESS_LICENSE_QWEN_OCR_TRY_ROTATIONS", "true")
+    responses = [
+        (
+            '{"document_type":"business_license",'
+            '"subject_name":"成都示例商贸有限公司",'
+            '"credit_code":"91510100MA0000000X"}'
+        ),
+        (
+            '{"document_type":"business_license",'
+            '"subject_name":"成都示例商贸有限公司",'
+            '"credit_code":"91510100MA0000000X",'
+            '"business_address":"成都市高新区天府大道 1 号",'
+            '"legal_person":"张三"}'
+        ),
+    ]
+    calls = []
+
+    class StubMessage:
+        def __init__(self, content):
+            self.content = content
+
+    class StubChoice:
+        def __init__(self, content):
+            self.message = StubMessage(content)
+
+    class StubResponse:
+        def __init__(self, content):
+            self.choices = [StubChoice(content)]
+
+    class StubCompletions:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            return StubResponse(responses[len(calls) - 1])
+
+    class StubChat:
+        completions = StubCompletions()
+
+    class StubOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = StubChat()
+
+    from io import BytesIO
+    from PIL import Image
+    import app.tools.qwen_ocr_adapter as qwen_ocr_adapter
+
+    image = Image.new("RGB", (80, 120), "white")
+    image_bytes = BytesIO()
+    image.save(image_bytes, format="PNG")
+    monkeypatch.setattr(qwen_ocr_adapter, "OpenAI", StubOpenAI, raising=False)
+
+    result = QwenOcrBusinessLicenseAdapter(model="qwen3.5-ocr").extract_text(
+        VisionInput(content=image_bytes.getvalue(), mime_type="image/png")
+    )
+
+    assert len(calls) == 2
+    assert result["structured_fields"]["business_address"] == "成都市高新区天府大道 1 号"
+    assert result["metadata"]["rotations_attempted"] == [0, 90]
+    assert result["metadata"]["selected_rotation"] == 90
+
+
+def test_qwen_ocr_adapter_recovers_missing_operator_from_local_ocr(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    response_content = (
+        '{"document_type":"business_license",'
+        '"subject_name":"成都示例商贸有限公司",'
+        '"credit_code":"91510100MA0000000X",'
+        '"business_address":"成都市高新区天府大道 1 号"}'
+    )
+    calls = []
+
+    class StubMessage:
+        def __init__(self, content):
+            self.content = content
+
+    class StubChoice:
+        def __init__(self, content):
+            self.message = StubMessage(content)
+
+    class StubResponse:
+        def __init__(self, content):
+            self.choices = [StubChoice(content)]
+
+    class StubCompletions:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            return StubResponse(response_content)
+
+    class StubChat:
+        completions = StubCompletions()
+
+    class StubOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = StubChat()
+
+    import app.tools.qwen_ocr_adapter as qwen_ocr_adapter
+
+    monkeypatch.setattr(qwen_ocr_adapter, "OpenAI", StubOpenAI, raising=False)
+    monkeypatch.setattr(
+        qwen_ocr_adapter,
+        "extract_business_license_fields_from_rapidocr",
+        lambda content, rotation: ({"legal_person": "张三"}, "经营者 张三"),
+    )
+    result = QwenOcrBusinessLicenseAdapter(model="qwen3.5-ocr").extract_text(
+        {"content": b"fake-png", "mime_type": "image/png"}
+    )
+
+    assert len(calls) == 1
+    assert result["structured_fields"]["legal_person"] == "张三"
+    assert result["metadata"]["local_ocr_recovery"]["recovered_fields"] == ["legal_person"]
+
+
 def test_qwen_ocr_adapter_records_json_missing(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
