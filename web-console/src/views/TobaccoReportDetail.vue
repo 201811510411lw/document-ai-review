@@ -177,40 +177,13 @@ const rpaStatusTagType = computed(() => ({
   ERROR: 'warning', IN_PROGRESS: 'primary', PENDING: 'primary',
 }[rpaStatus.value] || 'default'))
 
-async function tryLoadRpaStatus() {
-  if (!report.value?.id) return
-  try {
-    const res = await rpaApi.getStatus(report.value.id)
-    rpaVerification.value = res
-  } catch {
-    // 无验真记录或接口不可用，静默
-  }
-}
-
-async function triggerRpaVerification() {
-  const item = report.value
-  if (!item?.id || !item.tobacco_license_name) {
-    showToast('缺少烟草证信息，无法发起验真')
-    return
-  }
-  rpaLoading.value = true
-  try {
-    const res = await rpaApi.triggerVerify(item.id, item.tobacco_license_name, item.company_name || '')
-    rpaVerification.value = res
-    showToast('验真请求已提交')
-  } catch (error) {
-    showToast(error.message || '发起验真失败')
-  } finally {
-    rpaLoading.value = false
-  }
-}
-
 onMounted(async () => {
   await loadReport()
   tryLoadRpaStatus()
 })
 
 async function loadReport() {
+
   loading.value = true
   try {
     const response = await tobaccoApi.detail(route.params.id)

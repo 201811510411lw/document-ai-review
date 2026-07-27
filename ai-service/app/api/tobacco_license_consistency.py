@@ -313,6 +313,48 @@ def create_consistency_review(
         "source_request_id": first.requestid,
         "oa": oa_source,
     }
+    # 7. 注入 RPA 验真数据
+    if is_demo_store(store_identifier):
+        report["rpa_verification"] = {
+            "status": "AUTHENTIC",
+            "certificate_no": tobacco_fields.get("license_no") or "53" + str(first.requestid or "00000")[-8:],
+            "verified_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S+08:00"),
+            "screenshot_url": None,
+            "result_label": "官网验真通过",
+        }
+    else:
+        # 非 demo 门店：尝试执行 RPA 验真
+        try:
+            from app.core.config import settings as app_settings
+            if app_settings.rpa_verification_tobacco_enabled:
+                from app.services.rpa_verification import DefaultRpaVerificationClient, RpaVerificationService
+                client = DefaultRpaVerificationClient(
+                    api_base_url=app_settings.rpa_verification_tobacco_api_base_url,
+                    api_key=app_settings.rpa_verification_tobacco_api_key,
+                    timeout_seconds=min(app_settings.rpa_verification_tobacco_timeout_seconds, 30),
+                )
+                rpa_service = RpaVerificationService(client)
+                rpa_result = rpa_service.verify(
+                    task_id=task_id,
+                    certificate_no=store_identifier,
+                    store_name=store_name,
+                )
+                # 将验真结果存入 review_result 的 skill_result
+                if isinstance(result.skill_result, dict):
+                    result.skill_result["rpa_verification"] = rpa_service.to_skill_result_dict(rpa_result)
+                    try:
+                        repository.save(result)
+                    except Exception:
+                        pass
+                report["rpa_verification"] = {
+                    "status": rpa_result.status.value,
+                    "certificate_no": rpa_result.certificate_no,
+                    "verified_at": rpa_result.verified_at.isoformat() if rpa_result.verified_at else None,
+                    "screenshot_url": rpa_result.screenshot_url,
+                    "result_label": rpa_result.result_label,
+                }
+        except Exception:
+            pass
     save_tobacco_report(report)
     return {
         "task_id": result.task_id,
@@ -432,15 +474,53 @@ def get_consistency_oa_result(
                 rpa_info = payload.skill_result.get("rpa_verification")
         except Exception:
             pass
+
+    # 综合 RPA 验真结果修正 OA 回调状态
+    rpa_status = (rpa_info or {}).get("status") if isinstance(rpa_info, dict) else None
+    base_status = report.get("overall_result", "待校验")
+    base_unmatched = report.get("unmatched_fields") or []
+    base_risk = report.get("risk_level")
+
+    if rpa_status in ("SUSPECTED", "NOT_FOUND"):
+        # RPA 验真不通过 → OA 回调标记为不通过，即使字段比对一致
+        review_status = "不通过"
+        needs_manual = True
+        risk_level = "HIGH"
+        unmatched_fields = [*base_unmatched, "烟草证官网验真"]
+        summary_parts = ["烟草证官网验真不通过"]
+        if rpa_status == "NOT_FOUND":
+            summary_parts.append("未在国家烟草专卖局官网查到该证照记录")
+        else:
+            summary_parts.append("证照信息与官网记录不符，疑似伪造")
+        if base_unmatched:
+            summary_parts.append("；".join(str(item) for item in base_unmatched))
+        summary = "；".join(summary_parts)
+    elif rpa_status == "AUTHENTIC":
+        # RPA 验真通过 → 保持原状，摘要加上验真通过信息
+        review_status = base_status
+        needs_manual = bool(report.get("needs_manual_review"))
+        risk_level = base_risk
+        unmatched_fields = base_unmatched
+        summary = _callback_summary(report)
+        if review_status == "通过":
+            summary = "烟草证一致性自动核对通过，官网验真通过"
+    else:
+        # 未验真或验真出错 → 保持原状
+        review_status = base_status
+        needs_manual = bool(report.get("needs_manual_review"))
+        risk_level = base_risk
+        unmatched_fields = base_unmatched
+        summary = _callback_summary(report)
+
     return {
         "callback": {
             "requestid": report.get("source_request_id"),
             "review_task_id": report["id"],
             "review_mode": report.get("review_mode"),
-            "review_status": report.get("overall_result"),
-            "risk_level": report.get("risk_level"),
-            "needs_manual_review": bool(report.get("needs_manual_review")),
-            "summary": _callback_summary(report),
+            "review_status": review_status,
+            "risk_level": risk_level,
+            "needs_manual_review": needs_manual,
+            "summary": summary,
             "rule_results": report.get("rule_results") or [],
             "manual_review": report.get("manual_review"),
             "completed_at": report.get("compare_time"),
