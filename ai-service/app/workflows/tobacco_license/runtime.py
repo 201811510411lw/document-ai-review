@@ -22,6 +22,9 @@ def tobacco_license_review_state_from_workflow_state(
         artifacts["extraction_metadata"] = workflow_state.get("extraction_metadata", {})
     if workflow_state.get("source_evidence"):
         artifacts["source_evidence"] = workflow_state.get("source_evidence", {})
+    rpa_verification = workflow_state.get("rpa_verification")
+    if rpa_verification is not None:
+        artifacts["rpa_verification"] = _dump(rpa_verification) if not isinstance(rpa_verification, dict) else rpa_verification
     return {
         "input_context": workflow_state["input_context"],
         "document": {

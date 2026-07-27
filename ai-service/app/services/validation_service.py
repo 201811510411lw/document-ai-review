@@ -205,6 +205,11 @@ _RULE_CODE_FIELD_MAP: dict[str, dict[str, Any]] = {
         "category": "type",
         "required": True,
     },
+    "TOBACCO_LICENSE_AUTHENTICITY": {
+        "field": "官网验真",
+        "category": "authenticity",
+        "required": True,
+    },
     # ── 烟草证一致性 ──
     "TOBACCO_CONSISTENCY_TYPE_MATCH": {
         "field": "证照类型",

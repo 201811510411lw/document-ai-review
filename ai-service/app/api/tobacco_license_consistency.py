@@ -401,6 +401,7 @@ def get_consistency_oa_result(
 ) -> dict[str, Any]:
     """提供给 OA 适配器的回传载荷，不在此接口内主动请求 OA。"""
     report = get_tobacco_report(task_id)
+    rpa_info = None
     if report is None:
         try:
             detail = repository.get_qc_review_detail(task_id)
@@ -423,6 +424,14 @@ def get_consistency_oa_result(
             "source_request_id": source.get("requestid"),
             "compare_time": detail.get("updated_at") or detail.get("created_at"),
         }
+    # 从 review_result 中读取 rpa_verification
+    if rpa_info is None:
+        try:
+            payload = repository.get_by_task_id(task_id)
+            if payload is not None and isinstance(payload.skill_result, dict):
+                rpa_info = payload.skill_result.get("rpa_verification")
+        except Exception:
+            pass
     return {
         "callback": {
             "requestid": report.get("source_request_id"),
@@ -435,6 +444,7 @@ def get_consistency_oa_result(
             "rule_results": report.get("rule_results") or [],
             "manual_review": report.get("manual_review"),
             "completed_at": report.get("compare_time"),
+            "rpa_verification": rpa_info,
         }
     }
 

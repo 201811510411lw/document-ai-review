@@ -12,6 +12,10 @@ from app.models.review import (
     RiskLevel,
     RuleResult,
 )
+from app.models.rpa import (
+    RpaVerificationResult,
+    RpaVerificationStatus,
+)
 
 __all__ = [
     "AuditEvent",
@@ -24,4 +28,6 @@ __all__ = [
     "ReviewStatus",
     "RiskLevel",
     "RuleResult",
+    "RpaVerificationResult",
+    "RpaVerificationStatus",
 ]

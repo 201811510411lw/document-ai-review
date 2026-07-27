@@ -179,4 +179,17 @@ export const contractApi = {
   },
 }
 
-export default { authApi, queryApi, dashboardApi, adminApi, reviewApi, tobaccoApi, contractApi }
+export const rpaApi = {
+  triggerVerify(taskId, certificateNo, storeName) {
+    return http.post('/api/v1/tobacco-license/rpa-verify', {
+      task_id: taskId,
+      certificate_no: certificateNo,
+      store_name: storeName,
+    }, { timeout: 120000 })
+  },
+  getStatus(taskId) {
+    return http.get(`/api/v1/tobacco-license/rpa-verify/${taskId}`)
+  },
+}
+
+export default { authApi, queryApi, dashboardApi, adminApi, reviewApi, tobaccoApi, contractApi, rpaApi }

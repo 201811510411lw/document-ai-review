@@ -22,6 +22,11 @@ from app.models import (
     RiskLevel,
     RuleResult,
 )
+from app.models.rpa import RpaVerificationResult
+from app.services.rpa_verification import (
+    DefaultRpaVerificationClient,
+    RpaVerificationService,
+)
 from app.tools.license_file_recognition import recognize_license_file
 from app.tools.vision_adapter import build_tobacco_license_file_adapter
 
@@ -44,6 +49,7 @@ class TobaccoLicenseWorkflowState(TypedDict, total=False):
     summary: str
     status: ReviewStatus
     artifacts: dict[str, Any]
+    rpa_verification: RpaVerificationResult | None
 
 
 tobacco_license_file_adapter = build_tobacco_license_file_adapter()
@@ -56,6 +62,7 @@ def build_tobacco_license_graph():
     graph.add_node("extract_fields", extract_fields)
     graph.add_node("normalize_fields", normalize_fields)
     graph.add_node("run_rules", run_rules)
+    graph.add_node("rpa_verify", rpa_verify_node)
     graph.add_node("summarize_risk", summarize_risk)
     graph.add_node("manual_review", manual_review_node)
     graph.add_node("reviewed", reviewed_node)
@@ -65,7 +72,8 @@ def build_tobacco_license_graph():
     graph.add_edge("classify_document", "extract_fields")
     graph.add_edge("extract_fields", "normalize_fields")
     graph.add_edge("normalize_fields", "run_rules")
-    graph.add_edge("run_rules", "summarize_risk")
+    graph.add_edge("run_rules", "rpa_verify")
+    graph.add_edge("rpa_verify", "summarize_risk")
     graph.add_conditional_edges(
         "summarize_risk",
         route_after_risk,
@@ -158,6 +166,100 @@ def run_rules(state: TobaccoLicenseWorkflowState) -> TobaccoLicenseWorkflowState
         "risk_level": _risk_level(failed),
         "needs_manual_review": bool(failed),
         "manual_review_reasons": [_manual_reason(rule) for rule in failed],
+    }
+
+
+def _build_rpa_client():
+    """构造 RPA 验真客户端。配置未启用时返回 None，调用方应优雅跳过。"""
+    from app.core.config import settings
+    if not settings.rpa_verification_tobacco_enabled:
+        return None
+    return DefaultRpaVerificationClient(
+        api_base_url=settings.rpa_verification_tobacco_api_base_url,
+        api_key=settings.rpa_verification_tobacco_api_key,
+        timeout_seconds=min(settings.rpa_verification_tobacco_timeout_seconds, 30),
+    )
+
+
+def rpa_verify_node(state: TobaccoLicenseWorkflowState) -> TobaccoLicenseWorkflowState:
+    """RPA 官网验真节点：调用 RPA 平台查询烟草证真伪。
+
+    同步调用，超时 30s，超时或异常时不阻断主流程。
+    验真结果为 SUSPECTED/NOT_FOUND 时追加一条审核规则。
+    """
+    client = _build_rpa_client()
+    if client is None:
+        # RPA 未启用，跳过
+        return {**state, "rpa_verification": None}
+
+    fields = state.get("normalized_fields") or TobaccoLicenseNormalizedFields()
+    certificate_no = fields.license_no or ""
+    store_name = state.get("input_context", {}).get("input", {}).get("supplier_name", "")
+    task_id = state.get("input_context", {}).get("task_id", "")
+
+    if not certificate_no:
+        # 无许可证号，无法验真
+        return {**state, "rpa_verification": None}
+
+    service = RpaVerificationService(client)
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        result = service.verify(
+            task_id=task_id,
+            certificate_no=certificate_no,
+            store_name=store_name,
+        )
+    except Exception as exc:
+        logger.warning("RPA 验真异常（不阻断流程）: %s", exc)
+        return {**state, "rpa_verification": None}
+
+    # 根据验真结果追加规则
+    rule_results = list(state.get("rule_results") or [])
+    if result.status in (RpaVerificationStatus.SUSPECTED, RpaVerificationStatus.NOT_FOUND):
+        rule_results.append(RuleResult(
+            rule_code="TOBACCO_LICENSE_AUTHENTICITY",
+            rule_name="烟草证官网验真",
+            passed=False,
+            risk_level_on_failure=RiskLevel.HIGH,
+            message=f"烟草证号 {certificate_no} {result.result_label}",
+            details={
+                "field": "authenticity",
+                "certificate_no": certificate_no,
+                "rpa_status": result.status.value,
+                "screenshot_url": result.screenshot_url,
+                "rpa_message": result.error_message or result.raw_response.get("message"),
+            },
+        ))
+    elif result.status == RpaVerificationStatus.AUTHENTIC:
+        rule_results.append(RuleResult(
+            rule_code="TOBACCO_LICENSE_AUTHENTICITY",
+            rule_name="烟草证官网验真",
+            passed=True,
+            risk_level_on_failure=RiskLevel.HIGH,
+            message="烟草证官网验真通过",
+            details={
+                "field": "authenticity",
+                "certificate_no": certificate_no,
+                "rpa_status": result.status.value,
+                "screenshot_url": result.screenshot_url,
+            },
+        ))
+
+    # 重新计算风险等级
+    failed = [r for r in rule_results if not r.passed]
+    new_risk = _risk_level(failed)
+    new_needs_manual = bool(failed)
+
+    return {
+        **state,
+        "rpa_verification": result,
+        "rule_results": rule_results,
+        "risk_level": new_risk,
+        "needs_manual_review": state.get("needs_manual_review", False) or new_needs_manual,
+        "manual_review_reasons": (
+            state.get("manual_review_reasons") or []
+        ) + ([result.result_label] if not result.status == RpaVerificationStatus.AUTHENTIC else []),
     }
 
 

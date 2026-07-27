@@ -16,6 +16,7 @@ from app.api.wecom_frontend import api_router as wecom_frontend_api_router
 from app.api.wecom_frontend import auth_router as wecom_frontend_auth_router
 from app.api.qc_reviews import router as qc_reviews_router
 from app.api.wecom_notifications import router as wecom_notifications_router
+from app.api.rpa_verification import router as rpa_verification_router
 from app.core.config import settings
 from app.integrations.mysql_client import mysql_settings_from_env
 from app.repositories import build_review_result_repository_from_env
@@ -76,6 +77,7 @@ app.include_router(tobacco_license_sources_router)
 app.include_router(tobacco_license_consistency_router)
 app.include_router(wecom_frontend_api_router)
 app.include_router(wecom_notifications_router)
+app.include_router(rpa_verification_router)
 
 
 class WebConsoleStaticFiles(StaticFiles):

@@ -52,6 +52,51 @@
         </div>
       </section>
 
+      <!-- RPA 官网验真 -->
+      <section v-if="showRpaSection" class="content-section">
+        <header class="section-header"><div><p>外部核验</p><h2>烟草证官网验真</h2></div>
+          <van-tag :type="rpaStatusTagType" plain size="small">{{ rpaStatusLabel }}</van-tag>
+        </header>
+        <div class="rpa-card">
+          <div v-if="rpaStatus === 'AUTHENTIC'" class="rpa-status rpa-pass">
+            <van-icon name="success" /> 该烟草证经国家烟草专卖局官网核验为真实有效
+          </div>
+          <div v-else-if="rpaStatus === 'SUSPECTED'" class="rpa-status rpa-fail">
+            <van-icon name="cross" /> 烟草证信息与官网记录不符，疑似伪造
+          </div>
+          <div v-else-if="rpaStatus === 'NOT_FOUND'" class="rpa-status rpa-warn">
+            <van-icon name="info-o" /> 未在国家烟草专卖局官网查到该证照记录
+          </div>
+          <div v-else-if="rpaStatus === 'ERROR'" class="rpa-status rpa-warn">
+            <van-icon name="info-o" /> 验真过程出现异常
+          </div>
+          <div v-else-if="rpaStatus === 'IN_PROGRESS'" class="rpa-status rpa-pending">
+            <van-loading size="14" /> 验真实时结果查询中…
+          </div>
+          <div v-else class="rpa-status rpa-idle">
+            <van-icon name="search" /> 尚未发起官网验真
+          </div>
+
+          <div class="rpa-meta">
+            <div><span>许可证号</span><strong>{{ rpaCertificateNo || '—' }}</strong></div>
+            <div v-if="rpaVerifiedAt"><span>验真时间</span><strong>{{ rpaVerifiedAt }}</strong></div>
+            <div v-if="rpaError"><span>异常信息</span><strong class="rpa-error-text">{{ rpaError }}</strong></div>
+          </div>
+
+          <div v-if="rpaScreenshotUrl" class="rpa-screenshot">
+            <span>验真截图</span>
+            <a :href="rpaScreenshotUrl" target="_blank" rel="noopener">查看截图 <van-icon name="arrow" /></a>
+          </div>
+
+          <div v-if="canTriggerRpa" class="rpa-actions">
+            <van-button size="small" plain type="primary" :loading="rpaLoading" @click="triggerRpaVerification">
+              <template #icon><van-icon name="send" /></template>
+              {{ rpaLoading ? '验真中…' : '发起官网验真' }}
+            </van-button>
+          </div>
+        </div>
+      </section>
+
       <section v-if="report.review_mode === 'store_in_store'" class="content-section">
         <header class="section-header"><div><p>补充材料</p><h2>店中店证据链</h2></div></header>
         <div class="store-evidence">
@@ -85,13 +130,15 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { tobaccoApi } from '@/api'
+import { tobaccoApi, rpaApi } from '@/api'
 
 const router = useRouter()
 const route = useRoute()
 const report = ref(null)
 const loading = ref(true)
 const manualLoading = ref(false)
+const rpaVerification = ref(null)
+const rpaLoading = ref(false)
 
 const resultMeta = computed(() => {
   const result = report.value?.overall_result
@@ -113,7 +160,55 @@ const comparisonFields = computed(() => {
 })
 const mismatchCount = computed(() => comparisonFields.value.filter((item) => !item.passed).length)
 
-onMounted(loadReport)
+// ── RPA 验真 ──
+const rpaStatus = computed(() => rpaVerification.value?.status || report.value?.rpa_verification?.status)
+const rpaCertificateNo = computed(() => rpaVerification.value?.certificate_no || report.value?.rpa_verification?.certificate_no)
+const rpaVerifiedAt = computed(() => {
+  const raw = rpaVerification.value?.verified_at || report.value?.rpa_verification?.verified_at
+  return raw ? String(raw).replace('T', ' ').slice(0, 19) : null
+})
+const rpaScreenshotUrl = computed(() => rpaVerification.value?.screenshot_url || report.value?.rpa_verification?.screenshot_url)
+const rpaError = computed(() => rpaVerification.value?.error_message || report.value?.rpa_verification?.error_message)
+const showRpaSection = computed(() => report.value?.id || rpaVerification.value)
+const canTriggerRpa = computed(() => !rpaStatus.value || rpaStatus.value === 'ERROR')
+const rpaStatusLabel = computed(() => rpaVerification.value?.result_label || report.value?.rpa_verification?.result_label || '未验真')
+const rpaStatusTagType = computed(() => ({
+  AUTHENTIC: 'success', SUSPECTED: 'danger', NOT_FOUND: 'warning',
+  ERROR: 'warning', IN_PROGRESS: 'primary', PENDING: 'primary',
+}[rpaStatus.value] || 'default'))
+
+async function tryLoadRpaStatus() {
+  if (!report.value?.id) return
+  try {
+    const res = await rpaApi.getStatus(report.value.id)
+    rpaVerification.value = res
+  } catch {
+    // 无验真记录或接口不可用，静默
+  }
+}
+
+async function triggerRpaVerification() {
+  const item = report.value
+  if (!item?.id || !item.tobacco_license_name) {
+    showToast('缺少烟草证信息，无法发起验真')
+    return
+  }
+  rpaLoading.value = true
+  try {
+    const res = await rpaApi.triggerVerify(item.id, item.tobacco_license_name, item.company_name || '')
+    rpaVerification.value = res
+    showToast('验真请求已提交')
+  } catch (error) {
+    showToast(error.message || '发起验真失败')
+  } finally {
+    rpaLoading.value = false
+  }
+}
+
+onMounted(async () => {
+  await loadReport()
+  tryLoadRpaStatus()
+})
 
 async function loadReport() {
   loading.value = true
@@ -124,6 +219,34 @@ async function loadReport() {
     showToast(error.message || '加载核对报告失败')
   } finally {
     loading.value = false
+  }
+}
+
+async function tryLoadRpaStatus() {
+  if (!report.value?.id) return
+  try {
+    const res = await rpaApi.getStatus(report.value.id)
+    rpaVerification.value = res
+  } catch {
+    // 无验真记录或接口不可用，静默
+  }
+}
+
+async function triggerRpaVerification() {
+  const item = report.value
+  if (!item?.id || !item.tobacco_license_name) {
+    showToast('缺少烟草证信息，无法发起验真')
+    return
+  }
+  rpaLoading.value = true
+  try {
+    const res = await rpaApi.triggerVerify(item.id, item.tobacco_license_name, item.company_name || '')
+    rpaVerification.value = res
+    showToast('验真请求已提交')
+  } catch (error) {
+    showToast(error.message || '发起验真失败')
+  } finally {
+    rpaLoading.value = false
   }
 }
 
@@ -227,4 +350,22 @@ async function previewOaAttachment(attachment) {
 .rule-solution { display: flex; align-items: flex-start; gap: 4px; margin-top: 6px; padding: 6px 8px; border-radius: 4px; background: #fff7e6; color: #7a6500; font-size: 12px; line-height: 1.5; }
 .rule-solution .van-icon { flex-shrink: 0; margin-top: 2px; }.store-evidence { background: var(--tobacco-line); }.store-evidence div { padding: 13px 14px; }.store-evidence span { color: var(--tobacco-muted); }.oa-section { padding: 16px; background: var(--tobacco-surface); }.oa-meta, .oa-content, .attachment-list { border-top-color: var(--tobacco-line); }.oa-meta .wide { border-top-color: var(--tobacco-line); }.oa-meta dt, .oa-content > span { color: var(--tobacco-muted); }.attachment-list article + article { border-top-color: var(--tobacco-line); }.attachment-list strong { color: #30485d; }.attachment-list small, .attachment-list em { display: flex; flex-wrap: wrap; gap: 0; color: var(--tobacco-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }.attachment-list small b { margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--tobacco-line-strong); font-weight: 400; }.attachment-list :deep(.van-button) { border-radius: 5px; }
 @media (prefers-reduced-motion: reduce) { .detail-page *, .detail-page *::before, .detail-page *::after { transition: none !important; } }@media (max-width: 600px) { .detail-shell { padding: 18px 12px; }.decision-summary h1 { font-size: 20px; }.oa-section { padding: 13px; } }
+/* RPA Verification */
+.rpa-card { border: 1px solid var(--tobacco-line); border-radius: 8px; background: var(--tobacco-surface); overflow: hidden; }
+.rpa-status { display: flex; align-items: center; gap: 8px; padding: 14px 16px; font-size: 14px; font-weight: 500; }
+.rpa-pass { color: #27784c; background: #e8fae8; }
+.rpa-fail { color: #b44b50; background: #ffeeed; }
+.rpa-warn { color: #98671d; background: #fff7e6; }
+.rpa-pending { color: #176784; background: #ebf7ff; }
+.rpa-idle { color: var(--tobacco-muted); background: var(--tobacco-surface-muted); }
+.rpa-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border-top: 1px solid var(--tobacco-line); padding: 10px 16px; }
+.rpa-meta div { padding: 4px 0; }
+.rpa-meta span, .rpa-meta strong { display: block; }
+.rpa-meta span { color: var(--tobacco-muted); font-size: 12px; }
+.rpa-meta strong { color: var(--tobacco-ink); font-size: 13px; margin-top: 2px; }
+.rpa-error-text { color: #b44b50; }
+.rpa-screenshot { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; border-top: 1px solid var(--tobacco-line); font-size: 13px; }
+.rpa-screenshot span { color: var(--tobacco-muted); }
+.rpa-screenshot a { color: var(--tobacco-accent); text-decoration: none; }
+.rpa-actions { padding: 10px 16px; border-top: 1px solid var(--tobacco-line); }
 </style>
