@@ -206,8 +206,13 @@ CONFIG_KEY_PATHS = {
     "QWEN_OCR_VENDOR_NAME_LIKE": ("manual_qwen_ocr", "vendor_name_like"),
     "QWEN_OCR_SOURCE_OFFSET": ("manual_qwen_ocr", "source_offset"),
     "RPA_VERIFICATION_TOBACCO_ENABLED": ("rpa_verification", "tobacco_license", "enabled"),
-    "RPA_VERIFICATION_TOBACCO_API_BASE_URL": ("rpa_verification", "tobacco_license", "api_base_url"),
-    "RPA_VERIFICATION_TOBACCO_TIMEOUT_SECONDS": ("rpa_verification", "tobacco_license", "timeout_seconds"),
+    "RPA_VERIFICATION_YINDAO_BASE_URL": ("rpa_verification", "tobacco_license", "yindao", "base_url"),
+    "RPA_VERIFICATION_YINDAO_ACCESS_KEY_ID": ("rpa_verification", "tobacco_license", "yindao", "access_key_id"),
+    "RPA_VERIFICATION_YINDAO_ROBOT_UUID": ("rpa_verification", "tobacco_license", "yindao", "robot_uuid"),
+    "RPA_VERIFICATION_YINDAO_ACCOUNT_NAME": ("rpa_verification", "tobacco_license", "yindao", "account_name"),
+    "RPA_VERIFICATION_YINDAO_RUN_TIMEOUT_SECONDS": ("rpa_verification", "tobacco_license", "yindao", "run_timeout_seconds"),
+    "RPA_VERIFICATION_YINDAO_WAIT_TIMEOUT_SECONDS": ("rpa_verification", "tobacco_license", "yindao", "wait_timeout_seconds"),
+    "RPA_VERIFICATION_YINDAO_POLL_INTERVAL": ("rpa_verification", "tobacco_license", "yindao", "poll_interval"),
 }
 
 SECRET_ENV_KEYS = {
@@ -221,7 +226,7 @@ SECRET_ENV_KEYS = {
     "WEB_CONSOLE_AUTH_SECRET",
     "WECOM_SECRET",
     "WECOM_WORKER_TOKEN",
-    "RPA_VERIFICATION_TOBACCO_API_KEY",
+    "RPA_YINDAO_ACCESS_KEY_SECRET",
 }
 
 PROJECT_ENV_KEYS = set(CONFIG_KEY_PATHS) | SECRET_ENV_KEYS
@@ -328,8 +333,13 @@ class Settings(BaseModel):
     wecom_notification_base_url: str = os.environ.get("WECOM_NOTIFICATION_BASE_URL", "")
     web_console_base_url: str = os.environ.get("WEB_CONSOLE_BASE_URL", "")
     rpa_verification_tobacco_enabled: bool = os.environ.get("RPA_VERIFICATION_TOBACCO_ENABLED", "false").lower() in ("true", "1", "yes")
-    rpa_verification_tobacco_api_base_url: str = os.environ.get("RPA_VERIFICATION_TOBACCO_API_BASE_URL", "")
-    rpa_verification_tobacco_api_key: str = os.environ.get("RPA_VERIFICATION_TOBACCO_API_KEY", "")
+    rpa_verification_yindao_base_url: str = os.environ.get("RPA_VERIFICATION_YINDAO_BASE_URL", "")
+    rpa_verification_yindao_access_key_id: str = os.environ.get("RPA_VERIFICATION_YINDAO_ACCESS_KEY_ID", "")
+    rpa_verification_yindao_robot_uuid: str = os.environ.get("RPA_VERIFICATION_YINDAO_ROBOT_UUID", "")
+    rpa_verification_yindao_account_name: str = os.environ.get("RPA_VERIFICATION_YINDAO_ACCOUNT_NAME", "")
+    rpa_verification_yindao_run_timeout_seconds: int = int(os.environ.get("RPA_VERIFICATION_YINDAO_RUN_TIMEOUT_SECONDS", "300"))
+    rpa_verification_yindao_wait_timeout_seconds: int = int(os.environ.get("RPA_VERIFICATION_YINDAO_WAIT_TIMEOUT_SECONDS", "600"))
+    rpa_verification_yindao_poll_interval: float = float(os.environ.get("RPA_VERIFICATION_YINDAO_POLL_INTERVAL", "3.0"))
     rpa_verification_tobacco_timeout_seconds: int = int(os.environ.get("RPA_VERIFICATION_TOBACCO_TIMEOUT_SECONDS", "60"))
 
 

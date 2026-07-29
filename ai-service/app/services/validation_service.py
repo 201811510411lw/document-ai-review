@@ -522,6 +522,10 @@ def _from_rule_results(
         passed = bool(rule.get("passed", False))
         risk = rule.get("risk_level_on_failure") or ""
 
+        # 必填字段识别值和期望值都缺失时，不应标记为匹配
+        if not actual and not expected and spec.get("required", True):
+            passed = False
+
         fields.append(
             {
                 "field": field_name,

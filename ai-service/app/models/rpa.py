@@ -1,4 +1,4 @@
-"""RPA 验真相关模型。"""
+"""RPA 验真相关模型（含通用 + 影刀 RPA）。"""
 
 from datetime import datetime
 from enum import StrEnum
@@ -50,3 +50,73 @@ class RpaVerificationResult(BaseModel):
     @property
     def result_label(self) -> str:
         return rpa_status_label(self.status)
+
+
+# ---------------------------------------------------------------------------
+# 影刀 RPA 专用模型
+# ---------------------------------------------------------------------------
+
+class YindaoJobStatus(StrEnum):
+    """影刀 job 状态枚举"""
+    WAITING = "waiting"
+    RUNNING = "running"
+    FINISH = "finish"
+    STOPPING = "stopping"
+    STOPPED = "stopped"
+    ERROR = "error"
+
+    @property
+    def is_terminal(self) -> bool:
+        return self in (YindaoJobStatus.FINISH, YindaoJobStatus.STOPPED, YindaoJobStatus.ERROR)
+
+
+class YindaoCallbackPayload(BaseModel):
+    """影刀回调请求体"""
+    jobUuid: str
+    dataType: str = "job"
+    status: str = ""
+    msg: str = ""
+    startTime: str | None = None
+    endTime: str | None = None
+    robotClientName: str | None = None
+    robotName: str | None = None
+    result: list[dict[str, Any]] = []
+
+    def get_param(self, name: str) -> str | None:
+        """从 result 数组中按 name 提取参数值。"""
+        for item in self.result:
+            if item.get("name") == name:
+                value = item.get("value")
+                return str(value) if value is not None else None
+        return None
+
+    @property
+    def requestid(self) -> str | None:
+        return self.get_param("requestid")
+
+    @property
+    def verify_status(self) -> str | None:
+        return self.get_param("verify_status")
+
+    @property
+    def screenshot_url(self) -> str | None:
+        return self.get_param("screenshot_url")
+
+    @property
+    def error_message(self) -> str | None:
+        return self.get_param("error_message") or (self.msg if self.msg else None)
+
+
+class RpaJobRecord(BaseModel):
+    """RPA 任务记录 — 存入 review_result.skill_result.rpa_job_record"""
+    job_uuid: str
+    certificate_no: str
+    store_name: str
+    requestid: str = ""
+    yindao_status: str = ""
+    verification_status: str | None = None
+    result_label: str = "验真中..."
+    screenshot_url: str | None = None
+    error_message: str | None = None
+    triggered_at: str = ""
+    completed_at: str | None = None

@@ -91,9 +91,17 @@ class WebConsoleStaticFiles(StaticFiles):
 
 
 def _should_fallback_to_web_console(path: str) -> bool:
-    if path == "api" or path.startswith("api/"):
+    # path 可能带也可能不带前导斜杠，取决于 Starlette 版本
+    # 统一去掉前导 / 再做判断
+    stripped = path.lstrip("/")
+    # 以 api/ 开头的路径都是后端 API，不交由前端 SPA 路由处理
+    if stripped.startswith("api") and (len(stripped) == 3 or stripped.startswith("api/")):
         return False
-    return Path(path).suffix == ""
+    # 有文件扩展名的（.js, .css, .png 等）不回退
+    if Path(path).suffix:
+        return False
+    # 无扩展名且非 API 路径 → SPA 前端路由，回退到 index.html
+    return True
 
 
 _web_dist = Path(__file__).resolve().parents[2] / "web-console" / "dist"

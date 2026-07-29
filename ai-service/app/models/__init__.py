@@ -13,8 +13,11 @@ from app.models.review import (
     RuleResult,
 )
 from app.models.rpa import (
+    RpaJobRecord,
     RpaVerificationResult,
     RpaVerificationStatus,
+    YindaoCallbackPayload,
+    YindaoJobStatus,
 )
 
 __all__ = [
@@ -28,6 +31,9 @@ __all__ = [
     "ReviewStatus",
     "RiskLevel",
     "RuleResult",
+    "RpaJobRecord",
     "RpaVerificationResult",
     "RpaVerificationStatus",
+    "YindaoCallbackPayload",
+    "YindaoJobStatus",
 ]

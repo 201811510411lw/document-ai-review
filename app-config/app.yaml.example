@@ -68,12 +68,18 @@ tobacco_consistency:
   oa_relationship_evidence_field: “”
   oa_multi_address_evidence_field: “”
 
-# RPA 烟草证官网验真配置。api_key 放在 .env。
+# RPA 烟草证官网验真配置（影刀 RPA）。access_key_secret 放在 .env。
 rpa_verification:
   tobacco_license:
     enabled: false
-    api_base_url: “”
-    timeout_seconds: 60
+    yindao:
+      base_url: https://api.yingdao.com
+      access_key_id: your-access-key-id
+      robot_uuid: your-robot-uuid          # 影刀控制台 → 应用管理 → 查看应用详情复制
+      account_name: ""                      # 机器人账号名称，与 robot_client_group_uuid 二选一
+      run_timeout_seconds: 300              # RPA 应用运行超时（秒）
+      wait_timeout_seconds: 600             # 排队等待超时（秒）
+      poll_interval: 3                      # 轮询间隔（秒）
 
 # Web 控制台本地认证配置；密码和签名密钥放在 .env。
 web_console_auth:

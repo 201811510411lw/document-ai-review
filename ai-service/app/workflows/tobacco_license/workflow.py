@@ -24,8 +24,8 @@ from app.models import (
 )
 from app.models.rpa import RpaVerificationResult
 from app.services.rpa_verification import (
-    DefaultRpaVerificationClient,
     RpaVerificationService,
+    YindaoRpaClient,
 )
 from app.tools.license_file_recognition import recognize_license_file
 from app.tools.vision_adapter import build_tobacco_license_file_adapter
@@ -170,14 +170,20 @@ def run_rules(state: TobaccoLicenseWorkflowState) -> TobaccoLicenseWorkflowState
 
 
 def _build_rpa_client():
-    """构造 RPA 验真客户端。配置未启用时返回 None，调用方应优雅跳过。"""
+    """构造影刀 RPA 验真客户端。配置未启用时返回 None，调用方应优雅跳过。"""
     from app.core.config import settings
     if not settings.rpa_verification_tobacco_enabled:
         return None
-    return DefaultRpaVerificationClient(
-        api_base_url=settings.rpa_verification_tobacco_api_base_url,
-        api_key=settings.rpa_verification_tobacco_api_key,
-        timeout_seconds=min(settings.rpa_verification_tobacco_timeout_seconds, 30),
+    import os
+    return YindaoRpaClient(
+        api_base_url=settings.rpa_verification_yindao_base_url,
+        access_key_id=settings.rpa_verification_yindao_access_key_id,
+        access_key_secret=os.environ.get("RPA_YINDAO_ACCESS_KEY_SECRET", ""),
+        robot_uuid=settings.rpa_verification_yindao_robot_uuid,
+        account_name=settings.rpa_verification_yindao_account_name,
+        run_timeout_seconds=min(settings.rpa_verification_yindao_run_timeout_seconds, 30),
+        wait_timeout_seconds=settings.rpa_verification_yindao_wait_timeout_seconds,
+        poll_interval=settings.rpa_verification_yindao_poll_interval,
     )
 
 
@@ -194,8 +200,9 @@ def rpa_verify_node(state: TobaccoLicenseWorkflowState) -> TobaccoLicenseWorkflo
 
     fields = state.get("normalized_fields") or TobaccoLicenseNormalizedFields()
     certificate_no = fields.license_no or ""
-    store_name = state.get("input_context", {}).get("input", {}).get("supplier_name", "")
-    task_id = state.get("input_context", {}).get("task_id", "")
+    ctx = state.get("input_context")
+    store_name = ctx.input.supplier_name if ctx else ""
+    task_id = ctx.task_id if ctx else ""
 
     if not certificate_no:
         # 无许可证号，无法验真
@@ -205,10 +212,13 @@ def rpa_verify_node(state: TobaccoLicenseWorkflowState) -> TobaccoLicenseWorkflo
     import logging
     logger = logging.getLogger(__name__)
     try:
+        # 从 source_evidence 中提取 requestid（如果有）
+        requestid = str(state.get("source_evidence", {}).get("source", {}).get("requestid", "") or "")
         result = service.verify(
             task_id=task_id,
             certificate_no=certificate_no,
             store_name=store_name,
+            requestid=requestid,
         )
     except Exception as exc:
         logger.warning("RPA 验真异常（不阻断流程）: %s", exc)
