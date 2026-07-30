@@ -68,6 +68,17 @@ def _update_review_result(
 # 手动触发验真（同步轮询）
 # ------------------------------------------------------------------
 
+@router.get("/rpa-verify-capability")
+def get_rpa_verification_capability(
+    _current_user: dict[str, Any] = Depends(require_web_console_user),
+) -> dict[str, Any]:
+    enabled = settings.rpa_verification_tobacco_enabled
+    return {
+        "enabled": enabled,
+        "disabled_reason": None if enabled else "RPA 验真功能未启用",
+    }
+
+
 @router.post("/rpa-verify")
 def trigger_rpa_verification(
     request: RpaVerifyRequest,

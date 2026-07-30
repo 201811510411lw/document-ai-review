@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { apiErrorMessage } from './errors.js'
 
 const http = axios.create({
   baseURL: '/',
@@ -16,8 +17,7 @@ http.interceptors.request.use((config) => {
 http.interceptors.response.use(
   (res) => res.data,
   (err) => {
-    const msg = err.response?.data?.message || err.message || '请求失败'
-    return Promise.reject(new Error(msg))
+    return Promise.reject(new Error(apiErrorMessage(err)))
   }
 )
 

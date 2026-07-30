@@ -174,6 +174,8 @@ API 中的日期和时间使用：
 | `POST` | `/api/v1/qc/batch-report/reviews/from-starrocks` | 从 StarRocks SRM 同步表随机拉取一条商品批次报告并审核 | 必须 |
 | `POST` | `/api/v1/tobacco-license/source-files/from-starrocks` | 按门店从 StarRocks OA 快照表查烟草证附件并从本地 NAS 解压落盘 | 必须 |
 | `GET` | `/api/v1/tobacco-license/source-files/local/{relative_path}` | 预览或下载已落盘的烟草证文件 | 必须 |
+| `GET` | `/api/v1/tobacco-license/rpa-verify-capability` | 查询烟草证官网验真运行时能力状态 | 可选 |
+| `POST` | `/api/v1/tobacco-license/rpa-verify` | 使用烟草证许可证号手动发起官网验真 | 可选 |
 | `GET` | `/api/v1/tobacco-license-consistency/reviews/{task_id}/oa-result` | 获取烟草双证核对的 OA 回传载荷，不主动调用 OA | 必须 |
 | `GET` | `/api/v1/qc/reviews` | 查询 QC 审核列表，支持证照和产品报告 | 必须 |
 | `GET` | `/api/v1/qc/reviews/{task_id}` | 查询 QC 审核详情 | 必须 |
@@ -590,6 +592,40 @@ order by r.CREATEDATE desc, r.CREATETIME desc
 
 读取 `ai-service/data/tobacco_license/` 下已解压的烟草证文件。默认用于预览；追加 `?download=1` 时返回附件下载文件名。
 
+### 8.5 `GET /api/v1/tobacco-license/rpa-verify-capability`
+
+返回烟草证官网验真的运行时开关状态。前端必须以该接口为准决定是否允许发起验真。
+
+```json
+{
+  "enabled": false,
+  "disabled_reason": "RPA 验真功能未启用"
+}
+```
+
+### 8.6 `POST /api/v1/tobacco-license/rpa-verify`
+
+使用审核报告中的 `tobacco_license_no` 作为 `certificate_no` 发起官网验真；不得使用烟草证主体名称或门店编号代替许可证号。
+
+```json
+{
+  "task_id": "tc-6593ab4814c1777f",
+  "certificate_no": "510100100001",
+  "store_name": "示例门店"
+}
+```
+
+当能力开关关闭时返回 `400`：
+
+```json
+{
+  "detail": {
+    "code": "RPA_VERIFICATION_DISABLED",
+    "message": "RPA 验真功能未启用"
+  }
+}
+```
+
 ## 9. 查询审核任务和结果
 
 ### 9.1 `GET /api/v1/food-license/reviews/{task_id}`
@@ -737,6 +773,7 @@ order by r.CREATEDATE desc, r.CREATETIME desc
 | --- | --- | --- |
 | `400` | `VALIDATION_ERROR` | 请求字段缺失、格式错误或枚举值非法 |
 | `400` | `EMPTY_OCR_TEXT` | `ocr_text` 为空或只有空白字符 |
+| `400` | `RPA_VERIFICATION_DISABLED` | 烟草证官网验真运行时能力未启用 |
 | `404` | `REVIEW_TASK_NOT_FOUND` | 审核任务不存在 |
 | `409` | `MANUAL_REVIEW_NOT_ALLOWED` | 当前任务状态不允许人工复核 |
 | `422` | `UNSUPPORTED_DOCUMENT_TYPE` | 材料无法识别为食品安全相关证照，且策略要求拒绝继续处理 |

@@ -23,6 +23,31 @@ START_JOB_PATH = "/oapi/dispatch/v2/job/start"
 QUERY_JOB_PATH = "/oapi/dispatch/v2/job/query"
 
 
+def _unwrap_yindao_response(
+    payload: Any,
+    operation: str,
+) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"{operation}响应格式错误: 预期 JSON 对象")
+
+    if payload.get("success") is False:
+        code = payload.get("code", "unknown")
+        message = payload.get("message") or payload.get("msg") or "未知错误"
+        request_id = payload.get("requestId")
+        request_suffix = f" (requestId={request_id})" if request_id else ""
+        raise RuntimeError(
+            f"{operation}返回失败 (code={code}): {message}{request_suffix}"
+        )
+
+    if "data" not in payload:
+        return payload
+
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise RuntimeError(f"{operation}响应格式错误: data 不是 JSON 对象")
+    return data
+
+
 class YindaoRpaClient:
     """影刀 RPA 验真客户端。
 
@@ -113,7 +138,7 @@ class YindaoRpaClient:
             verified_at=_parse_iso_or_now(payload.endTime),
             raw_response=payload.model_dump(mode="json"),
             screenshot_url=payload.screenshot_url,
-            error_message=payload.error_message,
+            error_message=self._result_error_message(payload, mapped),
             attempts=1,
         )
 
@@ -177,21 +202,23 @@ class YindaoRpaClient:
             timeout=15,
         )
         resp.raise_for_status()
-        result = resp.json()
-        job_uuid: str = result["jobUuid"]
+        result = _unwrap_yindao_response(resp.json(), "影刀启动接口")
+        job_uuid = result.get("jobUuid")
+        if not isinstance(job_uuid, str) or not job_uuid.strip():
+            raise RuntimeError("影刀启动接口响应缺少 data.jobUuid")
         return job_uuid
 
     def _query_job(self, token: str, job_uuid: str) -> dict[str, Any]:
         """查询影刀任务状态。"""
         url = f"{self._base_url}{QUERY_JOB_PATH}"
-        resp = httpx.get(
+        resp = httpx.post(
             url,
-            params={"jobUuid": job_uuid},
+            json={"jobUuid": job_uuid},
             headers={"Authorization": f"Bearer {token}"},
             timeout=10,
         )
         resp.raise_for_status()
-        return resp.json()
+        return _unwrap_yindao_response(resp.json(), "影刀查询接口")
 
     def _poll_job(self, job_uuid: str, timeout: int) -> dict[str, Any]:
         """轮询等待影刀任务完成，返回最终结果。"""
@@ -231,6 +258,15 @@ class YindaoRpaClient:
         status_str = raw.get("status", "")
         yindao_status = YindaoJobStatus(status_str) if status_str else None
 
+        result_items = raw.get("result")
+        if not isinstance(result_items, list):
+            robot_params = raw.get("robotParams")
+            result_items = (
+                robot_params.get("outputs", [])
+                if isinstance(robot_params, dict)
+                else []
+            )
+
         # 如果影刀的 result 数组里有验真结果，构造成 callback 模型来解析
         callback = YindaoCallbackPayload(
             jobUuid=job_uuid,
@@ -238,7 +274,7 @@ class YindaoRpaClient:
             msg=raw.get("msg", ""),
             startTime=raw.get("startTime"),
             endTime=raw.get("endTime"),
-            result=raw.get("result", []),
+            result=result_items,
         )
 
         mapped = self._map_yindao_status(yindao_status, callback)
@@ -249,7 +285,7 @@ class YindaoRpaClient:
             verified_at=_parse_iso_or_now(callback.endTime),
             raw_response=raw,
             screenshot_url=callback.screenshot_url,
-            error_message=callback.error_message,
+            error_message=self._result_error_message(callback, mapped),
             attempts=1,
         )
 
@@ -274,10 +310,25 @@ class YindaoRpaClient:
                 return RpaVerificationStatus.SUSPECTED
             if vs == "NOT_FOUND":
                 return RpaVerificationStatus.NOT_FOUND
+            if callback.parameter_result is True:
+                return RpaVerificationStatus.AUTHENTIC
+            if callback.parameter_result is False:
+                return RpaVerificationStatus.ERROR
             # RPA 完成了但没有有效验真结论
             return RpaVerificationStatus.ERROR
         # waiting / running 不应在终态出现
         return RpaVerificationStatus.ERROR
+
+    @staticmethod
+    def _result_error_message(
+        callback: YindaoCallbackPayload,
+        status: RpaVerificationStatus,
+    ) -> str | None:
+        if callback.error_message:
+            return callback.error_message
+        if status == RpaVerificationStatus.ERROR and callback.parameter_result is False:
+            return "官网验真返回失败，影刀未返回具体原因"
+        return None
 
     @staticmethod
     def _error_result(

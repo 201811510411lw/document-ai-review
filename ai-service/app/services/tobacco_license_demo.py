@@ -104,6 +104,12 @@ def demo_source_files(store_identifier: str = DEMO_STORE_IDENTIFIER) -> list[Tob
 def demo_consistency_payload(store_identifier: str) -> dict[str, object]:
     """Return deterministic demo inputs so batch actions cover all outcomes."""
     identifier = store_identifier.strip().upper()
+    license_numbers = {
+        "DEMO-STORE-001": "510100100001",
+        "DEMO-STORE-002": "510100100002",
+        "DEMO-STORE-003": "510100100003",
+        "DEMO-STORE-004": "510100100004",
+    }
     business = {
         "document_type": "business_license",
         "subject_name": "乙便利店",
@@ -115,6 +121,7 @@ def demo_consistency_payload(store_identifier: str) -> dict[str, object]:
         "subject_name": "乙便利店",
         "business_address": "成都市高新区天府大道 1 号",
         "legal_person": "张三",
+        "license_no": license_numbers.get(identifier, "510100100001"),
         "valid_to": "2099-12-31",
     }
     if identifier == "DEMO-STORE-002":

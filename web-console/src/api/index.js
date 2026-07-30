@@ -180,6 +180,9 @@ export const contractApi = {
 }
 
 export const rpaApi = {
+  getCapability() {
+    return http.get('/api/v1/tobacco-license/rpa-verify-capability')
+  },
   triggerVerify(taskId, certificateNo, storeName) {
     return http.post('/api/v1/tobacco-license/rpa-verify', {
       task_id: taskId,

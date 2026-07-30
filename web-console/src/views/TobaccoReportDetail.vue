@@ -73,6 +73,9 @@
           <div v-else-if="rpaStatus === 'IN_PROGRESS'" class="rpa-status rpa-pending">
             <van-loading size="14" /> 验真实时结果查询中…
           </div>
+          <div v-else-if="rpaCapability && !rpaCapability.enabled" class="rpa-status rpa-idle">
+            <van-icon name="info-o" /> {{ rpaCapability.disabled_reason || 'RPA 验真功能未启用' }}
+          </div>
           <div v-else class="rpa-status rpa-idle">
             <van-icon name="search" /> 尚未发起官网验真
           </div>
@@ -88,11 +91,12 @@
             <a :href="rpaScreenshotUrl" target="_blank" rel="noopener">查看截图 <van-icon name="arrow" /></a>
           </div>
 
-          <div v-if="canTriggerRpa" class="rpa-actions">
-            <van-button size="small" plain type="primary" :loading="rpaLoading" @click="triggerRpaVerification">
+          <div v-if="rpaAction.visible" class="rpa-actions">
+            <van-button size="small" plain type="primary" :loading="rpaLoading" :disabled="!rpaAction.enabled" @click="triggerRpaVerification">
               <template #icon><van-icon name="send" /></template>
               {{ rpaLoading ? '验真中…' : '发起官网验真' }}
             </van-button>
+            <span v-if="rpaAction.reason">{{ rpaAction.reason }}</span>
           </div>
         </div>
       </section>
@@ -131,6 +135,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { tobaccoApi, rpaApi } from '@/api'
+import { resolveRpaAction, resolveRpaCertificateNo } from '@/features/tobacco/rpaVerification'
 
 const router = useRouter()
 const route = useRoute()
@@ -138,6 +143,7 @@ const report = ref(null)
 const loading = ref(true)
 const manualLoading = ref(false)
 const rpaVerification = ref(null)
+const rpaCapability = ref(null)
 const rpaLoading = ref(false)
 
 const resultMeta = computed(() => {
@@ -162,7 +168,7 @@ const mismatchCount = computed(() => comparisonFields.value.filter((item) => !it
 
 // ── RPA 验真 ──
 const rpaStatus = computed(() => rpaVerification.value?.status || report.value?.rpa_verification?.status)
-const rpaCertificateNo = computed(() => rpaVerification.value?.certificate_no || report.value?.rpa_verification?.certificate_no)
+const rpaCertificateNo = computed(() => resolveRpaCertificateNo(report.value, rpaVerification.value))
 const rpaVerifiedAt = computed(() => {
   const raw = rpaVerification.value?.verified_at || report.value?.rpa_verification?.verified_at
   return raw ? String(raw).replace('T', ' ').slice(0, 19) : null
@@ -170,8 +176,15 @@ const rpaVerifiedAt = computed(() => {
 const rpaScreenshotUrl = computed(() => rpaVerification.value?.screenshot_url || report.value?.rpa_verification?.screenshot_url)
 const rpaError = computed(() => rpaVerification.value?.error_message || report.value?.rpa_verification?.error_message)
 const showRpaSection = computed(() => report.value?.id || rpaVerification.value)
-const canTriggerRpa = computed(() => !rpaStatus.value || rpaStatus.value === 'ERROR')
-const rpaStatusLabel = computed(() => rpaVerification.value?.result_label || report.value?.rpa_verification?.result_label || '未验真')
+const rpaAction = computed(() => resolveRpaAction({
+  capability: rpaCapability.value,
+  status: rpaStatus.value,
+  certificateNo: rpaCertificateNo.value,
+}))
+const rpaStatusLabel = computed(() => {
+  if (!rpaStatus.value && rpaCapability.value && !rpaCapability.value.enabled) return '未启用'
+  return rpaVerification.value?.result_label || report.value?.rpa_verification?.result_label || '未验真'
+})
 const rpaStatusTagType = computed(() => ({
   AUTHENTIC: 'success', SUSPECTED: 'danger', NOT_FOUND: 'warning',
   ERROR: 'warning', IN_PROGRESS: 'primary', PENDING: 'primary',
@@ -179,7 +192,7 @@ const rpaStatusTagType = computed(() => ({
 
 onMounted(async () => {
   await loadReport()
-  tryLoadRpaStatus()
+  await Promise.all([tryLoadRpaStatus(), loadRpaCapability()])
 })
 
 async function loadReport() {
@@ -205,15 +218,26 @@ async function tryLoadRpaStatus() {
   }
 }
 
+async function loadRpaCapability() {
+  try {
+    rpaCapability.value = await rpaApi.getCapability()
+  } catch (error) {
+    rpaCapability.value = {
+      enabled: false,
+      disabled_reason: error.message || '无法读取官网验真能力状态',
+    }
+  }
+}
+
 async function triggerRpaVerification() {
   const item = report.value
-  if (!item?.id || !item.tobacco_license_name) {
-    showToast('缺少烟草证信息，无法发起验真')
+  if (!item?.id || !rpaAction.value.enabled) {
+    showToast(rpaAction.value.reason || '当前无法发起官网验真')
     return
   }
   rpaLoading.value = true
   try {
-    const res = await rpaApi.triggerVerify(item.id, item.tobacco_license_name, item.company_name || '')
+    const res = await rpaApi.triggerVerify(item.id, rpaCertificateNo.value, item.company_name || '')
     rpaVerification.value = res
     showToast('验真请求已提交')
   } catch (error) {
@@ -340,5 +364,6 @@ async function previewOaAttachment(attachment) {
 .rpa-screenshot { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; border-top: 1px solid var(--tobacco-line); font-size: 13px; }
 .rpa-screenshot span { color: var(--tobacco-muted); }
 .rpa-screenshot a { color: var(--tobacco-accent); text-decoration: none; }
-.rpa-actions { padding: 10px 16px; border-top: 1px solid var(--tobacco-line); }
+.rpa-actions { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--tobacco-line); }
+.rpa-actions > span { color: var(--tobacco-muted); font-size: 12px; }
 </style>

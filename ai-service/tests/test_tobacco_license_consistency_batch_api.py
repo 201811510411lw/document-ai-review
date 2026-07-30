@@ -57,6 +57,7 @@ def test_batch_consistency_review_returns_each_demo_outcome():
     assert outcomes["DEMO-STORE-003"] == "待校验"
     assert outcomes["DEMO-STORE-004"] == "通过"
     assert payload["items"][0]["report"]["oa"]["requestid"] == 10001
+    assert payload["items"][0]["report"]["tobacco_license_no"] == "510100100001"
     attachments = payload["items"][0]["report"]["oa"]["attachments"]
     assert [item["relative_path"] for item in attachments] == [
         "demo/holder-business-license.pdf",

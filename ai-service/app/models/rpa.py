@@ -99,6 +99,18 @@ class YindaoCallbackPayload(BaseModel):
         return self.get_param("verify_status")
 
     @property
+    def parameter_result(self) -> bool | None:
+        value = self.get_param("parameter")
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        if normalized in ("true", "1"):
+            return True
+        if normalized in ("false", "0"):
+            return False
+        return None
+
+    @property
     def screenshot_url(self) -> str | None:
         return self.get_param("screenshot_url")
 

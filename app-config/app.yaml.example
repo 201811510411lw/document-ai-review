@@ -82,7 +82,7 @@ wecom:
 # RPA 烟草证官网验真配置（影刀 RPA）。access_key_secret 放在 .env。
 rpa_verification:
   tobacco_license:
-    enabled: false
+    enabled: true
     yindao:
       base_url: https://api.yingdao.com
       access_key_id: your-access-key-id

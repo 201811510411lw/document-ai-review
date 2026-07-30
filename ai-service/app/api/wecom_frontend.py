@@ -777,6 +777,7 @@ def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> di
         "business_license_address": business.get("business_address"),
         "business_license_person": business.get("legal_person"),
         "tobacco_license_name": tobacco.get("subject_name"),
+        "tobacco_license_no": tobacco.get("license_no"),
         "tobacco_license_address": tobacco.get("business_address"),
         "tobacco_license_person": tobacco.get("legal_person"),
         "comparison": comparison if detail else None,
@@ -811,6 +812,7 @@ def _demo_tobacco_reports() -> list[dict[str, Any]]:
         "validity_status": "未过期",
         "business_license_person": "张三",
         "tobacco_license_person": "张三",
+        "tobacco_license_no": "510100100001",
         "rule_results": [],
         "oa": {
             "requestid": "DEMO-10001",
