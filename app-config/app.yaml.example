@@ -68,6 +68,17 @@ tobacco_consistency:
   oa_relationship_evidence_field: “”
   oa_multi_address_evidence_field: “”
 
+# Web 控制台本地认证配置；密码和签名密钥放在 .env。
+web_console_auth:
+  username: reviewer
+
+# 企业微信登录和通知路由配置；密钥和 worker 令牌放在 .env。
+wecom:
+  corp_id: your-corp-id
+  agent_id: your-agent-id
+  # 企业微信通知里的审核详情基础地址。
+  notification_base_url: https://your-domain.com
+
 # RPA 烟草证官网验真配置（影刀 RPA）。access_key_secret 放在 .env。
 rpa_verification:
   tobacco_license:
@@ -80,14 +91,3 @@ rpa_verification:
       run_timeout_seconds: 300              # RPA 应用运行超时（秒）
       wait_timeout_seconds: 600             # 排队等待超时（秒）
       poll_interval: 3                      # 轮询间隔（秒）
-
-# Web 控制台本地认证配置；密码和签名密钥放在 .env。
-web_console_auth:
-  username: reviewer
-
-# 企业微信登录和通知路由配置；密钥和 worker 令牌放在 .env。
-wecom:
-  corp_id: your-corp-id
-  agent_id: your-agent-id
-  # 企业微信通知里的审核详情基础地址。
-  notification_base_url: https://your-domain.com
