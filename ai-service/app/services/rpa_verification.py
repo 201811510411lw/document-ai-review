@@ -313,7 +313,11 @@ class YindaoRpaClient:
             if callback.parameter_result is True:
                 return RpaVerificationStatus.AUTHENTIC
             if callback.parameter_result is False:
-                return RpaVerificationStatus.ERROR
+                return (
+                    RpaVerificationStatus.FAILED
+                    if callback.response_id
+                    else RpaVerificationStatus.ERROR
+                )
             # RPA 完成了但没有有效验真结论
             return RpaVerificationStatus.ERROR
         # waiting / running 不应在终态出现
@@ -326,8 +330,10 @@ class YindaoRpaClient:
     ) -> str | None:
         if callback.error_message:
             return callback.error_message
+        if status == RpaVerificationStatus.FAILED:
+            return "官网验真未通过，影刀未返回具体原因"
         if status == RpaVerificationStatus.ERROR and callback.parameter_result is False:
-            return "官网验真返回失败，影刀未返回具体原因"
+            return "验真未完成：影刀未返回官网请求 ID"
         return None
 
     @staticmethod

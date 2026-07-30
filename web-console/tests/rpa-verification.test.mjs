@@ -64,6 +64,14 @@ assert.deepEqual(
   }),
   { visible: false, enabled: false, reason: '' },
 )
+assert.deepEqual(
+  resolveRpaAction({
+    capability: { enabled: true },
+    status: 'FAILED',
+    certificateNo: '510100100001',
+  }),
+  { visible: false, enabled: false, reason: '' },
+)
 
 const repoRoot = path.resolve(fileURLToPath(new URL('../..', import.meta.url)))
 const apiSource = readFileSync(path.join(repoRoot, 'web-console/src/api/index.js'), 'utf8')
@@ -91,4 +99,14 @@ assert.doesNotMatch(
   detailSource,
   /rpaApi\.triggerVerify\(item\.id, item\.tobacco_license_name,/,
   'Tobacco report detail must not submit the subject name as certificate_no',
+)
+assert.match(
+  detailSource,
+  /rpaStatus === 'FAILED'[\s\S]*官网验真未通过/,
+  'Tobacco report detail should distinguish verification failure from execution error',
+)
+assert.match(
+  detailSource,
+  /rpaStatus === 'ERROR'[\s\S]*验真未完成或执行异常/,
+  'Tobacco report detail should describe missing results as an execution error',
 )

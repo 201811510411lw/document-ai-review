@@ -471,13 +471,15 @@ def get_consistency_oa_result(
     rpa_status = (rpa_info or {}).get("status") if isinstance(rpa_info, dict) else None
 
     # 4. 综合一致性 + RPA 结果
-    if rpa_status in ("SUSPECTED", "NOT_FOUND"):
+    if rpa_status in ("FAILED", "SUSPECTED", "NOT_FOUND"):
         review_status = "不通过"
         needs_manual = True
         risk_level = "HIGH"
         unmatched_names = [r.rule_name for r in unmatched] + ["烟草证官网验真"]
         summary_parts = ["烟草证官网验真不通过"]
-        if rpa_status == "NOT_FOUND":
+        if rpa_status == "FAILED":
+            summary_parts.append("官网返回验真未通过，影刀未提供具体原因")
+        elif rpa_status == "NOT_FOUND":
             summary_parts.append("未在国家烟草专卖局官网查到该证照记录")
         else:
             summary_parts.append("证照信息与官网记录不符，疑似伪造")

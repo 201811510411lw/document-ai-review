@@ -626,6 +626,12 @@ order by r.CREATEDATE desc, r.CREATETIME desc
 }
 ```
 
+影刀二值输出按 `parameter` 和 `responseId` 联合映射：
+
+- `parameter=true`：`AUTHENTIC`，官网验真通过。
+- `parameter=false` 且 `responseId` 非空：`FAILED`，官网请求已完成但验真未通过。
+- `parameter=false` 且 `responseId` 为空：`ERROR`，验真未完成或执行异常，不作为证照不真实的结论。
+
 ## 9. 查询审核任务和结果
 
 ### 9.1 `GET /api/v1/food-license/reviews/{task_id}`

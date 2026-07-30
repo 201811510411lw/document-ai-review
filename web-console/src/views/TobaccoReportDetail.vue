@@ -67,8 +67,11 @@
           <div v-else-if="rpaStatus === 'NOT_FOUND'" class="rpa-status rpa-warn">
             <van-icon name="info-o" /> 未在国家烟草专卖局官网查到该证照记录
           </div>
+          <div v-else-if="rpaStatus === 'FAILED'" class="rpa-status rpa-fail">
+            <van-icon name="cross" /> 官网验真未通过
+          </div>
           <div v-else-if="rpaStatus === 'ERROR'" class="rpa-status rpa-warn">
-            <van-icon name="info-o" /> 验真过程出现异常
+            <van-icon name="info-o" /> 验真未完成或执行异常
           </div>
           <div v-else-if="rpaStatus === 'IN_PROGRESS'" class="rpa-status rpa-pending">
             <van-loading size="14" /> 验真实时结果查询中…
@@ -83,7 +86,7 @@
           <div class="rpa-meta">
             <div><span>许可证号</span><strong>{{ rpaCertificateNo || '—' }}</strong></div>
             <div v-if="rpaVerifiedAt"><span>验真时间</span><strong>{{ rpaVerifiedAt }}</strong></div>
-            <div v-if="rpaError"><span>异常信息</span><strong class="rpa-error-text">{{ rpaError }}</strong></div>
+            <div v-if="rpaError"><span>结果说明</span><strong class="rpa-error-text">{{ rpaError }}</strong></div>
           </div>
 
           <div v-if="rpaScreenshotUrl" class="rpa-screenshot">
@@ -186,7 +189,7 @@ const rpaStatusLabel = computed(() => {
   return rpaVerification.value?.result_label || report.value?.rpa_verification?.result_label || '未验真'
 })
 const rpaStatusTagType = computed(() => ({
-  AUTHENTIC: 'success', SUSPECTED: 'danger', NOT_FOUND: 'warning',
+  AUTHENTIC: 'success', FAILED: 'danger', SUSPECTED: 'danger', NOT_FOUND: 'warning',
   ERROR: 'warning', IN_PROGRESS: 'primary', PENDING: 'primary',
 }[rpaStatus.value] || 'default'))
 

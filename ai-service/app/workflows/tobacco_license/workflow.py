@@ -22,7 +22,7 @@ from app.models import (
     RiskLevel,
     RuleResult,
 )
-from app.models.rpa import RpaVerificationResult
+from app.models.rpa import RpaVerificationResult, RpaVerificationStatus
 from app.services.rpa_verification import (
     RpaVerificationService,
     YindaoRpaClient,
@@ -191,7 +191,7 @@ def rpa_verify_node(state: TobaccoLicenseWorkflowState) -> TobaccoLicenseWorkflo
     """RPA 官网验真节点：调用 RPA 平台查询烟草证真伪。
 
     同步调用，超时 30s，超时或异常时不阻断主流程。
-    验真结果为 SUSPECTED/NOT_FOUND 时追加一条审核规则。
+    验真结果为 FAILED/SUSPECTED/NOT_FOUND 时追加一条审核规则。
     """
     client = _build_rpa_client()
     if client is None:
@@ -226,7 +226,11 @@ def rpa_verify_node(state: TobaccoLicenseWorkflowState) -> TobaccoLicenseWorkflo
 
     # 根据验真结果追加规则
     rule_results = list(state.get("rule_results") or [])
-    if result.status in (RpaVerificationStatus.SUSPECTED, RpaVerificationStatus.NOT_FOUND):
+    if result.status in (
+        RpaVerificationStatus.FAILED,
+        RpaVerificationStatus.SUSPECTED,
+        RpaVerificationStatus.NOT_FOUND,
+    ):
         rule_results.append(RuleResult(
             rule_code="TOBACCO_LICENSE_AUTHENTICITY",
             rule_name="烟草证官网验真",

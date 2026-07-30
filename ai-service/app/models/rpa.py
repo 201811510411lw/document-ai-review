@@ -11,6 +11,7 @@ class RpaVerificationStatus(StrEnum):
     PENDING = "PENDING"          # 待验真
     IN_PROGRESS = "IN_PROGRESS"  # 验真中
     AUTHENTIC = "AUTHENTIC"      # 验真通过（真实有效）
+    FAILED = "FAILED"            # 官网请求完成但验真未通过
     SUSPECTED = "SUSPECTED"      # 疑似伪造（信息不符）
     NOT_FOUND = "NOT_FOUND"      # 未查询到该证照
     ERROR = "ERROR"              # 验真过程出错
@@ -20,9 +21,10 @@ _STATUS_LABELS = {
     RpaVerificationStatus.PENDING: "待验真",
     RpaVerificationStatus.IN_PROGRESS: "验真中...",
     RpaVerificationStatus.AUTHENTIC: "官网验真通过",
+    RpaVerificationStatus.FAILED: "官网验真未通过",
     RpaVerificationStatus.SUSPECTED: "疑似伪造",
     RpaVerificationStatus.NOT_FOUND: "未查到该证照",
-    RpaVerificationStatus.ERROR: "验真失败",
+    RpaVerificationStatus.ERROR: "验真异常",
 }
 
 
@@ -109,6 +111,13 @@ class YindaoCallbackPayload(BaseModel):
         if normalized in ("false", "0"):
             return False
         return None
+
+    @property
+    def response_id(self) -> str | None:
+        value = self.get_param("responseId")
+        if value is None:
+            return None
+        return value.strip() or None
 
     @property
     def screenshot_url(self) -> str | None:

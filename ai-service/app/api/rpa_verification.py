@@ -64,6 +64,29 @@ def _update_review_result(
         repository.save(updated)
 
 
+def _stored_rpa_error_message(rpa_info: dict[str, Any]) -> str | None:
+    error_message = rpa_info.get("error_message")
+    if rpa_info.get("status") != "ERROR":
+        return error_message
+
+    raw = rpa_info.get("raw_yindao_response")
+    robot_params = raw.get("robotParams") if isinstance(raw, dict) else None
+    outputs = robot_params.get("outputs") if isinstance(robot_params, dict) else None
+    if not isinstance(outputs, list):
+        return error_message
+
+    values = {
+        str(item.get("name")): item.get("value")
+        for item in outputs
+        if isinstance(item, dict) and item.get("name")
+    }
+    parameter = str(values.get("parameter", "")).strip().lower()
+    response_id = str(values.get("responseId", "")).strip()
+    if parameter in ("false", "0") and not response_id:
+        return "验真未完成：影刀未返回官网请求 ID"
+    return error_message
+
+
 # ------------------------------------------------------------------
 # 手动触发验真（同步轮询）
 # ------------------------------------------------------------------
@@ -208,14 +231,15 @@ def get_rpa_verification_status(
 
     from app.models.rpa import rpa_status_label
 
+    status = rpa_info.get("status")
     return {
         "task_id": task_id,
-        "status": rpa_info.get("status"),
+        "status": status,
         "certificate_no": rpa_info.get("certificate_no"),
         "verified_at": rpa_info.get("verified_at"),
         "screenshot_url": rpa_info.get("screenshot_url"),
-        "result_label": rpa_info.get("result_label") or rpa_status_label(rpa_info.get("status")),
-        "error_message": rpa_info.get("error_message"),
+        "result_label": rpa_status_label(status),
+        "error_message": _stored_rpa_error_message(rpa_info),
         "attempts": rpa_info.get("attempts", 0),
         "raw_yindao_response": rpa_info.get("raw_yindao_response"),
     }

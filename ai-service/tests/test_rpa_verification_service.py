@@ -144,7 +144,7 @@ def test_map_result_treats_true_parameter_as_authentic(parameter):
 
 
 @pytest.mark.parametrize("parameter", [False, "false"])
-def test_map_result_treats_false_parameter_as_failure(parameter):
+def test_map_result_treats_false_parameter_with_response_id_as_failure(parameter):
     result = _client()._map_result(
         certificate_no="652328100481",
         job_uuid="job-123",
@@ -160,5 +160,28 @@ def test_map_result_treats_false_parameter_as_failure(parameter):
         },
     )
 
+    assert result.status == RpaVerificationStatus.FAILED
+    assert result.result_label == "官网验真未通过"
+    assert result.error_message == "官网验真未通过，影刀未返回具体原因"
+
+
+@pytest.mark.parametrize("parameter", [False, "false"])
+def test_map_result_treats_false_parameter_without_response_id_as_error(parameter):
+    result = _client()._map_result(
+        certificate_no="652328100481",
+        job_uuid="job-123",
+        raw={
+            "jobUuid": "job-123",
+            "status": "finish",
+            "robotParams": {
+                "outputs": [
+                    {"name": "parameter", "type": "str", "value": parameter},
+                    {"name": "responseId", "type": "str", "value": ""},
+                ],
+            },
+        },
+    )
+
     assert result.status == RpaVerificationStatus.ERROR
-    assert result.error_message == "官网验真返回失败，影刀未返回具体原因"
+    assert result.result_label == "验真异常"
+    assert result.error_message == "验真未完成：影刀未返回官网请求 ID"
