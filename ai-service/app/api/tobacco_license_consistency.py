@@ -31,12 +31,6 @@ from app.services.tobacco_license_files import (
     TobaccoLicenseFileStore,
     TobaccoLicenseFileStoreError,
 )
-from app.services.tobacco_license_demo import (
-    demo_consistency_payload,
-    demo_pending_stores,
-    demo_source_files,
-    is_demo_store,
-)
 from app.services.tobacco_review_cache import (
     apply_manual_review,
     save_tobacco_report,
@@ -111,28 +105,13 @@ def list_pending_stores(
             },
         ) from error
     except Exception as error:
-        # 本地开发无法访问 StarRocks 时，保留演示任务供工作台验收。
-        # 生产环境不返回 demo 数据，避免用户误以为真。
-        import os
-        is_dev = os.environ.get("DOCUMENT_AI_REVIEW_DEBUG", "").strip().lower() in ("true", "1", "yes")
-        if not is_dev:
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "code": "STARROCKS_UNAVAILABLE",
-                    "message": f"StarRocks 不可用，无法获取待处理列表: {error}",
-                },
-            ) from error
-        all_stores = demo_pending_stores()
-        offset = (page - 1) * page_size
-        stores = all_stores[offset:offset + page_size]
-        return {
-            "stores": stores,
-            "page": page,
-            "page_size": page_size,
-            "has_more": offset + page_size < len(all_stores),
-            "source_unavailable": True,
-        }
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "STARROCKS_UNAVAILABLE",
+                "message": f"StarRocks 不可用，无法获取待处理列表: {error}",
+            },
+        ) from error
 
     return {
         "stores": stores,
@@ -164,10 +143,9 @@ def create_consistency_review(
 
     # 1. 查询 StarRocks 获取来源文件
     try:
-        source_files = (
-            demo_source_files(store_identifier)
-            if is_demo_store(store_identifier)
-            else fetch_latest_tobacco_license_source_files(sql_client, store_identifier)
+        source_files = fetch_latest_tobacco_license_source_files(
+            sql_client,
+            store_identifier,
         )
     except TobaccoLicenseSourceTaskError as error:
         raise HTTPException(
@@ -197,11 +175,10 @@ def create_consistency_review(
 
     # 3. 尝试存储来源文件（可能因为 NAS 不可用而失败，但不阻断流程）
     stored_documents = []
-    if not is_demo_store(store_identifier):
-        try:
-            stored_documents = file_store.store_source_files(source_files)
-        except TobaccoLicenseFileStoreError:
-            pass  # 文件存储失败不影响比对流程
+    try:
+        stored_documents = file_store.store_source_files(source_files)
+    except TobaccoLicenseFileStoreError:
+        pass  # 文件存储失败不影响比对流程
 
     document_results = {}
     extraction_errors = {}
@@ -212,18 +189,14 @@ def create_consistency_review(
             store_identifier=store_identifier,
         )
 
-    if is_demo_store(store_identifier):
-        business_fields = dict(request.business_license_fields)
-        tobacco_fields = dict(request.tobacco_license_fields)
-    else:
-        business_fields = resolved_consistency_fields(
-            document_results.get("business_license"),
-            request.business_license_fields,
-        )
-        tobacco_fields = resolved_consistency_fields(
-            document_results.get("tobacco_license"),
-            request.tobacco_license_fields,
-        )
+    business_fields = resolved_consistency_fields(
+        document_results.get("business_license"),
+        request.business_license_fields,
+    )
+    tobacco_fields = resolved_consistency_fields(
+        document_results.get("tobacco_license"),
+        request.tobacco_license_fields,
+    )
     oa_source = _oa_source_snapshot(
         first,
         source_files=source_files,
@@ -320,26 +293,16 @@ def create_consistency_review(
         "source_request_id": first.requestid,
         "oa": oa_source,
     }
-    # 7. 注入 RPA 验真数据
-    if is_demo_store(store_identifier):
-        report["rpa_verification"] = {
-            "status": "AUTHENTIC",
-            "certificate_no": tobacco_fields.get("license_no") or "53" + str(first.requestid or "00000")[-8:],
-            "verified_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S+08:00"),
-            "screenshot_url": None,
-            "result_label": "官网验真通过",
-        }
-    else:
-        # 非 demo 门店：尝试执行 RPA 验真（同步轮询等影刀结果）
-        _execute_and_store_rpa_verification(
-            repository=repository,
-            result=result,
-            task_id=task_id,
-            certificate_no=str(tobacco_fields.get("license_no") or "").strip(),
-            store_name=store_name,
-            requestid=str(first.requestid or ""),
-            report=report,
-        )
+    # 7. 执行官网 RPA 验真
+    _execute_and_store_rpa_verification(
+        repository=repository,
+        result=result,
+        task_id=task_id,
+        certificate_no=str(tobacco_fields.get("license_no") or "").strip(),
+        store_name=store_name,
+        requestid=str(first.requestid or ""),
+        report=report,
+    )
     save_tobacco_report(report)
     return {
         "task_id": result.task_id,
@@ -371,8 +334,6 @@ def create_consistency_reviews_batch(
     items: list[dict[str, Any]] = []
     for store_identifier in store_identifiers:
         payload = {"store_identifier": store_identifier}
-        if is_demo_store(store_identifier):
-            payload.update(demo_consistency_payload(store_identifier))
         try:
             result = create_consistency_review(
                 request=CreateConsistencyReviewRequest(**payload),
@@ -560,7 +521,7 @@ def _oa_source_snapshot(
             "docid": source_file.docid,
             "doc_subject": source_file.doc_subject,
             "file_name": file_name,
-            "relative_path": _demo_attachment_path(source_file.docid) if str(first.store_code or "").upper().startswith("DEMO-") else None,
+            "relative_path": None,
         })
     attachments.extend({
         "document_role": "selected_attachment",
@@ -585,16 +546,6 @@ def _oa_source_snapshot(
         "request_status": first.request_status,
         "attachments": deduplicated,
     }
-
-
-def _demo_attachment_path(docid: int | None) -> str | None:
-    return {
-        1001: "demo/holder-business-license.pdf",
-        1002: "demo/tobacco-license.pdf",
-        1003: "demo/store-in-store-agreement.pdf",
-    }.get(docid)
-
-
 def _generate_task_id(store_identifier: str) -> str:
     import hashlib
     import time

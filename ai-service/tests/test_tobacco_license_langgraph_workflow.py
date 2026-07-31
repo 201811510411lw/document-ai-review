@@ -13,6 +13,7 @@ from app.models import (
 )
 from app.use_cases.tobacco_license import use_case as tobacco_license_use_case_module
 from app.use_cases.tobacco_license.use_case import TobaccoLicenseUseCase
+from app.workflows.tobacco_license import workflow as tobacco_license_workflow_module
 from app.workflows.tobacco_license.workflow import build_tobacco_license_graph
 
 
@@ -62,6 +63,35 @@ def test_tobacco_license_workflow_is_standard_state_graph():
     }
     assert ("summarize_risk", "manual_review") in conditional_edges
     assert ("summarize_risk", "reviewed") in conditional_edges
+
+
+def test_tobacco_license_workflow_skips_rpa_for_consistency_extraction(monkeypatch):
+    def unexpected_rpa_client_build():
+        raise AssertionError("OA consistency extraction must not trigger RPA verification")
+
+    monkeypatch.setattr(
+        tobacco_license_workflow_module,
+        "_build_rpa_client",
+        unexpected_rpa_client_build,
+    )
+    input_context = ReviewInputContext(
+        task_id="review-task-tobacco-consistency-extraction",
+        input=ReviewInput(
+            supplier_name="",
+            supplier_credit_code="",
+            declared_document_type="tobacco_license",
+            options={"skip_rpa_verification": True},
+        ),
+        use_case_name="tobacco_license",
+        use_case_version="v1",
+        ruleset_version="tobacco-license-rules-v1",
+    )
+
+    state = tobacco_license_workflow_module.rpa_verify_node(
+        {"input_context": input_context}
+    )
+
+    assert state["rpa_verification"] is None
 
 
 def test_tobacco_license_use_case_is_thin_entry_over_runtime_contract(monkeypatch):

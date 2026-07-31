@@ -16,7 +16,7 @@
       background="#fff8e8"
       left-icon="warning-o"
       wrapable
-    >StarRocks 当前不可用，不能将演示数据作为审核依据。</van-notice-bar>
+    >StarRocks 当前不可用，无法加载待处理数据。</van-notice-bar>
     <van-notice-bar
       v-if="batchSummary"
       :color="batchSummary.failed ? '#b84f48' : '#357a56'"

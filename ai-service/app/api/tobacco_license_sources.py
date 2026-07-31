@@ -1,7 +1,7 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.api.auth import require_web_console_user
@@ -16,9 +16,6 @@ from app.services.tobacco_license_files import (
     TobaccoLicenseFileStoreError,
     TobaccoLicenseStoredDocument,
 )
-from app.services.tobacco_license_demo import demo_source_files, is_demo_store
-
-
 router = APIRouter(prefix="/api/v1/tobacco-license", tags=["tobacco-license"])
 LOCAL_FILE_ROUTE_PREFIX = "/api/v1/tobacco-license/source-files/local"
 
@@ -53,10 +50,9 @@ def fetch_tobacco_license_source_files_from_starrocks(
         )
 
     try:
-        source_files = (
-            demo_source_files(store_identifier)
-            if is_demo_store(store_identifier)
-            else fetch_latest_tobacco_license_source_files(sql_client, store_identifier)
+        source_files = fetch_latest_tobacco_license_source_files(
+            sql_client,
+            store_identifier,
         )
     except TobaccoLicenseSourceTaskError as error:
         raise HTTPException(
@@ -77,20 +73,6 @@ def fetch_tobacco_license_source_files_from_starrocks(
                 "store_identifier": store_identifier,
             },
         )
-
-    if is_demo_store(store_identifier):
-        return {
-            "store_identifier": store_identifier,
-            "documents": [{
-                "source": source_files[0].model_dump(mode="json"),
-                "output_dir": "demo",
-                "files": [
-                    {"file_name": "持证主体营业执照.pdf", "relative_path": "demo/holder-business-license.pdf", "file_size": 0, "content_type": "application/pdf"},
-                    {"file_name": "烟草专卖零售许可证.pdf", "relative_path": "demo/tobacco-license.pdf", "file_size": 0, "content_type": "application/pdf"},
-                    {"file_name": "加盟及场地授权协议.pdf", "relative_path": "demo/store-in-store-agreement.pdf", "file_size": 0, "content_type": "application/pdf"},
-                ],
-            }],
-        }
 
     try:
         stored_documents = file_store.store_source_files(source_files)
@@ -119,17 +101,6 @@ def get_tobacco_license_local_file(
     _current_user: dict[str, Any] = Depends(require_web_console_user),
     file_store: TobaccoLicenseFileStore = Depends(get_tobacco_license_file_store),
 ) -> FileResponse:
-    if relative_path.startswith("demo/"):
-        return Response(
-            content=b"Demo OA attachment preview. Use a real OA attachment in production.",
-            media_type="text/plain",
-            headers={
-                "Content-Disposition": (
-                    f'attachment; filename="{relative_path.rsplit("/", 1)[-1]}"'
-                    if download else "inline"
-                )
-            },
-        )
     try:
         path = file_store.resolve_local_file(relative_path)
     except TobaccoLicenseFileStoreError as error:

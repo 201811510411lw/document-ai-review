@@ -639,24 +639,25 @@ def tobacco_reports(
     _current_user: dict[str, Any] = Depends(get_wecom_frontend_user),
     repository: FrontendRepository = Depends(get_review_read_repository),
 ) -> dict[str, Any]:
-    repository_available = True
     try:
         payload = repository.list_qc_reviews(
             document_type="business_tobacco_consistency",
             page=1,
             page_size=200,
         )
-        records = [_frontend_tobacco_report(row) for row in payload.get("records", [])]
-    except Exception:
-        repository_available = False
-        records = []
+        records = [_frontend_tobacco_report(row) for row in payload.get("items", [])]
+    except Exception as error:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "REVIEW_DATABASE_UNAVAILABLE",
+                "message": f"审核结果数据库不可用: {error}",
+            },
+        ) from error
     cached_reports = list_tobacco_reports()
     if cached_reports:
         seen = {row["id"] for row in cached_reports}
         records = cached_reports + [row for row in records if row["id"] not in seen]
-    if not repository_available or not records:
-        seen = {row["id"] for row in records}
-        records.extend(row for row in _demo_tobacco_reports() if row["id"] not in seen)
     return {
         "records": records,
         "stats": {
@@ -677,14 +678,16 @@ def tobacco_report_detail(
     cached_report = get_tobacco_report(task_id)
     if cached_report is not None:
         return {"report": _with_oa_fallback(cached_report)}
-    demo_report = next((item for item in _demo_tobacco_reports() if item["id"] == task_id), None)
-    if demo_report is not None:
-        save_tobacco_report(demo_report)
-        return {"report": _with_oa_fallback(demo_report)}
     try:
         detail = repository.get_qc_review_detail(task_id)
-    except Exception:
-        detail = None
+    except Exception as error:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "REVIEW_DATABASE_UNAVAILABLE",
+                "message": f"审核结果数据库不可用: {error}",
+            },
+        ) from error
     if detail is None or detail.get("document_type") != "business_tobacco_consistency":
         raise HTTPException(status_code=404, detail="烟草证比对报告不存在")
     return {"report": _with_oa_fallback(_frontend_tobacco_report(detail, detail=True))}
@@ -798,105 +801,6 @@ def _with_oa_fallback(report: dict[str, Any]) -> dict[str, Any]:
         "unavailable_message": "该历史报告生成时未保存 OA 原文和附件证据，请重新发起核对以补齐来源信息。",
     }
     return result
-
-
-def _demo_tobacco_reports() -> list[dict[str, Any]]:
-    common = {
-        "overall_result": "通过",
-        "compare_time": "2026-07-16T09:00:00+08:00",
-        "unmatched_fields": [],
-        "name_match": "匹配",
-        "address_match": "匹配",
-        "person_match": "匹配",
-        "type_match": "正确",
-        "validity_status": "未过期",
-        "business_license_person": "张三",
-        "tobacco_license_person": "张三",
-        "tobacco_license_no": "510100100001",
-        "rule_results": [],
-        "oa": {
-            "requestid": "DEMO-10001",
-            "workflow_id": 614,
-            "request_name": "烟草商品建档申请 - 演示门店",
-            "content_summary": "演示用 OA 申请内容，材料已由系统归档。",
-            "created_date": "2026-07-16",
-            "created_time": "09:00:00",
-            "request_status": "待处理",
-            "attachments": [
-                {"document_role": "business_license", "docid": "DEMO-01", "file_name": "持证主体营业执照.pdf"},
-                {"document_role": "tobacco_license", "docid": "DEMO-02", "file_name": "烟草专卖零售许可证.pdf"},
-            ],
-        },
-    }
-    return [
-        {
-            **common,
-            "id": "demo-standard-review",
-            "company_name": "成都示例烟草商行",
-            "review_mode": "standard",
-            "business_license_name": "成都示例烟草商行",
-            "tobacco_license_name": "成都示例烟草商行",
-            "business_license_address": "成都市高新区天府大道 1 号",
-            "tobacco_license_address": "成都市高新区天府大道 1 号",
-            "comparison": {"review_mode": "standard", "differences": []},
-        },
-        {
-            **common,
-            "id": "demo-store-in-store-review",
-            "company_name": "乙便利店",
-            "review_mode": "store_in_store",
-            "business_license_name": "乙便利店",
-            "tobacco_license_name": "乙便利店",
-            "business_license_address": "成都市锦江区总店",
-            "tobacco_license_address": "成都市高新区天府大道 1 号",
-            "comparison": {
-                "review_mode": "store_in_store",
-                "differences": [],
-                "store_in_store": {
-                    "relationship_evidence": {"document_id": "加盟及场地授权协议.pdf"},
-                    "multi_address_evidence": {"addresses": ["成都市高新区天府大道 1 号"]},
-                },
-            },
-        },
-        {
-            **common,
-            "id": "demo-failed-review",
-            "company_name": "成都其他烟草商行",
-            "overall_result": "不通过",
-            "unmatched_fields": ["主体名称一致", "烟草证有效期"],
-            "review_mode": "standard",
-            "name_match": "不匹配",
-            "validity_status": "已过期",
-            "business_license_name": "成都示例烟草商行",
-            "tobacco_license_name": "成都其他烟草商行",
-            "business_license_address": "成都市高新区天府大道 1 号",
-            "tobacco_license_address": "成都市高新区天府大道 1 号",
-            "comparison": {"review_mode": "standard", "differences": [{"rule_code": "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH"}, {"rule_code": "BUSINESS_TOBACCO_TOBACCO_VALIDITY"}]},
-            "rule_results": [
-                {"rule_code": "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH", "rule_name": "主体名称一致", "passed": False, "message": "主体名称不通过"},
-                {"rule_code": "BUSINESS_TOBACCO_TOBACCO_VALIDITY", "rule_name": "烟草证有效期", "passed": False, "message": "烟草证已过期"},
-            ],
-        },
-        {
-            **common,
-            "id": "demo-pending-review",
-            "company_name": "丙店中店便利店",
-            "overall_result": "待校验",
-            "unmatched_fields": ["加盟/联营/场地授权凭证"],
-            "review_mode": "store_in_store",
-            "needs_manual_review": True,
-            "business_license_name": "丙店中店便利店",
-            "tobacco_license_name": "丙店中店便利店",
-            "business_license_address": "成都市高新区天府大道 2 号",
-            "tobacco_license_address": "成都市高新区天府大道 2 号",
-            "comparison": {"review_mode": "store_in_store", "differences": [{"rule_code": "STORE_IN_STORE_RELATIONSHIP_EVIDENCE"}], "store_in_store": {"relationship_evidence": {}}},
-            "rule_results": [
-                {"rule_code": "STORE_IN_STORE_RELATIONSHIP_EVIDENCE", "rule_name": "加盟/联营/场地授权凭证", "passed": False, "message": "缺少可识别的关系凭证"},
-            ],
-        },
-    ]
-
-
 def _frontend_qc_record(
     row: dict[str, Any],
     *,

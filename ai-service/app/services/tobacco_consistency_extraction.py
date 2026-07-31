@@ -106,6 +106,11 @@ def _review_input_for_document(
             "document_role": role,
             "relative_path": stored_file.relative_path,
         },
+        options=(
+            {"skip_rpa_verification": True}
+            if document_type == "tobacco_license"
+            else {}
+        ),
     )
 
 

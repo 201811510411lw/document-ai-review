@@ -193,6 +193,10 @@ def rpa_verify_node(state: TobaccoLicenseWorkflowState) -> TobaccoLicenseWorkflo
     同步调用，超时 30s，超时或异常时不阻断主流程。
     验真结果为 FAILED/SUSPECTED/NOT_FOUND 时追加一条审核规则。
     """
+    ctx = state.get("input_context")
+    if ctx and ctx.input.options.get("skip_rpa_verification") is True:
+        return {**state, "rpa_verification": None}
+
     client = _build_rpa_client()
     if client is None:
         # RPA 未启用，跳过
@@ -200,7 +204,6 @@ def rpa_verify_node(state: TobaccoLicenseWorkflowState) -> TobaccoLicenseWorkflo
 
     fields = state.get("normalized_fields") or TobaccoLicenseNormalizedFields()
     certificate_no = fields.license_no or ""
-    ctx = state.get("input_context")
     store_name = ctx.input.supplier_name if ctx else ""
     task_id = ctx.task_id if ctx else ""
 
