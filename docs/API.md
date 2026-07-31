@@ -1,861 +1,322 @@
-# 食品安全证照与 QC 文档检测 V1 API 契约
+# document-ai-review 当前 API 契约
 
-本文档定义食品安全证照与 QC 文档检测 V1 的 FastAPI HTTP API 契约，供后续 `ai-service` 实现、测试脚本和外部系统集成使用。
+本文档描述当前 FastAPI 服务已经实现的 HTTP 行为。原始产品设想见
+[PRD.md](PRD.md)，全部 operation 的机器生成清单见
+[api/openapi-operations.md](api/openapi-operations.md)。
 
-`README.md` 是项目唯一主上下文；`docs/PRD.md` 是原始产品需求依据。本文档只描述 API 契约，不实现业务代码。
+## 1. 事实源与维护方式
 
----
+- 当前 HTTP 路由以 FastAPI `app.main:app` 生成的 OpenAPI 为事实源。
+- `docs/api/openapi-operations.md` 是生成产物，不手工编辑。
+- 请求体和响应模型以运行中的 `/docs`、`/openapi.json` 和本文件的业务约定为准。
+- 未实现接口不能混入当前契约；未来设计必须显式标记为 `proposed`。
 
-## 1. 设计目标
+生成并校验 operation 清单：
 
-食品安全证照与 QC 文档检测 V1 采用纯 Python 架构，当前只有一个 Python 服务：`ai-service`。
+```bash
+cd ai-service
+python scripts/generate_api_operation_inventory.py
+python scripts/generate_api_operation_inventory.py --check
+```
 
-API 契约目标：
+## 2. 通用约定
 
-- 优先支持食品安全证照和 QC 产品报告审核闭环；
-- 为 FastAPI 创建审核任务、查询审核结果和人工复核提供稳定 HTTP 边界；
-- 明确请求字段、响应字段、错误语义和状态流转；
-- 明确 FastAPI、Review Service、use_case、capability、LangGraph、LangChain、Python 规则引擎和 MySQL 审核结果库的职责边界；
-- 明确 `/api/v1/food-license/reviews` 是 `food_license` use_case 快捷入口，`/api/v1/qc/*` 是 QC 聚合查询和商品报告入口，后续 `/api/v1/reviews` 是平台通用入口；
-- 为后续文件上传、图片解析和 PDF 解析保留接口扩展空间，但不把它们列为第一阶段必实现能力。
+### 2.1 Base URL
 
-## 2. 职责边界
-
-| 模块 | API 契约中的职责 |
-| --- | --- |
-| FastAPI | 暴露 HTTP API，完成请求解析、基础校验、响应封装和错误映射 |
-| Review Service | 创建审核任务，构造 `input_context`，调用 `ReviewGraphRegistry` runtime entry，协调结果保存和人工复核动作 |
-| ReviewGraphRegistry | 显式注册内置 LangGraph workflow runtime entry，按 graph name 或文档类型路由 |
-| use_case | Thin Entry，仅负责参数承接、调用 graph runtime、投影 `ReviewResult` |
-| LangChain Tool | 无状态能力单元，封装 OCR、字段抽取、标准化和风险评分等可复用能力 |
-| LangGraph | 在 `food_license` workflow 内部编排核心流程和节点状态流转 |
-| LangChain | 在 capability 或 workflow 内部负责模型调用、Prompt、结构化输出和工具封装 |
-| LLM | 只用于字段抽取、结构化输出和摘要建议，不直接做最终规则判定 |
-| Python 规则引擎 | 执行确定性规则校验，并基于规则结果汇总最终风险等级 |
-| MySQL 审核结果库 | 保存审核任务、审核结果、规则结果、人工复核记录和审计日志 |
-
-平台只调用 `ReviewGraphRegistry` 中的 runtime entry。API 层不得直接实现食品安全证照规则判断，也不得直接调用 `extract_fields`、`run_rules`、`summarize_risk` 或 `route_review` 等 workflow / tool 内部节点。最终风险等级不得由 LLM 直接给出，必须由 Python 规则引擎结果汇总得到。
-
-## 3. 通用约定
-
-### 3.1 Base URL
-
-本地开发默认：
+本地默认地址：
 
 ```text
-http://localhost:8000
+http://127.0.0.1:8000
 ```
 
-食品经营许可证快捷入口使用统一前缀：
+### 2.2 请求与时间
 
-```text
-/api/v1/food-license
-```
+- JSON 请求使用 `Content-Type: application/json`。
+- 文件由受信任的本地路径或远程 URI 描述；当前审核创建接口不是 multipart 上传接口。
+- 日期使用 `YYYY-MM-DD`，时间戳使用 ISO 8601。
+- 列表接口的分页参数通常为 `page` 和 `page_size`，具体范围以 OpenAPI 为准。
 
-QC 证照、产品报告和人工复核聚合接口使用统一前缀：
+### 2.3 认证
 
-```text
-/api/v1/qc
-```
+Web Console 支持两种会话凭据：
 
-`/api/v1/food-license/reviews` 是 `food_license` use_case 的快捷入口。`/api/v1/qc/product-report/reviews/from-srm` 是 `qc_document_review` 中 `product_report` 的 SRM 拉取入口。后续平台通用入口为：
+- `Authorization: Bearer <access_token>`；
+- 企业微信 SSO 回调设置的 HttpOnly session cookie。
 
-```text
-/api/v1/reviews
-```
+来源查询、结果查询、人工复核、工作台和 RPA 手动操作通常要求 Web Console
+会话。通知 worker 使用独立的 `WECOM_WORKER_TOKEN`。影刀 callback 是供应商回调入口，
+当前应用层不校验 Web Console 会话，生产部署必须在网关或网络边界限制来源。
 
-快捷入口和通用入口都必须经过 Review Service + `ReviewGraphRegistry`，不能维护两套审核逻辑。
+### 2.4 统一审核结果
 
-### 3.2 Content Type
-
-第一阶段 OCR 文本输入接口使用 JSON：
-
-```http
-Content-Type: application/json
-Accept: application/json
-```
-
-后续文件上传接口可以使用 `multipart/form-data`，但不属于第一阶段必实现范围。
-
-### 3.3 时间格式
-
-API 中的日期和时间使用：
-
-- 日期：`YYYY-MM-DD`
-- 时间戳：ISO 8601，例如 `2026-06-08T14:30:00+08:00`
-
-### 3.4 枚举值
-
-#### 任务状态
-
-| 值 | 说明 |
-| --- | --- |
-| `CREATED` | 审核任务已创建 |
-| `RUNNING` | 审核工作流执行中 |
-| `REVIEWED` | 自动审核已完成 |
-| `PENDING_MANUAL_REVIEW` | 等待人工复核 |
-| `MANUAL_REVIEWED` | 人工复核已完成 |
-| `FAILED` | 审核任务执行失败 |
-
-#### 证照类型
-
-| 值 | 说明 |
-| --- | --- |
-| `food_license` | 食品安全相关证照 |
-| `food_production_license` | 食品生产许可证 |
-| `product_report` | 商品产品报告 / 第三方检验报告 |
-| `batch_report` | 商品批次报告 |
-| `unknown` | 无法识别或暂不支持的材料 |
-
-#### 风险等级
-
-| 值 | 说明 |
-| --- | --- |
-| `HIGH` | 高风险 |
-| `MEDIUM` | 中风险 |
-| `LOW` | 低风险 |
-| `NONE` | 无明显风险 |
-
-#### 人工复核动作
-
-| 值 | 说明 |
-| --- | --- |
-| `APPROVE` | 人工通过 |
-| `REJECT` | 人工驳回 |
-| `REQUEST_MORE_INFO` | 要求补充材料或信息 |
-
-#### 人工复核状态
-
-| 值 | 说明 |
-| --- | --- |
-| `NOT_REQUIRED` | 不需要人工复核 |
-| `PENDING` | 等待人工复核 |
-| `COMPLETED` | 人工复核已完成 |
-
-## 4. 通用响应结构
-
-成功响应直接返回业务对象。
-
-错误响应统一结构：
-
-```json
-{
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "请求参数不合法",
-    "details": [
-      {
-        "field": "ocr_text",
-        "message": "ocr_text 不能为空"
-      }
-    ],
-    "request_id": "req-20260608-000001"
-  }
-}
-```
+审核执行结果使用 `ReviewResult`，核心字段包括：
 
 | 字段 | 说明 |
 | --- | --- |
-| `error.code` | 稳定错误编码 |
-| `error.message` | 面向调用方的错误说明 |
-| `error.details` | 字段级或上下文级错误详情 |
-| `error.request_id` | 请求追踪 ID |
-
-## 5. 接口清单
-
-| 方法 | 路径 | 说明 | 第一阶段优先级 |
-| --- | --- | --- | --- |
-| `GET` | `/health` | 健康检查 | 必须 |
-| `POST` | `/api/v1/food-license/reviews` | 基于 OCR 文本创建审核任务 | 必须 |
-| `GET` | `/api/v1/food-license/reviews/{task_id}` | 查询审核任务和审核结果 | 必须 |
-| `POST` | `/api/v1/food-license/reviews/{task_id}/manual-review` | 提交人工复核动作 | 必须 |
-| `POST` | `/api/v1/food-license/reviews:upload` | 上传图片或 PDF 创建审核任务 | 保留设计，低优先级 |
-| `POST` | `/api/v1/qc/product-report/reviews/from-srm` | 从 SRM 拉取一条商品产品报告并审核 | 必须 |
-| `POST` | `/api/v1/qc/batch-report/reviews/from-starrocks` | 从 StarRocks SRM 同步表随机拉取一条商品批次报告并审核 | 必须 |
-| `POST` | `/api/v1/tobacco-license/source-files/from-starrocks` | 按门店从 StarRocks OA 快照表查烟草证附件并从本地 NAS 解压落盘 | 必须 |
-| `GET` | `/api/v1/tobacco-license/source-files/local/{relative_path}` | 预览或下载已落盘的烟草证文件 | 必须 |
-| `GET` | `/api/v1/tobacco-license/rpa-verify-capability` | 查询烟草证官网验真运行时能力状态 | 可选 |
-| `POST` | `/api/v1/tobacco-license/rpa-verify` | 使用烟草证许可证号手动发起官网验真 | 可选 |
-| `GET` | `/api/v1/tobacco-license-consistency/reviews/{task_id}/oa-result` | 获取烟草双证核对的 OA 回传载荷，不主动调用 OA | 必须 |
-| `GET` | `/api/v1/qc/reviews` | 查询 QC 审核列表，支持证照和产品报告 | 必须 |
-| `GET` | `/api/v1/qc/reviews/{task_id}` | 查询 QC 审核详情 | 必须 |
-| `POST` | `/api/v1/qc/reviews/{task_id}/manual-review` | 提交 QC 人工复核动作 | 必须 |
-| `POST` | `/api/v1/reviews` | 平台通用审核入口 | 后续扩展 |
-
-## 6. 健康检查
-
-### 6.1 `GET /health`
-
-用于确认 `ai-service` 是否可用。
-
-#### 响应示例
-
-```json
-{
-  "status": "ok",
-  "service": "ai-service",
-  "version": "v1",
-  "timestamp": "2026-06-08T14:30:00+08:00"
-}
-```
-
-#### 验收要求
-
-- 返回 HTTP `200` 表示服务进程可响应；
-- 不要求检查模型、数据库或外部依赖的生产级健康状态；
-- 不暴露敏感配置、模型密钥或数据库连接信息。
-
-## 7. 创建 OCR 文本审核任务
-
-### 7.1 `POST /api/v1/food-license/reviews`
-
-基于 OCR 文本创建食品安全证照审核任务。第一阶段优先实现该接口，用于跑通最小闭环。
-
-#### 请求字段
-
-| 字段 | 类型 | 必填 | 说明 |
-| --- | --- | --- | --- |
-| `ocr_text` | string | 是 | 食品安全证照 OCR 文本 |
-| `supplier.name` | string | 是 | 业务系统中的供应商名称 |
-| `supplier.credit_code` | string | 是 | 业务系统中的统一社会信用代码 |
-| `supplier.address` | string | 否 | 业务系统中的供应商经营地址 |
-| `declared_document_type` | string | 否 | 调用方声明的证照类型，例如 `food_license` |
-| `source` | object | 否 | 输入来源元信息 |
-| `options` | object | 否 | 审核选项 |
-
-#### 请求示例
-
-```json
-{
-  "ocr_text": "食品经营许可证\\n经营者名称：成都示例食品有限公司\\n统一社会信用代码：91510100MA00000000\\n许可证编号：JY15101000000000\\n经营项目：预包装食品销售、散装食品销售\\n有效期至：2028-01-01",
-  "supplier": {
-    "name": "成都示例食品有限公司",
-    "credit_code": "91510100MA00000000",
-    "address": "成都市示例区示例路 100 号"
-  },
-  "declared_document_type": "food_license",
-  "source": {
-    "input_type": "ocr_text",
-    "external_reference_id": "supplier-doc-001"
-  },
-  "options": {
-    "sync": true
-  }
-}
-```
-
-#### 响应字段
-
-| 字段 | 说明 |
-| --- | --- |
-| `task_id` | 审核任务 ID |
-| `status` | 审核任务状态 |
-| `document_type` | 证照类型识别结果 |
-| `use_case_name` | 执行本次审核的 use_case 名称，例如 `food_license` |
-| `use_case_version` | 执行本次审核的 use_case 版本 |
-| `skill_name` | 兼容字段，短期镜像 `use_case_name` |
-| `skill_version` | 兼容字段，短期镜像 `use_case_version` |
-| `ruleset_version` | 执行本次审核的规则集版本 |
-| `capability_names` | 本次审核使用的 capability 名称列表 |
-| `risk_level` | 最终风险等级 |
+| `task_id` | Review Task 唯一标识 |
+| `use_case_name` / `use_case_version` | Review Use Case 及版本 |
+| `ruleset_version` | 规则集版本 |
+| `document_type` | 实际审核文档类型 |
+| `status` | Review Task 状态 |
+| `risk_level` | `HIGH`、`MEDIUM`、`LOW` 或 `NONE` |
 | `needs_manual_review` | 是否需要人工复核 |
-| `rule_results` | Python 规则引擎输出的规则结果；其中 `risk_level_on_failure` 表示该规则未通过时产生的风险等级 |
-| `manual_review` | 人工复核状态、原因和后续人工动作信息 |
-| `summary` | 摘要建议，可由规则结果和 LLM 辅助生成 |
-| `skill_result` | workflow artifact 容器，当前承载食品安全证照的抽取字段、规范化字段和运行证据 |
-| `created_at` | 任务创建时间 |
-| `updated_at` | 任务更新时间 |
+| `rule_results` | 确定性 Domain Rule 结果 |
+| `manual_review` | 人工复核状态、原因和结论 |
+| `audit_events` | 审核审计事件 |
+| `skill_result`（兼容字段名） | 文档类型专属结构化结果 |
 
-#### 同步完成响应示例
+任务状态为 `CREATED`、`RUNNING`、`REVIEWED`、
+`PENDING_MANUAL_REVIEW`、`MANUAL_REVIEWED` 或 `FAILED`。
 
-```json
-{
-  "task_id": "review-task-001",
-  "status": "REVIEWED",
-  "document_type": "food_license",
-  "use_case_name": "food_license",
-  "use_case_version": "v1",
-  "skill_name": "food_license",
-  "skill_version": "v1",
-  "ruleset_version": "food-license-rules-v1",
-  "capability_names": ["food_license"],
-  "risk_level": "NONE",
-  "needs_manual_review": false,
-  "rule_results": [
-    {
-      "rule_code": "FOOD_LICENSE_EXISTS",
-      "rule_name": "证照是否存在",
-      "passed": true,
-      "risk_level_on_failure": "HIGH",
-      "message": "已检测到可审核的 OCR 文本"
-    },
-    {
-      "rule_code": "CREDIT_CODE_MATCH",
-      "rule_name": "统一社会信用代码是否一致",
-      "passed": true,
-      "risk_level_on_failure": "HIGH",
-      "message": "证照信用代码与供应商信用代码一致"
-    }
-  ],
-  "manual_review": {
-    "status": "NOT_REQUIRED",
-    "reasons": [],
-    "reviewer": null,
-    "action": null,
-    "comment": null,
-    "reviewed_at": null
-  },
-  "summary": "未发现明显风险，可自动通过。",
-  "skill_result": {
-    "extracted_fields": {
-      "subject_name": "成都示例食品有限公司",
-      "credit_code": "91510100MA00000000",
-      "license_no": "JY15101000000000",
-      "business_address": "成都市示例区示例路 100 号",
-      "legal_person": null,
-      "business_items": ["预包装食品销售", "散装食品销售"],
-      "valid_from": null,
-      "valid_to": "2028-01-01",
-      "issue_authority": null,
-      "issue_date": null
-    },
-    "normalized_fields": {
-      "subject_name": "成都示例食品有限公司",
-      "credit_code": "91510100MA00000000",
-      "license_no": "JY15101000000000",
-      "business_address": "成都市示例区示例路100号",
-      "legal_person": null,
-      "business_items": ["预包装食品销售", "散装食品销售"],
-      "valid_from": null,
-      "valid_to": "2028-01-01",
-      "issue_authority": null,
-      "issue_date": null
-    }
-  },
-  "created_at": "2026-06-08T14:30:00+08:00",
-  "updated_at": "2026-06-08T14:30:03+08:00"
-}
-```
+### 2.5 错误响应
 
-#### 等待人工复核响应示例
-
-```json
-{
-  "task_id": "review-task-002",
-  "status": "PENDING_MANUAL_REVIEW",
-  "document_type": "food_license",
-  "skill_name": "food_license",
-  "skill_version": "v1",
-  "ruleset_version": "food-license-rules-v1",
-  "risk_level": "HIGH",
-  "needs_manual_review": true,
-  "rule_results": [
-    {
-      "rule_code": "FOOD_LICENSE_EXPIRED",
-      "rule_name": "证照是否过期",
-      "passed": false,
-      "risk_level_on_failure": "HIGH",
-      "message": "当前日期超过证照有效期截止日期"
-    }
-  ],
-  "manual_review": {
-    "status": "PENDING",
-    "reasons": ["证照已过期"],
-    "reviewer": null,
-    "action": null,
-    "comment": null,
-    "reviewed_at": null
-  },
-  "summary": "发现高风险问题，建议人工复核证照有效期。",
-  "skill_result": {
-    "extracted_fields": {
-      "subject_name": "成都示例食品有限公司",
-      "credit_code": "91510100MA00000000",
-      "license_no": "JY15101000000000",
-      "business_items": ["预包装食品销售"],
-      "valid_to": "2025-01-01"
-    },
-    "normalized_fields": {
-      "subject_name": "成都示例食品有限公司",
-      "credit_code": "91510100MA00000000",
-      "license_no": "JY15101000000000",
-      "business_items": ["预包装食品销售"],
-      "valid_to": "2025-01-01"
-    }
-  },
-  "created_at": "2026-06-08T14:30:00+08:00",
-  "updated_at": "2026-06-08T14:30:03+08:00"
-}
-```
-
-#### 处理语义
-
-- FastAPI 完成 JSON 解析和基础字段校验；
-- Review Service 创建审核任务并记录任务初始状态；
-- Review Service 调用 Skill Registry；
-- Skill Registry 路由到 `food_license` Skill；
-- `food_license.review(input_context)` 执行 Skill 内部 LangGraph 工作流；
-- LangChain / LLM 在 Skill 内部负责字段抽取、结构化输出和摘要建议；
-- Python 规则引擎负责规则判断，具体食品安全证照规则来自 `food_license` Skill 内部 `rules.yaml`；
-- 最终风险等级由 Python 规则引擎结果汇总得到；
-- MySQL 审核结果库保存任务、结果、规则结果、人工复核状态和审计日志。
-
-## 8. 创建 SRM 产品报告审核任务
-
-### 8.1 `POST /api/v1/qc/product-report/reviews/from-srm`
-
-从 StarRocks 中同步的 SRM 商品维度产品报告 / 第三方检验报告来源记录拉取一条材料，下载附件并执行 `qc_document_review`。
-
-#### SRM 来源筛选
-
-```sql
-select *
-from ods_srm_srm_certification_df t1
-left join ods_srm_srm_attachment_df t2 on t1.uuid = t2.refId
-where t2.tenant = '8560'
-  and t1.category = 'sku'
-  and t1.typeName = '产品报告'
-  and t1.deleted = 0
-  and t2.removed = 0
-```
-
-#### 输入映射
-
-| SRM 字段 | ReviewInput 字段 | 说明 |
-| --- | --- | --- |
-| `t1.uuid` | `source.record_id` | SRM 产品报告记录 ID |
-| `t2.uuid` | `source.attachment_uuid` | 附件记录 ID |
-| `t2.refId` | `source.attachment_ref_id` | 附件关联 ID |
-| `t1.tenant` / `t2.tenant` | `source.tenant` | 租户 |
-| `t1.vendorName` | `supplier_name` | SRM 供应商名称 |
-| `t1.vendorId` | `source.vendor_id` | SRM 供应商 ID |
-| `t1.num` / `t1.number` | `source.sku_number` / `source.business_number` | 商品维度业务编号 |
-| `t2.attachmentName` | `file.file_name` | 附件名 |
-| `t2.url` | `file.file_uri` | 远程 PDF / 图片 URL |
-| `t1.typeName='产品报告'` | `declared_document_type='product_report'` | 文档类型声明 |
-
-#### 审核规则摘要
-
-- 报告类型必须为 `product_report`。
-- 优先抽取报告编号、样品名称/产品名称、委托单位/生产商、生产日期、签发日期/批准日期、检验结论、检验项目明细。
-- 有效期按 `签发日期或批准日期 + 180天` 计算；剩余天数 `<0` 为已过期，`0..30` 为三十天内即将过期，`>30` 为未过期。
-- 样品名称/产品名称与 SRM 商品名做模糊匹配；委托单位/生产商与 SRM 供应商名称比对。
-- 检验结论包含不合格、不通过、不符合等负向词时判定高风险失败；结论缺失或不明确时进入人工复核。
-
-#### 响应
-
-响应结构与通用 `ReviewResult` 一致，`document_type` 为 `product_report`，`use_case_name` 为 `qc_document_review`。`skill_result.extracted_fields` 至少应包含：
-
-```json
-{
-  "report_no": "A2260511467101001C",
-  "product_name": "鲜切蛋糕(蓝莓风味)",
-  "sample_name": "鲜切蛋糕(蓝莓风味)",
-  "vendor_name_extracted": "广东乃一口食品有限公司",
-  "entrusting_party": "广东乃一口食品有限公司",
-  "manufacturer_name": "广东乃一口食品有限公司",
-  "production_date": "2026-06-20",
-  "issue_date": "2026-06-29",
-  "valid_to": "2026-12-26",
-  "inspection_conclusion": "所检项目符合要求",
-  "inspection_items": []
-}
-```
-
-### 8.2 `POST /api/v1/qc/batch-report/reviews/from-starrocks`
-
-从 StarRocks 中的 SRM 同步表随机拉取一条商品批次报告来源记录，下载附件并执行 `qc_document_review`。
-
-当前首版默认 `review_date=2026-05-05`，用于验证链路；后续默认值会调整为昨天。调用方可通过查询参数覆盖：
-
-```text
-POST /api/v1/qc/batch-report/reviews/from-starrocks?review_date=2026-05-05
-```
-
-#### StarRocks 来源筛选
-
-来源表：
-
-```text
-ods_srm_srm_orders_df
-ods_srm_srm_orderdeliverybatch_df
-ods_srm_srm_attachment_df
-```
-
-核心筛选：
-
-```sql
-t1.tenant = '8560'
-and t1.created >= '{review_date} 00:00:00'
-and t1.created < '{review_date + 1 day} 00:00:00'
-and t1.state = 'finish'
-and t3.refType = 'orderDeliveryBatch'
-and (t3.removed = 0 or t3.removed is null)
-and t3.url is not null
-and t3.url <> ''
-order by rand()
-limit 1
-```
-
-#### 输入映射
-
-| StarRocks 字段 | ReviewInput 字段 | 说明 |
-| --- | --- | --- |
-| `t2.uuid` | `source.record_id` / `source.batch_uuid` | 批次记录 ID |
-| `t1.number` | `source.order_number` | 订单号 |
-| `t1.vendorName` | `supplier_name` / `source.vendor_name` | 供应商名称 |
-| `t2.skuName` | `source.sku_name` | 商品名称 |
-| `t2.productionTime` | `source.production_date` | 来源批次生产日期 |
-| `t3.uuid` | `source.attachment_uuid` | 附件记录 ID |
-| `t3.attachmentName` | `file.file_name` | 附件名 |
-| `t3.url` | `file.file_uri` | 远程 PDF / 图片 URL |
-| 固定值 | `declared_document_type='batch_report'` | 文档类型声明 |
-
-#### 审核规则摘要
-
-- 抽取厂名/公司名、产品名称、生产批号和生产日期。
-- 产品名称与来源商品名比对。
-- 厂名/公司名与来源供应商名称比对。
-- 报告生产日期需与来源批次生产日期一致；若只识别到生产批号，批号中包含 `YYYYMMDD` 也可视为匹配。
-- 附件无法获取可审核文本、关键字段缺失或比对不一致时进入人工复核。
-
-### 8.3 `POST /api/v1/tobacco-license/source-files/from-starrocks`
-
-按门店标识从 StarRocks OA 快照表查询最新烟草证附件元数据，并读取本机 `/data` NAS 挂载路径中的 OA zip 文件，解压到 `ai-service/data/tobacco_license/`。该接口只完成来源文件准备，不执行国家烟草证下载比对和最终审核。
-
-#### 请求示例
-
-```json
-{
-  "store_identifier": "B65230024"
-}
-```
-
-#### StarRocks 来源链路
-
-```text
-ods_oa_ecology_formtable_main_283_df.ycxsxkz
--> ods_oa_ecology_docdetail_df.ID
--> ods_oa_ecology_docimagefile_df.DOCID / IMAGEFILEID
--> ods_oa_ecology_imagefile_df.IMAGEFILEID / FILEREALPATH
-```
-
-核心筛选：
-
-```sql
-r.WORKFLOWID = 614
-and f.ycxsxkz is not null
-and trim(f.ycxsxkz) <> ''
-and i.FILEREALPATH is not null
-and (
-  f.mdbm = '{store_identifier}'
-  or f.mdmc = '{store_identifier}'
-  or instr(ifnull(f.qsbt, ''), '{store_identifier}') > 0
-  or instr(ifnull(f.nrgk, ''), '{store_identifier}') > 0
-  or instr(ifnull(r.REQUESTNAME, ''), '{store_identifier}') > 0
-)
-order by r.CREATEDATE desc, r.CREATETIME desc
-```
-
-#### 响应示例
-
-```json
-{
-  "store_identifier": "B65230024",
-  "documents": [
-    {
-      "source": {
-        "requestid": 2801287,
-        "store_code": "B65230024",
-        "docid": 824576,
-        "imagefile_id": 1409517,
-        "file_real_path": "/data/oaec/202607/J/38982780-2512-4dd7-8e4d-feb27f5d44bf.zip",
-        "is_zip": "1",
-        "is_encrypt": "0",
-        "is_aes_encrypt": 0
-      },
-      "files": [
-        {
-          "file_name": "y.jpg",
-          "relative_path": "B65230024/2801287_824576_1409517/y.jpg",
-          "content_type": "image/jpeg",
-          "preview_url": "/api/v1/tobacco-license/source-files/local/B65230024/2801287_824576_1409517/y.jpg",
-          "download_url": "/api/v1/tobacco-license/source-files/local/B65230024/2801287_824576_1409517/y.jpg?download=1"
-        }
-      ]
-    }
-  ]
-}
-```
-
-### 8.4 `GET /api/v1/tobacco-license/source-files/local/{relative_path}`
-
-读取 `ai-service/data/tobacco_license/` 下已解压的烟草证文件。默认用于预览；追加 `?download=1` 时返回附件下载文件名。
-
-### 8.5 `GET /api/v1/tobacco-license/rpa-verify-capability`
-
-返回烟草证官网验真的运行时开关状态。前端必须以该接口为准决定是否允许发起验真。
-
-```json
-{
-  "enabled": false,
-  "disabled_reason": "RPA 验真功能未启用"
-}
-```
-
-### 8.6 `POST /api/v1/tobacco-license/rpa-verify`
-
-使用审核报告中的 `tobacco_license_no` 作为 `certificate_no` 发起官网验真；不得使用烟草证主体名称或门店编号代替许可证号。
-
-```json
-{
-  "task_id": "tc-6593ab4814c1777f",
-  "certificate_no": "510100100001",
-  "store_name": "示例门店"
-}
-```
-
-当能力开关关闭时返回 `400`：
+业务错误通常由 FastAPI `HTTPException` 返回：
 
 ```json
 {
   "detail": {
-    "code": "RPA_VERIFICATION_DISABLED",
-    "message": "RPA 验真功能未启用"
+    "code": "ERROR_CODE",
+    "message": "错误说明"
   }
 }
 ```
 
-影刀二值输出按 `parameter` 和 `responseId` 联合映射：
+参数模型校验错误由 FastAPI 返回 `422`。调用方必须同时处理字符串形式和对象形式的
+`detail`；当前 API 尚未把所有路由收口到单一错误 envelope。
 
-- `parameter=true`：`AUTHENTIC`，官网验真通过。
-- `parameter=false` 且 `responseId` 非空：`FAILED`，官网请求已完成但验真未通过。
-- `parameter=false` 且 `responseId` 为空：`ERROR`，验真未完成或执行异常，不作为证照不真实的结论。
+## 3. 健康检查与认证
 
-## 9. 查询审核任务和结果
+### 3.1 健康检查
 
-### 9.1 `GET /api/v1/food-license/reviews/{task_id}`
-
-用于查询审核任务状态、审核结果、规则结果和人工复核状态。
-
-#### 路径参数
-
-| 参数 | 说明 |
-| --- | --- |
-| `task_id` | 审核任务 ID |
-
-#### 响应示例
-
-```json
-{
-  "task_id": "review-task-002",
-  "status": "PENDING_MANUAL_REVIEW",
-  "document_type": "food_license",
-  "skill_name": "food_license",
-  "skill_version": "v1",
-  "ruleset_version": "food-license-rules-v1",
-  "risk_level": "HIGH",
-  "needs_manual_review": true,
-  "supplier": {
-    "name": "成都示例食品有限公司",
-    "credit_code": "91510100MA00000000",
-    "address": "成都市示例区示例路 100 号"
-  },
-  "rule_results": [
-    {
-      "rule_code": "FOOD_LICENSE_EXPIRED",
-      "rule_name": "证照是否过期",
-      "passed": false,
-      "risk_level_on_failure": "HIGH",
-      "message": "当前日期超过证照有效期截止日期"
-    }
-  ],
-  "manual_review": {
-    "status": "PENDING",
-    "reasons": ["证照已过期"],
-    "reviewer": null,
-    "action": null,
-    "comment": null,
-    "reviewed_at": null
-  },
-  "summary": "发现高风险问题，建议人工复核证照有效期。",
-  "skill_result": {
-    "normalized_fields": {
-      "subject_name": "成都示例食品有限公司",
-      "credit_code": "91510100MA00000000",
-      "license_no": "JY15101000000000",
-      "business_items": ["预包装食品销售"],
-      "valid_to": "2025-01-01"
-    }
-  },
-  "created_at": "2026-06-08T14:30:00+08:00",
-  "updated_at": "2026-06-08T14:30:03+08:00"
-}
+```text
+GET /health
 ```
 
-#### 处理语义
+该接口不依赖数据库或外部系统，只表示 API 进程可响应。
 
-- 查询接口只读取已保存的审核任务和结果；
-- 查询接口不重新执行 LangGraph 工作流；
-- 查询接口不重新调用 LLM；
-- 查询接口不重新计算规则结果，除非后续明确增加重新审核接口。
-- 查询响应中的食品安全证照专属字段通过 `skill_result` 返回。
+### 3.2 本地登录与企业微信 SSO
 
-## 10. 提交人工复核动作
-
-### 10.1 `POST /api/v1/food-license/reviews/{task_id}/manual-review`
-
-用于审核人员对需要人工复核的任务提交复核动作。
-
-#### 请求字段
-
-| 字段 | 类型 | 必填 | 说明 |
-| --- | --- | --- | --- |
-| `action` | string | 是 | `APPROVE`、`REJECT` 或 `REQUEST_MORE_INFO` |
-| `reviewer` | string | 是 | 复核人标识 |
-| `comment` | string | 否 | 复核备注 |
-
-#### 请求示例
-
-```json
-{
-  "action": "REJECT",
-  "reviewer": "reviewer-001",
-  "comment": "证照已过期，需供应商重新提供有效证照。"
-}
-```
-
-#### 响应示例
-
-```json
-{
-  "task_id": "review-task-002",
-  "status": "MANUAL_REVIEWED",
-  "manual_review": {
-    "status": "COMPLETED",
-    "reviewer": "reviewer-001",
-    "action": "REJECT",
-    "comment": "证照已过期，需供应商重新提供有效证照。",
-    "reviewed_at": "2026-06-08T15:10:00+08:00"
-  },
-  "risk_level": "HIGH",
-  "needs_manual_review": false,
-  "updated_at": "2026-06-08T15:10:00+08:00"
-}
-```
-
-#### 处理语义
-
-- 人工复核动作不覆盖原始规则结果；
-- 原始规则结果、最终风险等级和摘要建议应保留审计记录；
-- 人工复核结论作为人工决策结果保存；
-- 每次人工复核动作都应写入审计日志。
-- 人工复核基础设施属于平台；是否进入人工复核、初始状态和 `reasons` 由 Skill 在 `review(input_context)` 中决定。
-
-## 11. 文件上传接口预留
-
-### 11.1 `POST /api/v1/food-license/reviews:upload`
-
-该接口只作为 V1 后续扩展设计保留，不属于第一阶段必实现能力。
-
-建议语义：
-
-- 接收图片或 PDF 文件；
-- 接收供应商业务信息；
-- 解析文件并生成 OCR 文本；
-- 复用 OCR 文本审核任务流程，并继续走 Review Service + Skill Registry。
-
-第一阶段验收不要求实现：
-
-- 图片解析；
-- PDF 解析；
-- 文件存储；
-- 多模态模型直接读取图片；
-- 生产级上传大小限制和安全扫描。
-
-## 12. 错误编码
-
-| HTTP 状态码 | 错误编码 | 说明 |
+| Method | Path | 说明 |
 | --- | --- | --- |
-| `400` | `VALIDATION_ERROR` | 请求字段缺失、格式错误或枚举值非法 |
-| `400` | `EMPTY_OCR_TEXT` | `ocr_text` 为空或只有空白字符 |
-| `400` | `RPA_VERIFICATION_DISABLED` | 烟草证官网验真运行时能力未启用 |
-| `404` | `REVIEW_TASK_NOT_FOUND` | 审核任务不存在 |
-| `409` | `MANUAL_REVIEW_NOT_ALLOWED` | 当前任务状态不允许人工复核 |
-| `422` | `UNSUPPORTED_DOCUMENT_TYPE` | 材料无法识别为食品安全相关证照，且策略要求拒绝继续处理 |
-| `500` | `WORKFLOW_EXECUTION_FAILED` | LangGraph 工作流执行失败 |
-| `500` | `PERSISTENCE_ERROR` | 审核任务或结果保存失败 |
+| `POST` | `/api/v1/auth/login` | 使用本地账号密码换取 Bearer token |
+| `GET` | `/api/v1/auth/providers` | 查询企业微信等登录提供方是否已配置 |
+| `GET` | `/api/v1/auth/sso/start` | 生成企业微信授权地址 |
+| `GET` | `/api/v1/auth/sso/callback` | 处理企业微信 OAuth 回调并设置 session cookie |
+| `GET` | `/api/v1/auth/me` | 返回当前已认证用户 |
+| `GET` | `/auth/profile` | 返回前端使用的用户资料投影 |
 
-### 12.1 空 OCR 文本错误示例
+本地登录请求：
 
 ```json
 {
-  "error": {
-    "code": "EMPTY_OCR_TEXT",
-    "message": "ocr_text 不能为空",
-    "details": [
-      {
-        "field": "ocr_text",
-        "message": "请提供食品安全证照 OCR 文本"
-      }
-    ],
-    "request_id": "req-20260608-000002"
+  "username": "reviewer",
+  "password": "<configured password>"
+}
+```
+
+## 4. 营业执照审核
+
+| Method | Path | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/v1/business-license/reviews` | 使用指定文件创建审核 |
+| `POST` | `/api/v1/business-license/reviews/from-srm` | 获取一条 SRM 来源记录并审核 |
+| `GET` | `/api/v1/business-license/reviews` | 分页查询营业执照审核结果 |
+| `GET` | `/api/v1/business-license/reviews/{task_id}` | 查询详情、规则、人工复核和审计事件 |
+| `POST` | `/api/v1/business-license/reviews/{task_id}/manual-review` | 提交人工复核 |
+
+文件审核请求示例：
+
+```json
+{
+  "supplier_name": "示例商贸有限公司",
+  "supplier_credit_code": "91510000EXAMPLE001",
+  "declared_document_type": "business_license",
+  "file": {
+    "file_uri": "https://files.example.test/business-license.pdf",
+    "file_name": "business-license.pdf",
+    "mime_type": "application/pdf"
+  },
+  "source": {
+    "record_id": "source-record-id"
   }
 }
 ```
 
-### 11.2 任务不存在错误示例
+当前接口要求 `file.local_path`、`file.file_path` 或 `file.file_uri` 至少存在一个，且拒绝
+`ocr_text` 和 `file.stub_text`。本地路径只适用于受信任的服务端调用场景。
+
+营业执照人工复核的 `decision` 为 `approved` 或 `rejected`，并要求非空的
+`comment` 和 `reviewer_id`。
+
+## 5. 食品经营许可证审核
+
+| Method | Path | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/v1/food-license/reviews` | 使用指定文件创建食品经营许可证审核 |
+| `POST` | `/api/v1/food-license/reviews/from-srm` | 获取一条 SRM 来源记录并审核 |
+
+输入结构沿用 `ReviewInput`，但当前只接受 PDF、JPG、JPEG 或 PNG 等真实文件输入。
+`ocr_text` 和 `file.stub_text` 会返回 `UNSUPPORTED_TEXT_DOCUMENT_INPUT`；没有本地路径或
+远程 URI 会返回 `EMPTY_DOCUMENT_INPUT`。
+
+食品经营许可证目前没有独立的结果查询和人工复核 HTTP 入口。需要结果工作台能力时，
+应以当前产品流程和持久化投影为准，不能假设存在食品证专属路径。
+
+## 6. QC 审核
+
+QC 路由承载食品生产许可证、产品报告和批次报告的来源审核，并提供共享的结果查询和人工
+复核入口。
+
+| Method | Path | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/v1/qc/food-production-license/reviews/from-srm` | 审核一条食品生产许可证来源记录 |
+| `POST` | `/api/v1/qc/product-report/reviews/from-srm` | 审核一条 SKU 产品报告来源记录 |
+| `POST` | `/api/v1/qc/batch-report/reviews/from-starrocks` | 按 `review_date` 审核一条批次报告来源记录 |
+| `GET` | `/api/v1/qc/reviews` | 按主体、证件号、类型、风险、状态和时间分页查询 |
+| `GET` | `/api/v1/qc/reviews/{task_id}` | 查询投影详情和完整 `ReviewResult` payload |
+| `POST` | `/api/v1/qc/reviews/{task_id}/manual-review` | 提交 QC 人工复核 |
+
+QC 人工复核请求：
 
 ```json
 {
-  "error": {
-    "code": "REVIEW_TASK_NOT_FOUND",
-    "message": "审核任务不存在",
-    "details": [
-      {
-        "field": "task_id",
-        "message": "未找到 review-task-999"
-      }
-    ],
-    "request_id": "req-20260608-000003"
-  }
+  "decision": "approved",
+  "comment": "材料与来源信息一致",
+  "reviewer_id": "reviewer-id"
 }
 ```
 
-## 13. 数据保存要求
+`decision` 当前只接受 `approved` 或 `rejected`。
 
-API 实现应通过 Service / Repository 将以下数据保存到 MySQL 审核结果库：
+## 7. 烟草证来源文件
 
-- 审核任务：任务 ID、输入来源、供应商信息、任务状态、创建时间、更新时间；
-- 审核结果：证照类型、`use_case_name`、`use_case_version`、`capability_names`、`ruleset_version`、最终风险等级、审核建议、是否需要人工复核；
-- 过渡字段：短期继续保存 `skill_name`、`skill_version`，其值镜像 runtime graph 身份；
-- workflow artifact：通过 `skill_result` 保存食品安全证照结构化字段、规范化字段和运行证据；
-- 规则结果：Python 规则引擎输出的规则编码、规则名称、是否通过、未通过时产生的风险等级和提示信息；
-- 人工复核记录：复核动作、复核人、复核备注、复核时间；
-- 审计日志：任务创建、use_case 路由、工作流开始、节点执行、规则校验、风险汇总、人工复核等关键事件。
+```text
+POST /api/v1/tobacco-license/source-files/from-starrocks
+GET /api/v1/tobacco-license/source-files/local/{relative_path}
+```
 
-每个 `ReviewResult` 和审计日志都应记录 `use_case_name`、`use_case_version`、`capability_names` 和 `ruleset_version`。`skill_name`、`skill_version` 和 `skill_result` 当前作为兼容字段继续保留。
+来源请求使用：
 
-## 14. 验收标准
+```json
+{
+  "store_identifier": "store-code-or-request-id"
+}
+```
 
-- API 契约明确第一阶段优先支持 OCR 文本输入闭环；
-- API 契约包含健康检查、创建 OCR 文本审核任务、查询审核结果和人工复核接口；
-- API 契约明确请求字段包括 `ocr_text`、供应商名称、统一社会信用代码、供应商经营地址和可选证照类型；
-- API 契约明确响应字段包括任务状态、证照类型、use_case 身份信息、capability 名称、规则结果、最终风险等级、人工复核标记、摘要建议和 `skill_result` 兼容容器；
-- API 契约明确食品安全证照抽取字段和规范化字段当前属于 `skill_result`，不是长期平台顶层字段；
-- API 契约明确规则结果使用 `risk_level_on_failure` 表示该规则未通过时产生的风险等级；
-- API 契约明确 FastAPI 只负责 HTTP API 边界；
-- API 契约明确 `/api/v1/food-license/reviews` 是 `food_license` use_case 快捷入口；
-- API 契约明确后续 `/api/v1/reviews` 是平台通用入口；
-- API 契约明确所有入口都必须走 Review Service + `ReviewGraphRegistry`；
-- API 契约明确平台只调用 workflow runtime entry；
-- API 契约明确 `ReviewGraphRegistry` V1 使用显式注册内置 LangGraph workflow；
-- API 契约明确 LangGraph 负责食品安全证照检测 V1 workflow 编排；
-- API 契约明确 LangChain / LLM 只负责字段抽取、结构化输出和摘要建议；
-- API 契约明确 LLM 不直接做最终规则判定；
-- API 契约明确 Python 规则引擎负责规则判断和最终风险等级汇总；
-- API 契约明确 `app/rules/` 只放通用规则基础设施，具体业务规则和 `rules.yaml` 放在 capability 内部；
-- API 契约明确人工复核基础设施属于平台，复核决策由 use_case / workflow 根据规则结果决定；
-- API 契约明确 MySQL 审核结果库保存审核任务、审核结果、规则结果、人工复核和审计日志；
-- API 契约没有把 Java / Spring Boot 或任何 Java 模块放入 V1 技术栈或实现范围；
-- 本文档只描述契约，不要求实现接口代码。
+服务从 StarRocks 中查询 OA 来源附件，将可用文件准备到受控目录，再返回预览和下载地址。
+本地文件接口只接受文件存储服务生成的相对路径；`download=1` 会设置下载文件名。
+
+## 8. 烟草证一致性审核
+
+| Method | Path | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/v1/tobacco-license-consistency/pending-stores` | 分页查询有待处理 OA 流程的门店 |
+| `POST` | `/api/v1/tobacco-license-consistency/reviews` | 获取来源文件并执行单门店一致性审核 |
+| `POST` | `/api/v1/tobacco-license-consistency/reviews/batch` | 批量执行最多 20 个门店审核 |
+| `POST` | `/api/v1/tobacco-license-consistency/reviews/{task_id}/manual-review` | 对报告提交人工复核 |
+| `GET` | `/api/v1/tobacco-license-consistency/reviews/{task_id}/oa-result` | 读取可供 OA 适配器使用的结果载荷 |
+
+单门店请求：
+
+```json
+{
+  "store_identifier": "store-code-or-request-id",
+  "review_mode": "standard",
+  "business_license_fields": {},
+  "tobacco_license_fields": {},
+  "store_in_store": {},
+  "selected_files": []
+}
+```
+
+`review_mode` 为 `standard` 或 `store_in_store`。请求中的字段只作为人工确认或补充值，
+系统优先使用来源文件抽取结果，不能用 OA 门店名称伪造证照主体字段。
+
+批量请求使用 `store_identifiers` 数组；返回每个门店的 `completed` 或 `failed` 结果，单项
+失败不会中止其余项目。
+
+当前这些接口使用 Web Console 会话认证。仓库没有另一个专用 OA token 入口，也没有向
+任意 callback URL 主动推送结果的后台流程。更完整的对接说明见
+[api/oa-tobacco-consistency-auto-review.md](api/oa-tobacco-consistency-auto-review.md)。
+
+## 9. 影刀 RPA 官网验真
+
+当前 operation：
+
+```text
+GET /api/v1/tobacco-license/rpa-verify-capability
+POST /api/v1/tobacco-license/rpa-verify
+POST /api/v1/tobacco-license/rpa-verify-callback
+GET /api/v1/tobacco-license/rpa-verify/{task_id}
+```
+
+### 9.1 能力探测
+
+调用方必须先读取 capability。未启用时，手动触发返回 HTTP `400` 和
+`RPA_VERIFICATION_DISABLED`，这不是供应商调用失败。
+
+### 9.2 手动触发
+
+```json
+{
+  "task_id": "review-task-id",
+  "certificate_no": "license-number",
+  "store_name": "门店名称",
+  "requestid": "oa-request-id"
+}
+```
+
+该接口同步启动影刀任务并轮询终态，然后把验真结果写入对应 Review Result 的文档专属
+结果（兼容字段名 `skill_result`）。
+不要用同一审核任务重复触发真实 RPA 作业。
+
+### 9.3 状态语义
+
+| 状态 | 业务含义 | 处理建议 |
+| --- | --- | --- |
+| `PENDING` | 尚未开始 | 等待触发 |
+| `IN_PROGRESS` | 影刀任务执行中 | 继续等待或查询 |
+| `AUTHENTIC` | 官网请求完成且验真通过 | 可作为正向证据 |
+| `FAILED` | 官网请求完成但验真未通过 | 业务负面结果，进入人工处理 |
+| `SUSPECTED` | 返回信息不一致 | 业务负面结果，进入人工处理 |
+| `NOT_FOUND` | 官网未查询到证照 | 业务负面结果，进入人工处理 |
+| `ERROR` | 任务未可靠完成或技术链路异常 | 可重试，不能宣称证照为假 |
+
+影刀输出 `parameter=false` 只有在存在非空 `responseId` 时映射为 `FAILED`；缺少
+`responseId` 表示官网请求没有形成可判定结果，映射为 `ERROR`。
+
+### 9.4 Callback
+
+callback 是同步轮询之外的结果兜底。服务按 `jobUuid` 查找已登记的 Review Task；找不到
+关联任务或缺少证照号时仍返回接收成功，但不会创建新审核任务。callback 不应作为任意调用
+方创建任务的入口。
+
+## 10. Web Console 与通知
+
+`/api/dashboard/*` 提供统计和趋势；`/api/review/*` 提供统一审核工作台列表、详情、确认和
+异常标记；`/api/query/*` 提供单条、批量、Excel 查询及下载；`/api/admin/*` 提供通知用户、
+导入预览、每日同步和来源时间回填；`/api/records*` 提供结果记录查询、导出和删除；
+`/api/tobacco/reports*` 提供烟草报告列表与详情。
+
+前端使用的全部路径以生成的
+[FastAPI operation 清单](api/openapi-operations.md)为准。`/api/contract/reports` 当前只返回
+占位合同报告数据，不能视为合同审核已经实现。
+
+通知 worker：
+
+```text
+GET /api/v1/wecom/notifications/worker
+POST /api/v1/wecom/notifications/worker
+```
+
+两个方法行为相同，必须使用独立 Bearer token。响应包含 `processed`、`sent`、`failed` 和
+`retried` 计数。
+
+## 11. 当前边界
+
+- 尚无平台通用的 `/api/v1/reviews` 创建入口。
+- 食品经营许可证尚无专属查询和人工复核 HTTP 入口。
+- 合同审核仍是占位 Review Use Case。
+- OpenAPI operation 存在不等于外部依赖已配置；来源数据库、OCR、LLM、企业微信和影刀
+  都可能因配置关闭或不可用而返回业务错误。
+- 本文档不承诺 proposed 接口。新增路由时必须重新生成 operation 清单并同步对应业务说明。

@@ -8,11 +8,12 @@
 
 ### 证照审核
 
-- 支持营业执照单证审核。
-- 支持食品经营许可证审核。
-- 支持食品生产许可证审核。
-- 支持烟草专卖零售许可证审核。
-- 支持营业执照与烟草证一致性校验的用例入口和结果结构。
+- 营业执照已支持文件/SRM 创建、结果查询、人工复核和审计追溯。
+- 食品经营许可证已支持文件/SRM 审核，专属查询和人工复核 API 尚未补齐。
+- 食品生产许可证已支持 SRM 来源审核，并复用 QC 查询和人工复核入口。
+- 烟草证单证 Workflow 已用于 OA 来源的双证一致性审核；独立单证 API 尚未提供。
+- 营业执照与烟草证一致性审核已支持标准/店中店模式、批量审核、报告和人工复核。
+- 可选的影刀 RPA 官网验真支持能力探测、触发、结果查询和 callback 兜底。
 
 ### QC 文档审核
 
@@ -39,9 +40,11 @@
 
 | 场景 | 说明 | 当前状态 |
 | --- | --- | --- |
-| QC 证照及批次报告审核 | 审核营业执照、食品许可证、生产许可证、批次报告、第三方检验报告 | 已有主要 demo 流程 |
-| 营业执照与烟草证一致性校验 | 比对主体名称、经营场所、负责人、有效期等字段 | 已有用例入口和结构化结果 |
-| 法务合同内容审核 | 审核合同条款、识别风险、生成修改建议 | 当前偏占位，后续扩展 |
+| QC 证照及批次报告审核 | 审核营业执照、食品许可证、生产许可证、批次报告、第三方检验报告 | 已实现主流程，个别专属入口仍为 partial |
+| 营业执照与烟草证一致性校验 | 比对主体名称、经营场所、负责人、有效期并可选执行官网验真 | 已实现 |
+| 法务合同内容审核 | 审核合同条款、识别风险、生成修改建议 | placeholder，不执行真实合同审核 |
+
+完整状态、入口和边界见 [docs/CAPABILITIES.md](docs/CAPABILITIES.md)。
 
 ## 技术栈
 
@@ -65,7 +68,9 @@
 
 文档和规则：
 
-- `docs/PRD.md`：产品需求
+- `CONTEXT.md`：项目领域词汇表
+- `docs/PRD.md`：原始产品需求基线，不代表全部当前实现
+- `docs/CAPABILITIES.md`：当前能力状态矩阵
 - `docs/SPEC.md`：技术规范，包含架构、技术选型、数据模型、API、目录结构
 - `docs/API.md`：API 契约
 - `AGENTS.md`：Codex 项目说明
@@ -76,6 +81,7 @@
 ```text
 document-ai-review/
 ├── AGENTS.md
+├── CONTEXT.md
 ├── README.md
 ├── ai-service/
 │   ├── app/
@@ -96,9 +102,15 @@ document-ai-review/
 │   ├── package.json
 │   └── vite.config.js
 ├── docs/
+│   ├── README.md
 │   ├── PRD.md
+│   ├── CAPABILITIES.md
 │   ├── SPEC.md
-│   └── API.md
+│   ├── API.md
+│   ├── INTEGRATIONS.md
+│   ├── OPERATIONS.md
+│   ├── api/
+│   └── sql/
 ├── .agents/
 │   └── skills/
 └── ci-config/
@@ -165,9 +177,9 @@ cd ai-service
 - 非敏感应用配置：`app-config/app.yaml`，仓库提供 `app-config/app.yaml.example` 作为模板。它用于模型名、provider、超时、开关、数据库地址等，后续可按 Kubernetes `ConfigMap` 管理。
 - 敏感凭据：仓库根目录 `.env` 或 `ai-service/.env`，仓库提供 `.env.example` 作为模板。它只用于 API key、数据库密码、token、secret 等，后续可按 Kubernetes `Secret` 管理。
 
-加载优先级：已存在的 Shell 环境变量最高；然后读取 `DOCUMENT_AI_REVIEW_CONFIG_FILE`
-指向的 YAML；再读取 `app-config/app.yaml` 和 `app-config/app.local.yaml`；最后读取 `.env`
-和 `ai-service/.env` 中的 Secret。
+加载优先级从高到低为：已有 Shell 环境变量、`ai-service/.env` Secret、根 `.env`
+Secret、`DOCUMENT_AI_REVIEW_CONFIG_FILE` 指向的 YAML、`app-config/app.local.yaml`、
+`app-config/app.yaml`。dotenv 文件只接收加载器白名单中的 Secret。
 
 不要提交 `.env`、`app-config/app.yaml`、数据库密码、API key、GitHub token、本地数据库、缓存和构建产物。
 
@@ -180,6 +192,12 @@ cd ai-service
 
 ## 文档
 
-- [docs/PRD.md](docs/PRD.md)
+- [CONTEXT.md](CONTEXT.md)
+- [docs/README.md](docs/README.md)（统一导航）
+- [docs/CAPABILITIES.md](docs/CAPABILITIES.md)
 - [docs/SPEC.md](docs/SPEC.md)
 - [docs/API.md](docs/API.md)
+- [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md)
+- [docs/OPERATIONS.md](docs/OPERATIONS.md)
+- [docs/api/openapi-operations.md](docs/api/openapi-operations.md)
+- [docs/PRD.md](docs/PRD.md)（原始需求基线）

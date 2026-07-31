@@ -350,9 +350,14 @@ where t2.tenant = '8560'
 
 ### 3.3 业务边界
 
+本节使用 [Capability Status](CAPABILITIES.md) 中的状态定义。详细审核规则由对应
+Agent Skill 维护，本规范只描述 Use Case、Workflow、来源、结果和集成边界。
+
 #### business_license
 
 business_license capability 只负责营业执照单证审核。
+
+状态：`implemented`。
 
 当前范围：
 
@@ -364,6 +369,58 @@ business_license capability 只负责营业执照单证审核。
 - 不实现双证一致性规则。
 - 不实现 OA 回写。
 - 不实现企微通知。
+
+#### food_license
+
+状态：`partial`。
+
+- 接受真实 PDF 或图片文件，也可从 SRM 来源创建 Review Task。
+- Workflow 负责抽取、标准化、确定性规则和统一结果映射。
+- 不接受 `ocr_text` 或 `file.stub_text`。
+- 当前没有食品经营许可证专属查询和人工复核 HTTP 入口。
+
+#### food_production_license
+
+状态：`implemented`。
+
+- 由 SRM/StarRocks 来源任务创建审核，通过 QC 聚合接口查询和人工复核。
+- Workflow 负责生产许可证字段抽取、规则执行和 `ReviewResult` 映射。
+- 不维护另一套食品生产许可证查询或人工复核逻辑。
+
+#### qc_document_review
+
+状态：`implemented`。
+
+- 支持 `product_report`、`batch_report` 和兼容的 QC 文档类型。
+- 产品报告使用 SKU 专用 Source Task；批次报告使用 StarRocks 批次来源。
+- PDF 优先读取文本层，缺失时再走 OCR 或视觉 adapter。
+- LLM 只辅助抽取，最终结论由确定性 Domain Rules 生成。
+- 结果通过 QC 聚合接口查询和人工复核。
+
+#### tobacco_license
+
+状态：`partial`。
+
+- 单证 Workflow 已实现，并用于一致性审核中的烟草证文件识别。
+- 来源文件通过 OA/StarRocks 链路准备到受控目录。
+- 当前没有独立烟草证创建、查询或人工复核 HTTP 入口。
+
+#### tobacco_license_consistency_review
+
+状态：`implemented`。
+
+- 获取 OA/StarRocks 来源附件，分别执行营业执照和烟草证识别，再执行双证一致性规则。
+- 支持标准和店中店模式、单条和批量审核、人工复核、报告详情和 OA 结果投影。
+- 影刀 RPA 是可配置 integration；业务负面结果与技术执行异常必须分开表达。
+- 当前不主动回写 OA，也没有 OA 专用 callback 或专用 token 入口。
+
+#### contract_review
+
+状态：`placeholder`。
+
+- 只保留 Registry 路由和统一 `ReviewResult` 形状。
+- 调用后返回 `implementation_status=not_implemented` 并要求人工复核。
+- 不执行合同抽取、条款规则、风险判定或修改建议生成。
 
 ## 4. API 接口
 
@@ -537,9 +594,15 @@ web-console/
 
 ```text
 docs/
-├── PRD.md               # 产品需求
+├── README.md            # 文档统一导航
+├── CAPABILITIES.md      # Review Use Case 能力矩阵
+├── PRD.md               # 原始产品需求基线
 ├── SPEC.md              # 技术规范
-└── API.md               # API 契约
+├── API.md               # API 契约
+├── INTEGRATIONS.md      # 外部系统职责与失败边界
+├── OPERATIONS.md        # 配置、数据、调度、部署和排障
+├── api/                 # 专项接口说明与 OpenAPI operation 清单
+└── sql/                 # StarRocks 来源表 DDL 与说明
 ```
 
 ## 6. 本地运行与验证
