@@ -17,6 +17,9 @@ from app.workflows.qc_document.product_report_extraction import (
     extract_product_report_fields,
     _valid_to as _product_report_valid_to,
 )
+from app.workflows.qc_document.product_report_rules import (
+    apply_product_name_rules,
+)
 
 
 qc_document_skill_rule_review_adapter = build_qc_document_skill_rule_review_adapter()
@@ -223,6 +226,7 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
             "source_fields": {
                 "supplier_name": review_input.supplier_name,
                 "supplier_credit_code": review_input.supplier_credit_code,
+                "sku_name": review_input.source.get("sku_name"),
             },
             "extracted_fields": extracted_payload,
             "extraction_metadata": extraction_metadata,
@@ -230,11 +234,13 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
             "options": review_input.options,
         },
     )
-    status = rules_result.get("status", "PENDING_MANUAL_REVIEW")
-    needs_manual_review = rules_result.get("needs_manual_review", True)
-    if rules_result.get("risk_level") == "HIGH":
-        status = "FAILED"
-        needs_manual_review = False
+    rules_result = apply_product_name_rules(
+        rules_result,
+        expected=review_input.source.get("sku_name"),
+        actual=extracted_fields.product_name or extracted_fields.sample_name,
+    )
+    status = rules_result.status
+    needs_manual_review = rules_result.needs_manual_review
     manual_review = ManualReview(
         status=(
             ManualReviewStatus.PENDING
@@ -242,7 +248,7 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
             else ManualReviewStatus.NOT_REQUIRED
         ),
         reasons=(
-            list(rules_result.get("manual_review_reasons", []))
+            rules_result.manual_review_reasons
             if needs_manual_review
             else []
         ),
@@ -251,11 +257,11 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
         "input_context": input_context,
         "implementation_status": "implemented",
         "status": status,
-        "risk_level": rules_result.get("risk_level", "MEDIUM"),
+        "risk_level": rules_result.risk_level,
         "needs_manual_review": needs_manual_review,
-        "summary": rules_result.get("summary", "产品报告 Skill 规则审核完成。"),
+        "summary": rules_result.summary,
         "manual_review": manual_review,
-        "rule_results": rules_result.get("rule_results", []),
+        "rule_results": rules_result.rule_results,
         "capability_names": ["product_report"],
         "document_type": "product_report",
         "skill_result": {
@@ -273,7 +279,7 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
                 "source": review_input.source,
                 "options": review_input.options,
                 "skill_rule_review_metadata": {
-                    **dict(rules_result.get("metadata") or {}),
+                    **rules_result.metadata,
                     "skill_name": skill_name,
                 },
             },

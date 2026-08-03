@@ -59,10 +59,56 @@ def test_fetch_product_report_source_tasks_maps_sku_rows_to_review_inputs():
     assert task.review_input.source["attachment_uuid"] == "attach-product-report-001"
     assert task.review_input.source["attachment_ref_id"] == "cert-product-report-001"
     assert task.review_input.source["document_category"] == "sku"
+    assert task.review_input.source["sku_name"] == "鲜切蛋糕(蓝莓风味)"
     assert task.review_input.source["sku_number"] == "1001010562202606290001"
     assert task.review_input.source["business_number"] == "797120694064660482"
     assert task.review_input.source["vendor_id"] == "VENDOR-001"
     assert task.review_input.source["file_store_key"] == "oss-key-product-report"
+
+
+def test_fetch_product_report_source_tasks_prefers_explicit_sku_name():
+    client = StubSqlClient(
+        [
+            {
+                "uuid": "cert-product-report-001",
+                "refId": "cert-product-report-001",
+                "category": "sku",
+                "typeName": "产品报告",
+                "vendorName": "广东乃一口食品有限公司",
+                "skuName": "系统商品名",
+                "attachmentName": "附件商品名_供应商_批次.pdf",
+                "url": "https://files.example.test/product-report.pdf",
+                "deleted": 0,
+                "removed": 0,
+            }
+        ]
+    )
+
+    task = fetch_product_report_source_tasks(client, "select 1")[0]
+
+    assert task.review_input.source["sku_name"] == "系统商品名"
+
+
+def test_fetch_product_report_source_tasks_does_not_infer_sku_name_from_generic_file_name():
+    client = StubSqlClient(
+        [
+            {
+                "uuid": "cert-product-report-001",
+                "refId": "cert-product-report-001",
+                "category": "sku",
+                "typeName": "产品报告",
+                "vendorName": "广东乃一口食品有限公司",
+                "attachmentName": "product-report.pdf",
+                "url": "https://files.example.test/product-report.pdf",
+                "deleted": 0,
+                "removed": 0,
+            }
+        ]
+    )
+
+    task = fetch_product_report_source_tasks(client, "select 1")[0]
+
+    assert task.review_input.source["sku_name"] is None
 
 
 def test_fetch_product_report_source_tasks_rejects_missing_url():

@@ -133,6 +133,7 @@ def _to_review_input(
             "attachment_ref_id": record.attachment_ref_id,
             "document_category": record.document_category,
             "document_type_code": record.document_type_code,
+            "sku_name": _source_sku_name(record),
             "vendor_id": record.vendor_id,
             "sku_number": record.business_num,
             "business_number": record.business_number,
@@ -140,6 +141,20 @@ def _to_review_input(
             "source_payload": record.source_payload,
         },
     )
+
+
+def _source_sku_name(record: DocumentRecord) -> str | None:
+    for key in ("skuName", "productName", "goodsName", "materialName"):
+        value = _optional_string(record.source_payload.get(key))
+        if value:
+            return value
+
+    file_name = _optional_string(record.file_name)
+    if not file_name:
+        return None
+    stem = file_name.rsplit(".", 1)[0]
+    product_name, separator, _remainder = stem.partition("_")
+    return (product_name.strip() or None) if separator else None
 
 
 def _optional_string(value: Any) -> str | None:

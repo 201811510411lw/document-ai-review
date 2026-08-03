@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.qc_reviews import get_qc_review_repository
@@ -485,6 +486,68 @@ def test_qc_review_list_and_detail_include_product_report_results(monkeypatch):
         {"name": "菌落总数", "result": "120 CFU/g"}
     ]
     assert detail["rule_results"][0]["rule_code"] == "PRODUCT_REPORT_TYPE_MATCH"
+
+
+@pytest.mark.parametrize(
+    ("decision", "comment"),
+    [
+        ("approved", "已核对报告与商品主数据，可以通过。"),
+        ("rejected", "报告样品名与 SRM 商品名不一致。"),
+    ],
+)
+def test_qc_manual_review_persists_product_report_decision(
+    monkeypatch,
+    decision,
+    comment,
+):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    result = ReviewService(repository=repository).review(
+        ReviewInput(
+            ocr_text="""
+            产品检验报告
+            报告编号：BG-20260610-001
+            样品名称：麻辣牛肉
+            委托单位：成都示例食品有限公司
+            批号：20260601-A
+            签发日期：2026年06月10日
+            检验结论：经检验，所检项目符合要求。
+            """,
+            supplier_name="成都示例食品有限公司",
+            supplier_credit_code="91510100MA00000000",
+            declared_document_type="product_report",
+            source={"sku_name": "清汤牛肉"},
+        ),
+        use_case_name="qc_document_review",
+    )
+    assert result.needs_manual_review is True
+
+    app.dependency_overrides[get_qc_review_repository] = lambda: repository
+    client = TestClient(app)
+    response = client.post(
+        f"/api/v1/qc/reviews/{result.task_id}/manual-review",
+        json={
+            "decision": decision,
+            "comment": comment,
+            "reviewer_id": "qc-reviewer-001",
+        },
+        headers=_auth_headers(client),
+    )
+    detail_response = client.get(
+        f"/api/v1/qc/reviews/{result.task_id}",
+        headers=_auth_headers(client),
+    )
+
+    assert response.status_code == 200
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["document_type"] == "product_report"
+    assert detail["review_status"] == "MANUAL_REVIEWED"
+    assert detail["needs_manual_review"] is False
+    assert detail["manual_review"]["status"] == "COMPLETED"
+    assert detail["manual_review"]["decision"] == decision
+    assert detail["manual_review"]["comment"] == comment
+    assert detail["payload"]["status"] == "MANUAL_REVIEWED"
 
 
 def test_qc_review_list_and_detail_include_tobacco_license_results(

@@ -33,6 +33,246 @@ def test_qc_document_review_reviews_product_report_from_ocr_text():
     assert result.skill_result["extracted_fields"]["product_name"] == "麻辣牛肉"
 
 
+def test_qc_document_review_routes_product_name_mismatch_to_manual_review():
+    result = ReviewService().review(
+        ReviewInput(
+            ocr_text="""
+            产品检验报告
+            报告编号：BG-20260610-001
+            样品名称：麻辣牛肉
+            委托单位：成都示例食品有限公司
+            批号：20260601-A
+            签发日期：2026年06月10日
+            检验结论：经检验，所检项目符合要求。
+            """,
+            supplier_name="成都示例食品有限公司",
+            supplier_credit_code="91510100MA00000000",
+            declared_document_type="product_report",
+            source={"sku_name": "清汤牛肉"},
+        ),
+        use_case_name="qc_document_review",
+    )
+
+    assert result.status == ReviewStatus.PENDING_MANUAL_REVIEW
+    assert result.risk_level == RiskLevel.MEDIUM
+    assert result.needs_manual_review is True
+    product_rule = _rule_by_code(result, "PRODUCT_REPORT_PRODUCT_NAME_MATCH")
+    assert product_rule.passed is False
+    assert product_rule.details["expected"] == "清汤牛肉"
+    assert product_rule.details["actual"] == "麻辣牛肉"
+
+
+def test_qc_document_review_accepts_product_name_with_flavor_qualifier():
+    result = ReviewService().review(
+        ReviewInput(
+            ocr_text="""
+            产品检验报告
+            样品名称：鲜切蛋糕(蓝莓风味)
+            委托单位：广东乃一口食品有限公司
+            批号：TS10970001
+            签发日期：2026年06月29日
+            检验结论：经检验，所检项目符合要求。
+            """,
+            supplier_name="广东乃一口食品有限公司",
+            supplier_credit_code="",
+            declared_document_type="product_report",
+            source={"sku_name": "鲜切蛋糕"},
+        ),
+        use_case_name="qc_document_review",
+    )
+
+    assert result.status == ReviewStatus.REVIEWED
+    product_rule = _rule_by_code(result, "PRODUCT_REPORT_PRODUCT_NAME_MATCH")
+    assert product_rule.passed is True
+    assert product_rule.details["expected"] == "鲜切蛋糕"
+    assert product_rule.details["actual"] == "鲜切蛋糕(蓝莓风味)"
+
+
+def test_qc_document_review_accepts_product_name_with_package_specification():
+    result = ReviewService().review(
+        ReviewInput(
+            ocr_text="""
+            产品检验报告
+            样品名称：纯牛奶（全脂）250ml
+            委托单位：成都示例食品有限公司
+            批号：20260601-A
+            签发日期：2026年06月10日
+            检验结论：经检验，所检项目符合要求。
+            """,
+            supplier_name="成都示例食品有限公司",
+            supplier_credit_code="",
+            declared_document_type="product_report",
+            source={"sku_name": "纯牛奶"},
+        ),
+        use_case_name="qc_document_review",
+    )
+
+    assert result.status == ReviewStatus.REVIEWED
+    assert _rule_by_code(result, "PRODUCT_REPORT_PRODUCT_NAME_MATCH").passed is True
+
+
+def test_qc_document_review_accepts_explicit_brand_prefix():
+    result = ReviewService().review(
+        ReviewInput(
+            ocr_text="""
+            产品检验报告
+            样品名称：蓝天牌纯牛奶500ml
+            委托单位：成都示例食品有限公司
+            批号：20260601-A
+            签发日期：2026年06月10日
+            检验结论：经检验，所检项目符合要求。
+            """,
+            supplier_name="成都示例食品有限公司",
+            supplier_credit_code="",
+            declared_document_type="product_report",
+            source={"sku_name": "纯牛奶"},
+        ),
+        use_case_name="qc_document_review",
+    )
+
+    assert result.status == ReviewStatus.REVIEWED
+    assert _rule_by_code(result, "PRODUCT_REPORT_PRODUCT_NAME_MATCH").passed is True
+
+
+def test_qc_document_review_overrides_stale_llm_product_name_mismatch(monkeypatch):
+    class StaleProductNameReviewAdapter:
+        def review(self, **_kwargs):
+            return {
+                "status": "PENDING_MANUAL_REVIEW",
+                "risk_level": "MEDIUM",
+                "needs_manual_review": True,
+                "summary": "产品名称不一致",
+                "manual_review_reasons": ["产品名称与来源商品名称不一致"],
+                "rule_results": [
+                    {
+                        "rule_code": "PRODUCT_REPORT_PRODUCT_NAME_MATCH",
+                        "rule_name": "产品名称匹配",
+                        "passed": False,
+                        "risk_level_on_failure": "MEDIUM",
+                        "message": "产品名称不一致",
+                        "details": {
+                            "expected": "鲜切蛋糕",
+                            "actual": "鲜切蛋糕(蓝莓风味)",
+                        },
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(
+        qc_document_workflow,
+        "qc_document_skill_rule_review_adapter",
+        StaleProductNameReviewAdapter(),
+    )
+
+    result = ReviewService().review(
+        ReviewInput(
+            ocr_text="""
+            产品检验报告
+            样品名称：鲜切蛋糕(蓝莓风味)
+            委托单位：广东乃一口食品有限公司
+            批号：TS10970001
+            签发日期：2026年06月29日
+            检验结论：符合要求。
+            """,
+            supplier_name="广东乃一口食品有限公司",
+            supplier_credit_code="",
+            declared_document_type="product_report",
+            source={"sku_name": "鲜切蛋糕"},
+        ),
+        use_case_name="qc_document_review",
+    )
+
+    assert result.status == ReviewStatus.REVIEWED
+    assert result.risk_level == RiskLevel.NONE
+    assert result.needs_manual_review is False
+    assert result.manual_review.reasons == []
+
+
+def test_qc_document_review_requires_product_name_without_srm_product_name(monkeypatch):
+    class IncorrectPassReviewAdapter:
+        def review(self, **_kwargs):
+            return {
+                "status": "REVIEWED",
+                "risk_level": "NONE",
+                "needs_manual_review": False,
+                "summary": "产品检验报告规则校验通过",
+                "manual_review_reasons": [],
+                "rule_results": [],
+            }
+
+    monkeypatch.setattr(
+        qc_document_workflow,
+        "qc_document_skill_rule_review_adapter",
+        IncorrectPassReviewAdapter(),
+    )
+
+    result = ReviewService().review(
+        ReviewInput(
+            ocr_text="""
+            产品检验报告
+            委托单位：成都示例食品有限公司
+            批号：20260601-A
+            签发日期：2026年06月10日
+            检验结论：符合要求。
+            """,
+            supplier_name="成都示例食品有限公司",
+            supplier_credit_code="",
+            declared_document_type="product_report",
+        ),
+        use_case_name="qc_document_review",
+    )
+
+    assert result.status == ReviewStatus.PENDING_MANUAL_REVIEW
+    assert result.risk_level == RiskLevel.MEDIUM
+    assert result.needs_manual_review is True
+    assert _rule_by_code(result, "PRODUCT_REPORT_PRODUCT_NAME_PRESENT").passed is False
+
+
+def test_qc_document_review_keeps_skill_rule_review_error_for_manual_review(monkeypatch):
+    class FailedReviewAdapter:
+        def review(self, **_kwargs):
+            return {
+                "status": "PENDING_MANUAL_REVIEW",
+                "risk_level": "MEDIUM",
+                "needs_manual_review": True,
+                "summary": "Skill 规则审核未完成，需要人工复核。",
+                "manual_review_reasons": ["Skill 规则审核未完成"],
+                "rule_results": [],
+                "metadata": {
+                    "implementation_status": "failed",
+                    "error_code": "SKILL_RULE_REVIEW_MODEL_CALL_FAILED",
+                },
+            }
+
+    monkeypatch.setattr(
+        qc_document_workflow,
+        "qc_document_skill_rule_review_adapter",
+        FailedReviewAdapter(),
+    )
+
+    result = ReviewService().review(
+        ReviewInput(
+            ocr_text="""
+            产品检验报告
+            样品名称：麻辣牛肉
+            委托单位：成都示例食品有限公司
+            批号：20260601-A
+            签发日期：2026年06月10日
+            检验结论：符合要求。
+            """,
+            supplier_name="成都示例食品有限公司",
+            supplier_credit_code="",
+            declared_document_type="product_report",
+        ),
+        use_case_name="qc_document_review",
+    )
+
+    assert result.status == ReviewStatus.PENDING_MANUAL_REVIEW
+    assert result.risk_level == RiskLevel.MEDIUM
+    assert result.needs_manual_review is True
+    assert "Skill 规则审核未完成" in result.manual_review.reasons
+
+
 def test_qc_document_review_marks_missing_text_for_manual_review():
     result = ReviewService().review(
         ReviewInput(
