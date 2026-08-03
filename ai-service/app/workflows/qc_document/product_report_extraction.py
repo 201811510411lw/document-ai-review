@@ -32,13 +32,69 @@ REQUIRED_FIELDS = [
 ]
 
 
+# These are document labels, never valid extracted values.  PDF text layers
+# often put labels on their own line, so accepting one as the preceding field's
+# value causes a cascade of shifted fields.
+_FIELD_LABELS = frozenset(
+    {
+        "报告编号",
+        "报告号",
+        "检验报告编号",
+        "产品名称",
+        "样品名称",
+        "受检单位",
+        "委托单位",
+        "送检单位",
+        "供应商名称",
+        "生产单位",
+        "生产企业",
+        "生产商",
+        "批次号",
+        "批号",
+        "批次",
+        "生产日期",
+        "签发日期",
+        "签署日期",
+        "报告日期",
+        "批准日期",
+        "批准时间",
+        "名称",
+    }
+)
+_ENGLISH_FIELD_LABELS = frozenset(
+    {
+        "reportno",
+        "reportnumber",
+        "samplename",
+        "productname",
+        "suppliername",
+        "vendorname",
+        "entrustingparty",
+        "manufacturername",
+        "producername",
+        "batchno",
+        "batchnumber",
+        "productiondate",
+        "issuedate",
+        "reportdate",
+        "approvaldate",
+        "clientele",
+        "clientname",
+        "name",
+    }
+)
+
+
 def extract_product_report_fields(
     document_text: str,
 ) -> tuple[ProductReportExtractedFields, dict[str, object]]:
     text = _normalize_text(document_text)
     report_no = _extract_line_value(text, ["报告编号", "报告号", "检验报告编号"])
     product_name = _extract_line_value(text, ["产品名称", "样品名称"])
-    vendor_name = _extract_line_value(text, ["受检单位", "委托单位", "送检单位"])
+    vendor_name = _extract_line_value(
+        text,
+        ["受检单位", "委托单位", "送检单位", "供应商名称"],
+    )
     manufacturer_name = _extract_line_value(text, ["生产单位", "生产企业", "生产商"])
     batch_no = _extract_line_value(text, ["批次号", "批号", "批次"])
     production_date = _extract_date_value(text, ["生产日期"])
@@ -81,12 +137,14 @@ def _normalize_text(document_text: str) -> str:
 def _extract_line_value(document_text: str, labels: list[str]) -> str | None:
     for label in labels:
         match = re.search(
-            rf"(?:^|\n)\s*{re.escape(label)}\s*[:：]?\s*([^\n]+)",
+            # Do not use \s here: it includes newlines and therefore treats the
+            # next field header as the current field value.
+            rf"(?:^|\n)[ \t]*{re.escape(label)}[ \t]*[:：]?[ \t]*([^\n]+)",
             document_text,
         )
         if match:
             value = _clean_value(match.group(1))
-            if value:
+            if value and not _is_field_label(value):
                 return value
     return None
 
@@ -109,6 +167,13 @@ def _clean_value(value: str | None) -> str | None:
     if cleaned in {"", "/", "-", "无"}:
         return None
     return cleaned
+
+
+def _is_field_label(value: str) -> bool:
+    normalized = re.sub(r"[\s:：]+", "", value)
+    if normalized in _FIELD_LABELS:
+        return True
+    return re.sub(r"[^a-z0-9]", "", normalized.lower()) in _ENGLISH_FIELD_LABELS
 
 
 def _extract_inspection_items(document_text: str) -> list[dict[str, str]]:

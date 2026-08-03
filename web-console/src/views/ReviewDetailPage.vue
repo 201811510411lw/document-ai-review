@@ -134,11 +134,23 @@
                 <span class="value-text">{{ field.recognized }}</span>
               </div>
               <!-- 只有数据库值 -->
-              <div v-else-if="field.expected && !field.recognized" class="value-row">
-                <span class="value-label">数据库</span>
-                <span class="value-text">{{ field.expected }}</span>
-                <van-icon name="warning-o" color="#ff976a" size="14" />
-              </div>
+              <template v-else-if="field.expected && !field.recognized">
+                <div class="value-row">
+                  <span class="value-label">识别值</span>
+                  <span class="value-text empty">未识别到</span>
+                  <van-icon
+                    name="warning-o"
+                    color="#ff976a"
+                    size="14"
+                    title="原件未识别到该字段，需人工确认"
+                    aria-label="原件未识别到该字段，需人工确认"
+                  />
+                </div>
+                <div class="value-row">
+                  <span class="value-label">数据库</span>
+                  <span class="value-text">{{ field.expected }}</span>
+                </div>
+              </template>
               <!-- 都为空 -->
               <div v-else class="value-row empty-row">
                 <van-icon name="info-o" color="#969799" size="14" />
@@ -353,13 +365,27 @@ const fieldGroups = computed(() => {
     }
   }
 
-  if (typeFields.length) groups.push({ label: '证照类型', fields: typeFields })
+  if (typeFields.length) {
+    // 历史规则结果可能同时包含“证照类型”和“证照类型匹配”。
+    // 保留更适合人工阅读的中文类型字段，避免同一含义重复展示。
+    const typeField = [...typeFields].sort((left, right) => typeFieldScore(right) - typeFieldScore(left))[0]
+    groups.push({ label: '证照类型', fields: [typeField] })
+  }
   if (infoFields.length) groups.push({ label: '企业信息', fields: infoFields })
   if (validityFields.length) groups.push({ label: '有效期', fields: validityFields })
   if (otherFields.length) groups.push({ label: '其他', fields: otherFields })
 
   return groups
 })
+
+function typeFieldScore(field) {
+  const label = String(field?.field || '')
+  const value = `${field?.recognized || ''} ${field?.expected || ''}`
+  let score = field?.match ? 1 : 0
+  if (label === '证照类型' || label === '文档类型') score += 4
+  if (/[\u4e00-\u9fff]/.test(value)) score += 2
+  return score
+}
 
 const manualReviewReasons = computed(() => {
   const reasons = record.value?.manual_review?.reasons || record.value?.manual_review_reasons || []
@@ -409,19 +435,20 @@ function formatRatio(val) {
 
 function openSourceFile() {
   if (openingSourceFile.value) return
-  const url = record.value?.source_file_url
-  if (!url) {
+  if (!record.value?.source_file_url) {
     showToast('无附件地址')
     return
   }
-  openingSourceFile.value = true
-  const opened = window.open(url, '_blank', 'noopener,noreferrer')
-  if (!opened) {
+  const previewUrl = router.resolve({
+    name: 'ReviewSourcePreview',
+    params: { id: record.value.id },
+  }).href
+  const previewWindow = window.open(previewUrl, '_blank')
+  if (!previewWindow) {
     showToast('浏览器阻止打开，请允许弹窗后重试')
+    return
   }
-  window.setTimeout(() => {
-    openingSourceFile.value = false
-  }, 800)
+  previewWindow.opener = null
 }
 
 async function handleConfirm() {

@@ -30,6 +30,11 @@ _RULE_CODE_FIELD_MAP: dict[str, dict[str, Any]] = {
         "category": "type",
         "required": True,
     },
+    "BUSINESS_LICENSE_TYPE_MATCH": {
+        "field": "证照类型",
+        "category": "type",
+        "required": True,
+    },
     "BUSINESS_LICENSE_SUBJECT_NAME_MATCH": {
         "field": "主体名称",
         "category": "field",

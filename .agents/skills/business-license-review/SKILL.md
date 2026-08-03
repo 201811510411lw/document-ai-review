@@ -30,6 +30,7 @@ description: 营业执照单证识别与合规审核规则 Skill。用于维护�
 - `established_date`：成立日期。
 - `valid_from`：营业期限开始日期。
 - `valid_to`：营业期限截止日期；长期、永久、无固定期限可输出 `长期`，无法标准化时保留原始证据。
+- `valid_to_evidence`：当 `valid_to` 有具体截止日期时，必须包含“营业期限”标签及对应可见原文；登记日期、发照日期、核准日期不得作为营业期限证据。同页出现“营业期限：长期”和其他日期时，`valid_to` 输出 `长期`。
 - `issue_authority`：登记机关。
 - `issue_date`：发照日期或登记日期。
 - `*_evidence`：关键字段的 OCR 原文证据。

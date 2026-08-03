@@ -5,6 +5,7 @@ import QueryPage from '@/views/QueryPage.vue'
 import DashboardPage from '@/views/DashboardPage.vue'
 import ReviewPage from '@/views/ReviewPage.vue'
 import ReviewDetailPage from '@/views/ReviewDetailPage.vue'
+import ReviewSourcePreviewPage from '@/views/ReviewSourcePreviewPage.vue'
 import AdminPage from '@/views/AdminPage.vue'
 import ImportPage from '@/views/ImportPage.vue'
 import ProfilePage from '@/views/ProfilePage.vue'
@@ -52,6 +53,12 @@ const routes = [
     name: 'ReviewDetail',
     component: ReviewDetailPage,
     meta: { admin: true },
+  },
+  {
+    path: '/review/:id/source-preview',
+    name: 'ReviewSourcePreview',
+    component: ReviewSourcePreviewPage,
+    meta: { admin: true, noTabbar: true },
   },
   {
     path: '/admin',

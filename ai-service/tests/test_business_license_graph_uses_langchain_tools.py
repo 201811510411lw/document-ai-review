@@ -145,3 +145,29 @@ def test_business_license_field_nodes_invoke_langchain_tools(monkeypatch):
     }
     assert state["document_classification"].reasons == ["stub classification"]
     assert state["extraction_metadata"]["structured_extraction"]["source"] == "stub_tool"
+
+
+def test_business_license_rules_require_business_period_evidence_for_expiry_date():
+    from app.workflows.business_license.nodes import _enforce_validity_evidence_rules
+
+    result = _enforce_validity_evidence_rules(
+        {
+            "status": "REVIEWED",
+            "risk_level": "NONE",
+            "risk_level_label": "无风险",
+            "needs_manual_review": False,
+            "summary": "营业执照规则校验通过",
+            "manual_review_reasons": [],
+            "rule_results": [],
+        },
+        {
+            "valid_to": "2025-05-19",
+            "valid_to_evidence": "登记日期：2025年05月19日",
+        },
+    )
+
+    assert result["needs_manual_review"] is True
+    assert result["risk_level"] == "MEDIUM"
+    assert result["rule_results"][-1]["rule_code"] == (
+        "BUSINESS_LICENSE_VALIDITY_EVIDENCE_PRESENT"
+    )

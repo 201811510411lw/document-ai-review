@@ -384,7 +384,10 @@ def qwen_ocr_parse_prompt() -> str:
         "2. credit_code 提取统一社会信用代码，必须来自证照原文。\n"
         "3. subject_name 提取企业/主体名称本体，不要包含字段标签、类型、法定代表人或经营范围。"
         "legal_person 需提取法定代表人、负责人或个体工商户的营业者。\n"
-        "4. 日期尽量规范为 YYYY-MM-DD；长期、永久、无固定期限输出 长期；无法确定输出 null。\n"
+        "4. 日期尽量规范为 YYYY-MM-DD；长期、永久、无固定期限输出 长期；无法确定输出 null。"
+        "valid_to 只能提取营业期限字段中的截止值，valid_to_evidence 必须同时包含“营业期限”标签及其值。"
+        "登记日期、发照日期、核准日期只能填入 issue_date，不得填入 valid_to。"
+        "同页同时出现“营业期限：长期”和其他日期时，valid_to 必须输出 长期，其他日期按标签填入对应字段。\n"
         "5. subject_name、credit_code 只要输出字段值，就必须同时输出对应 evidence；"
         "evidence 字段必须包含能支撑对应字段的图片/PDF 可见原文片段，不能只重复字段值；没有原文片段输出 null。\n"
         "6. 多页文件只选择营业执照页抽取，source_page 输出页码；ignored_pages 输出被忽略页面及原因。"
@@ -556,6 +559,11 @@ def _sanitize_structured_fields(fields: dict[str, Any]) -> dict[str, Any]:
         sanitized["source_page"] = int(source_page.strip())
     else:
         sanitized["source_page"] = None
+    validity_evidence = str(sanitized.get("valid_to_evidence") or "")
+    if "营业期限" in validity_evidence and any(
+        marker in validity_evidence for marker in ("长期", "永久", "无固定期限")
+    ):
+        sanitized["valid_to"] = "长期"
     return sanitized
 
 

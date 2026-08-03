@@ -67,6 +67,73 @@ def test_product_report_requires_report_number():
     assert metadata["missing_required_fields"] == ["report_no"]
 
 
+def test_product_report_does_not_cross_lines_to_use_next_field_label_as_value():
+    document_text = """
+    产品检验报告
+    报告编号
+    样品名称
+    供应商名称
+    批号：BATCH-001
+    签发日期：2026-06-10
+    检验结论：合格
+    """
+
+    extracted, metadata = extract_product_report_fields(document_text)
+
+    assert extracted.report_no is None
+    assert extracted.product_name is None
+    assert extracted.sample_name is None
+    assert extracted.vendor_name_extracted is None
+    assert "report_no" in metadata["missing_required_fields"]
+    assert "product_name" in metadata["missing_required_fields"]
+    assert "vendor_name_extracted" in metadata["missing_required_fields"]
+
+
+def test_product_report_extracts_supplier_name_label_without_accepting_headers_as_values():
+    document_text = """
+    产品检验报告
+    报告编号：BG-20260610-001
+    样品名称：嗨吃飞饼
+    供应商名称：湖南省新林食品有限公司
+    批号：BATCH-001
+    签发日期：2026-06-10
+    检验结论：合格
+    """
+
+    extracted, metadata = extract_product_report_fields(document_text)
+
+    assert extracted.report_no == "BG-20260610-001"
+    assert extracted.product_name == "嗨吃飞饼"
+    assert extracted.vendor_name_extracted == "湖南省新林食品有限公司"
+    assert extracted.entrusting_party == "湖南省新林食品有限公司"
+    assert metadata["missing_required_fields"] == []
+
+
+def test_product_report_rejects_english_table_headers_as_field_values():
+    document_text = """
+    产品检验报告
+    报告编号：Report No.
+    样品名称：Sample Name
+    供应商名称：Clientele
+    生产商：名称
+    批号：Batch No.
+    签发日期：Issue Date
+    检验结论：合格
+    """
+
+    extracted, metadata = extract_product_report_fields(document_text)
+
+    assert extracted.report_no is None
+    assert extracted.product_name is None
+    assert extracted.vendor_name_extracted is None
+    assert extracted.manufacturer_name is None
+    assert extracted.batch_no is None
+    assert extracted.issue_date is None
+    assert "report_no" in metadata["missing_required_fields"]
+    assert "product_name" in metadata["missing_required_fields"]
+    assert "vendor_name_extracted" in metadata["missing_required_fields"]
+
+
 def test_product_report_uses_approval_date_for_valid_to_when_issue_date_missing():
     document_text = """
     第三方检验报告

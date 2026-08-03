@@ -138,6 +138,7 @@ def run_rules(state: BusinessLicenseWorkflowState) -> BusinessLicenseWorkflowSta
         review_payload["source_fields"],
     )
     rules_result = _enforce_key_field_evidence_rules(rules_result, normalized_payload)
+    rules_result = _enforce_validity_evidence_rules(rules_result, normalized_payload)
     rule_results = rules_result.get("rule_results", [])
     needs_manual_review = rules_result.get("needs_manual_review", True)
     return {
@@ -311,6 +312,45 @@ def _enforce_key_field_evidence_rules(
     }
     reasons = list(rules_result.get("manual_review_reasons") or [])
     reason = "关键字段缺少 OCR 原文证据"
+    if reason not in reasons:
+        reasons.append(reason)
+    return {
+        **rules_result,
+        "status": "PENDING_MANUAL_REVIEW",
+        "status_label": "待人工复核",
+        "risk_level": "MEDIUM"
+        if _risk_level_is_none(rules_result.get("risk_level"))
+        else rules_result.get("risk_level"),
+        "risk_level_label": "中风险"
+        if _risk_level_is_none(rules_result.get("risk_level"))
+        else rules_result.get("risk_level_label"),
+        "needs_manual_review": True,
+        "summary": "营业执照存在需要人工复核的规则问题",
+        "manual_review_reasons": reasons,
+        "rule_results": [*list(rules_result.get("rule_results") or []), rule],
+    }
+
+
+def _enforce_validity_evidence_rules(rules_result: dict, fields: dict) -> dict:
+    valid_to = str(fields.get("valid_to") or "").strip()
+    evidence = str(fields.get("valid_to_evidence") or "").strip()
+    if not valid_to or valid_to == "长期" or "营业期限" in evidence:
+        return rules_result
+
+    rule = {
+        "rule_code": "BUSINESS_LICENSE_VALIDITY_EVIDENCE_PRESENT",
+        "rule_name": "营业期限识别依据完整性",
+        "passed": False,
+        "risk_level_on_failure": "MEDIUM",
+        "message": "营业期限截止日期缺少包含“营业期限”标签的 OCR 原文证据",
+        "details": {
+            "field": "valid_to",
+            "actual": valid_to,
+            "evidence": evidence or None,
+        },
+    }
+    reasons = list(rules_result.get("manual_review_reasons") or [])
+    reason = "营业期限截止日期缺少 OCR 原文证据"
     if reason not in reasons:
         reasons.append(reason)
     return {

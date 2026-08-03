@@ -18,6 +18,44 @@ class BatchReportExtractedFields(BaseModel):
     production_date: str | None = None
 
 
+_FIELD_LABELS = frozenset(
+    {
+        "厂名",
+        "公司名",
+        "生产商",
+        "生产单位",
+        "生产企业",
+        "产品名称",
+        "商品名称",
+        "品名",
+        "样品名称",
+        "生产批号",
+        "批号",
+        "批次号",
+        "批次",
+        "生产日期",
+        "生产时间",
+        "制造日期",
+        "名称",
+    }
+)
+_ENGLISH_FIELD_LABELS = frozenset(
+    {
+        "factoryname",
+        "companyname",
+        "producername",
+        "manufacturername",
+        "productname",
+        "samplename",
+        "batchno",
+        "batchnumber",
+        "productiondate",
+        "manufacturingdate",
+        "name",
+    }
+)
+
+
 def extract_batch_report_fields(
     document_text: str,
 ) -> tuple[BatchReportExtractedFields, dict[str, Any]]:
@@ -153,8 +191,8 @@ def _extract_with_llm(document_text: str) -> dict[str, str | None] | None:
 def _clean_llm_value(value: Any) -> str | None:
     if value is None:
         return None
-    text = str(value).strip()
-    if text in ("", "null", "None", "无", "/", "-"):
+    text = _clean_value(str(value))
+    if text is None or text in ("null", "None"):
         return None
     return text
 
@@ -253,7 +291,9 @@ def _extract_line_value(document_text: str, labels: list[str]) -> str | None:
                     return value
     for label in labels:
         match = re.search(
-            rf"(?:^|\n)\s*{re.escape(label)}\s*[:：]?\s*([^\n]+)",
+            # Do not use \s here: it consumes newlines and shifts every field
+            # to the following table header when labels are on separate lines.
+            rf"(?:^|\n)[ \t]*{re.escape(label)}[ \t]*[:：]?[ \t]*([^\n]+)",
             document_text,
         )
         if match:
@@ -342,7 +382,16 @@ def _clean_value(value: str | None) -> str | None:
     cleaned = value.strip().strip("：:")
     if cleaned in {"", "/", "-", "无"}:
         return None
+    if _is_field_label(cleaned):
+        return None
     return cleaned
+
+
+def _is_field_label(value: str) -> bool:
+    normalized = re.sub(r"[\s:：]+", "", value)
+    if normalized in _FIELD_LABELS:
+        return True
+    return re.sub(r"[^a-z0-9]", "", normalized.lower()) in _ENGLISH_FIELD_LABELS
 
 
 def _rule(code: str, name: str, passed: bool, risk: RiskLevel, details: dict[str, Any]) -> RuleResult:

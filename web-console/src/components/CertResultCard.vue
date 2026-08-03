@@ -56,6 +56,16 @@
       >
         下载
       </van-button>
+      <van-button
+        size="small"
+        plain
+        type="primary"
+        icon="description"
+        :disabled="!record.id"
+        @click.stop="openReviewDetail"
+      >
+        核验详情
+      </van-button>
       <span v-if="!hasFile" class="no-file-hint">未查询到相应证照文件</span>
     </div>
 
@@ -78,6 +88,8 @@
 
 <script setup>
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { reviewApi } from '@/api'
 import { EXPIRE_STATUS_MAP } from '@/utils'
 import { showToast } from 'vant'
 
@@ -85,6 +97,7 @@ const props = defineProps({
   record: { type: Object, required: true },
   keyword: { type: String, default: '' },
 })
+const router = useRouter()
 
 function highlightText(text) {
   if (!props.keyword || !text) return text
@@ -118,6 +131,7 @@ const hasFile = computed(() => !!props.record.source_file_url)
 const actions = [
   { name: '查看证照', value: 'preview' },
   { name: '下载文件', value: 'download' },
+  { name: '核验详情', value: 'review' },
   { name: '复制公司名称', value: 'copy' },
 ]
 
@@ -126,22 +140,31 @@ function onAction(action) {
   switch (action.value) {
     case 'preview': previewCert(); break
     case 'download': downloadSingle(); break
+    case 'review': openReviewDetail(); break
     case 'copy': copyName(); break
+  }
+}
+
+function openReviewDetail() {
+  if (props.record.id) {
+    router.push({ name: 'ReviewDetail', params: { id: props.record.id } })
   }
 }
 
 function previewCert() {
   if (openingCert.value) return
-  if (props.record.source_file_url) {
-    openingCert.value = true
-    const opened = window.open(props.record.source_file_url, '_blank', 'noopener,noreferrer')
-    if (!opened) {
-      showToast('浏览器阻止打开，请允许弹窗后重试')
-    }
-    window.setTimeout(() => {
-      openingCert.value = false
-    }, 800)
+  if (!props.record.source_file_url) return
+
+  const previewUrl = router.resolve({
+    name: 'ReviewSourcePreview',
+    params: { id: props.record.id },
+  }).href
+  const previewWindow = window.open(previewUrl, '_blank')
+  if (!previewWindow) {
+    showToast('浏览器阻止打开，请允许弹窗后重试')
+    return
   }
+  previewWindow.opener = null
 }
 
 function downloadSingle() {
