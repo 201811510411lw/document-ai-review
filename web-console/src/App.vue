@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <router-view />
-    <van-tabbar route fixed placeholder>
+    <van-tabbar v-if="!route.meta.noTabbar" route fixed placeholder>
       <van-tabbar-item to="/home" icon="home-o">
         首页
       </van-tabbar-item>
@@ -13,9 +13,9 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { useRoute } from 'vue-router'
 
-const activeTab = window.location.hash ? undefined : 0
+const route = useRoute()
 </script>
 
 <style>

@@ -10,6 +10,7 @@ from app.main import app
 from app.models import ReviewDocumentInput, ReviewInput
 from app.repositories.review_result_repository import MySQLReviewResultRepository
 from app.services.review_service import ReviewService
+from app.services.validation_service import compute_validation_fields
 from app.workflows.food_license import nodes as food_license_nodes
 from app.workflows.food_production_license import nodes as food_production_license_nodes
 from tests.business_license_helpers import business_license_auth_headers, business_license_repository
@@ -24,6 +25,125 @@ def setup_function():
 
 def teardown_function():
     app.dependency_overrides.clear()
+
+
+def test_business_license_type_rule_aliases_render_as_one_chinese_field():
+    fields = compute_validation_fields(
+        {
+            "document_type": "business_license",
+            "extracted_fields": {"document_type": "business_license"},
+            "normalized_fields": {"document_type": "business_license"},
+            "rule_results": [
+                {
+                    "rule_code": "BUSINESS_LICENSE_DOCUMENT_TYPE",
+                    "rule_name": "证照类型",
+                    "passed": True,
+                    "risk_level_on_failure": "HIGH",
+                    "details": {
+                        "actual": "business_license",
+                        "expected": "business_license",
+                    },
+                },
+                {
+                    "rule_code": "BUSINESS_LICENSE_TYPE_MATCH",
+                    "rule_name": "营业执照类型匹配",
+                    "passed": True,
+                    "risk_level_on_failure": "HIGH",
+                    "details": {
+                        "actual": "business_license",
+                        "expected": "business_license",
+                    },
+                },
+            ],
+        },
+        "business_license",
+    )
+
+    type_fields = [field for field in fields if field["field"] == "证照类型"]
+    assert len(type_fields) == 1
+    assert type_fields[0]["recognized"] == "营业执照"
+    assert type_fields[0]["expected"] == "营业执照"
+
+
+def test_review_source_file_proxy_requires_login_and_returns_inline_attachment(
+    tmp_path, monkeypatch
+):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    result = _save_review(
+        tmp_path,
+        monkeypatch,
+        repository,
+        task_name="preview-source-file.jpg",
+        supplier_name="预览附件有限公司",
+        supplier_credit_code="91510100MA0000000X",
+        source_record_id="SRM-PREVIEW-FILE",
+        attachment_ref_id="ATT-PREVIEW-FILE",
+        source_url="https://example.oss-cn-chengdu.aliyuncs.com/certificates/license.jpg",
+    )
+
+    class StubHttpClient:
+        def __init__(self, **kwargs):
+            assert kwargs == {"timeout": 30, "follow_redirects": False}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url):
+            assert url.endswith("/certificates/license.jpg")
+            import httpx
+
+            return httpx.Response(
+                200,
+                headers={"content-type": "image/jpeg", "content-disposition": "attachment"},
+                content=b"preview-image",
+                request=httpx.Request("GET", url),
+            )
+
+    import app.api.wecom_frontend as wecom_frontend
+
+    monkeypatch.setattr(wecom_frontend.httpx, "Client", StubHttpClient)
+    app.dependency_overrides[get_review_read_repository] = lambda: repository
+    client = TestClient(app)
+    url = f"/api/review/{result.task_id}/source-file"
+
+    assert client.get(url).status_code == 401
+
+    response = client.get(url, headers=business_license_auth_headers(client, monkeypatch))
+
+    assert response.status_code == 200
+    assert response.content == b"preview-image"
+    assert response.headers["content-type"] == "image/jpeg"
+    assert response.headers["content-disposition"] == "inline"
+    assert response.headers["cache-control"] == "private, no-store"
+
+
+def test_review_source_file_proxy_rejects_non_oss_source(tmp_path, monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    result = _save_review(
+        tmp_path,
+        monkeypatch,
+        repository,
+        task_name="preview-unsupported-source.pdf",
+        supplier_name="非授权附件有限公司",
+        supplier_credit_code="91510100MA0000000X",
+        source_record_id="SRM-PREVIEW-UNSUPPORTED",
+        attachment_ref_id="ATT-PREVIEW-UNSUPPORTED",
+        source_url="https://files.example.test/license.pdf",
+    )
+    app.dependency_overrides[get_review_read_repository] = lambda: repository
+    client = TestClient(app)
+
+    response = client.get(
+        f"/api/review/{result.task_id}/source-file",
+        headers=business_license_auth_headers(client, monkeypatch),
+    )
+
+    assert response.status_code == 403
 
 
 def test_wecom_frontend_review_list_maps_current_business_license_reviews(tmp_path, monkeypatch):

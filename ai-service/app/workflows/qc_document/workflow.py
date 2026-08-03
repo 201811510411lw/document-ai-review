@@ -14,6 +14,7 @@ from app.workflows.qc_document.batch_report_extraction import (
 )
 from app.workflows.qc_document.product_report_extraction import (
     ProductReportExtractedFields,
+    _is_field_label,
     extract_product_report_fields,
     _valid_to as _product_report_valid_to,
 )
@@ -30,7 +31,7 @@ def _product_report_vision_fallback(
     review_input: Any,
     downloader: RemoteDocumentDownloader,
 ) -> dict[str, Any]:
-    """当文本提取没有捞到签发日期时，用 Qwen Vision 直接从 PDF 图片中识别。"""
+    """文本层缺少核心字段时，用 Qwen Vision 从原件图片补充识别。"""
     file_input = getattr(review_input, "file", None) or getattr(
         review_input, "document", None
     )
@@ -81,8 +82,11 @@ def _product_report_vision_fallback(
     prompt = (
         "你是商品报告 OCR 字段抽取器。请根据图片中的可见文字抽取字段。\n"
         "只输出 JSON 对象，不要输出 Markdown。\n"
-        "字段包括：issue_date（签发日期，格式 YYYY-MM-DD）。\n"
-        "注意：签发日期通常在检验结论区域的右下角，即使有印章遮挡也要尽力识别。\n"
+        "字段包括：report_no、product_name、vendor_name_extracted、entrusting_party、"
+        "manufacturer_name、batch_no、production_date、issue_date、approval_date、"
+        "inspection_conclusion。日期统一为 YYYY-MM-DD。\n"
+        "必须返回字段后的实际内容，不得返回 Report No.、Sample Name、Supplier Name、"
+        "Clientele、名称等字段标题或表头。签发日期通常在检验结论区域的右下角。\n"
         "完全无法确定时输出 null。"
     )
 
@@ -106,9 +110,64 @@ def _product_report_vision_fallback(
         return {}
 
     fields = parse_json_object(content_text) or {}
-    if not fields.get("issue_date"):
-        return {}
-    return fields
+    return fields if isinstance(fields, dict) else {}
+
+
+_PRODUCT_REPORT_VISION_CORE_FIELDS = (
+    "report_no",
+    "product_name",
+    "vendor_name_extracted",
+    "entrusting_party",
+    "manufacturer_name",
+)
+
+
+def _needs_product_report_vision_fallback(fields: ProductReportExtractedFields) -> bool:
+    return (
+        any(not getattr(fields, field_name) for field_name in _PRODUCT_REPORT_VISION_CORE_FIELDS)
+        or not fields.valid_to
+    )
+
+
+def _merge_product_report_vision_fields(
+    extracted_fields: ProductReportExtractedFields,
+    vision_fields: dict[str, Any],
+) -> tuple[ProductReportExtractedFields, dict[str, str]]:
+    merged = extracted_fields.model_dump()
+    accepted: dict[str, str] = {}
+    for field_name in (
+        "report_no",
+        "product_name",
+        "vendor_name_extracted",
+        "entrusting_party",
+        "manufacturer_name",
+        "batch_no",
+        "production_date",
+        "issue_date",
+        "approval_date",
+        "inspection_conclusion",
+    ):
+        if merged.get(field_name):
+            continue
+        candidate = str(vision_fields.get(field_name) or "").strip()
+        if not candidate or _is_field_label(candidate):
+            continue
+        merged[field_name] = candidate
+        accepted[field_name] = candidate
+
+    vendor_name = merged.get("vendor_name_extracted") or merged.get("entrusting_party")
+    if vendor_name:
+        merged["vendor_name_extracted"] = vendor_name
+        merged["entrusting_party"] = vendor_name
+    if merged.get("product_name"):
+        merged["sample_name"] = merged["product_name"]
+    if merged.get("issue_date"):
+        merged["sign_date"] = merged["issue_date"]
+    if not merged.get("valid_to"):
+        merged["valid_to"] = _product_report_valid_to(
+            merged.get("issue_date") or merged.get("approval_date")
+        )
+    return ProductReportExtractedFields(**merged), accepted
 
 
 def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any]:
@@ -196,24 +255,18 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
         **extraction_metadata,
     }
 
-    # ⭐ 视觉兜底：文本提取没捞到到期日时，用 Qwen Vision 从 PDF 图片直接识别签发日期
-    if not extracted_fields.valid_to:
+    # PDF 文本层常丢失表格的实际单元格，或把双语表头当作字段值。
+    if _needs_product_report_vision_fallback(extracted_fields):
         ocr_fields = _product_report_vision_fallback(review_input, qc_document_remote_downloader)
-        if ocr_fields.get("issue_date"):
-            new_valid_to = _product_report_valid_to(ocr_fields["issue_date"])
-            if new_valid_to:
-                extracted_fields = ProductReportExtractedFields(
-                    **{
-                        **extracted_fields.model_dump(),
-                        "issue_date": ocr_fields["issue_date"],
-                        "sign_date": ocr_fields["issue_date"],
-                        "valid_to": new_valid_to,
-                    }
-                )
-                extraction_metadata["vision_fallback"] = {
-                    "source": "qwen_ocr",
-                    "issue_date": ocr_fields["issue_date"],
-                }
+        if ocr_fields:
+            extracted_fields, accepted_fields = _merge_product_report_vision_fields(
+                extracted_fields,
+                ocr_fields,
+            )
+            extraction_metadata["vision_fallback"] = {
+                "source": "qwen_ocr",
+                "accepted_fields": accepted_fields,
+            }
 
     extracted_payload = extracted_fields.model_dump(mode="json")
     skill_name = "qc-document-review"

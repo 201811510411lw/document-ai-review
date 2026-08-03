@@ -445,9 +445,53 @@ def test_qwen_ocr_adapter_sanitizes_blank_optional_fields(monkeypatch):
     assert fields["valid_to"] is None
 
 
+def test_qwen_ocr_adapter_prefers_long_term_business_period_over_registration_date(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    class StubMessage:
+        content = (
+            '{"document_type":"business_license",'
+            '"subject_name":"喀什融宏商贸有限公司",'
+            '"credit_code":"91653101MA794MH24L",'
+            '"valid_to":"2025-05-19",'
+            '"issue_date":"2025-05-19",'
+            '"valid_to_evidence":"营业期限：长期；登记日期：2025年05月19日",'
+            '"subject_name_evidence":"名称 喀什融宏商贸有限公司",'
+            '"credit_code_evidence":"统一社会信用代码 91653101MA794MH24L"}'
+        )
+
+    class StubChoice:
+        message = StubMessage()
+
+    class StubResponse:
+        choices = [StubChoice()]
+
+    class StubCompletions:
+        def create(self, **kwargs):
+            return StubResponse()
+
+    class StubChat:
+        completions = StubCompletions()
+
+    class StubOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = StubChat()
+
+    import app.tools.qwen_ocr_adapter as qwen_ocr_adapter
+
+    monkeypatch.setattr(qwen_ocr_adapter, "OpenAI", StubOpenAI, raising=False)
+    result = QwenOcrBusinessLicenseAdapter(model="qwen3.5-ocr").extract_text(
+        {"content": b"fake-png", "mime_type": "image/png"}
+    )
+
+    assert result["structured_fields"]["valid_to"] == "长期"
+    assert result["structured_fields"]["issue_date"] == "2025-05-19"
+
+
 def test_qwen_ocr_parse_prompt_is_extraction_only():
     prompt = qwen_ocr_parse_prompt()
 
     assert "只输出 JSON 对象" in prompt
     assert "不要执行合规审核" in prompt
     assert "credit_code" in prompt
+    assert "登记日期" in prompt

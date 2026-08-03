@@ -1,5 +1,6 @@
 from app.models import ReviewInput
 from app.services.review_service import ReviewService
+from app.workflows.qc_document.batch_report_extraction import extract_batch_report_fields
 
 
 def test_qc_document_review_reviews_batch_report_from_ocr_text():
@@ -80,3 +81,20 @@ def test_qc_document_review_extracts_multiline_sample_name_and_title_producer():
     assert fields["production_date"] == "2025-05-06"
     assert result.status == "PENDING_MANUAL_REVIEW"
     assert "生产日期" in result.manual_review.reasons[-1]
+
+
+def test_batch_report_does_not_treat_following_headers_as_values():
+    extracted, metadata = extract_batch_report_fields(
+        """
+        商品批次报告
+        产品名称
+        生产日期
+        生产批号
+        Batch No.
+        """
+    )
+
+    assert extracted.product_name is None
+    assert extracted.production_date is None
+    assert extracted.batch_no is None
+    assert "product_name" in metadata["missing_required_fields"]

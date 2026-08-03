@@ -109,6 +109,12 @@ export const reviewApi = {
   detail(id) {
     return http.get(`/api/review/${id}`)
   },
+  sourceFile(id) {
+    return http.get(`/api/review/${encodeURIComponent(id)}/source-file`, {
+      responseType: 'blob',
+      timeout: 60000,
+    })
+  },
   confirm(id, comment = '') {
     return http.post(`/api/review/${id}/confirm`, { comment })
   },

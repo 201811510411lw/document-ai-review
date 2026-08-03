@@ -203,6 +203,53 @@ def review_detail(
     return {"record": _frontend_qc_detail(detail, payload_dict)}
 
 
+@api_router.get("/review/{task_id}/source-file")
+def preview_review_source_file(
+    task_id: str,
+    _current_user: dict[str, Any] = Depends(get_wecom_frontend_user),
+    repository: FrontendRepository = Depends(get_review_read_repository),
+) -> Response:
+    """Return a reviewed source attachment for inline browser preview."""
+    detail = repository.get_qc_review_detail(task_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="记录不存在")
+
+    source_url = str(detail.get("source_url") or "").strip()
+    if not source_url:
+        raise HTTPException(status_code=404, detail="该记录没有可预览的附件")
+    if not _is_allowed_preview_source_url(source_url):
+        raise HTTPException(status_code=403, detail="附件来源不支持预览代理")
+
+    try:
+        with httpx.Client(timeout=30, follow_redirects=False) as client:
+            source_response = client.get(source_url)
+        source_response.raise_for_status()
+    except httpx.TimeoutException as error:
+        raise HTTPException(status_code=504, detail="附件预览下载超时") from error
+    except httpx.HTTPStatusError as error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"附件源站返回 {error.response.status_code}",
+        ) from error
+    except httpx.HTTPError as error:
+        raise HTTPException(status_code=502, detail="附件预览下载失败") from error
+
+    content_type = _preview_content_type(source_response.headers.get("content-type"))
+    if content_type is None:
+        raise HTTPException(status_code=415, detail="附件格式不支持在线预览")
+    if not source_response.content:
+        raise HTTPException(status_code=502, detail="附件内容为空")
+    return Response(
+        content=source_response.content,
+        media_type=content_type,
+        headers={
+            "Content-Disposition": "inline",
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @api_router.post("/review/{task_id}/confirm")
 def confirm_review(
     task_id: str,
@@ -243,21 +290,35 @@ def proxy_file(
     _current_user: dict[str, Any] = Depends(get_wecom_frontend_user),
 ) -> Response:
     """代理下载外部存储文件，解决跨域/HTTPS 混合内容问题。"""
-    parsed = urlparse(url)
-    if not parsed.scheme or not parsed.netloc:
-        raise HTTPException(status_code=400, detail="无效的文件地址")
+    if not _is_allowed_preview_source_url(url):
+        raise HTTPException(status_code=400, detail="无效或不受支持的文件地址")
     try:
         with httpx.Client(timeout=30, follow_redirects=True) as client:
             resp = client.get(url)
             resp.raise_for_status()
-            content_type = resp.headers.get("content-type", "application/octet-stream")
+            content_type = _preview_content_type(resp.headers.get("content-type"))
+            if content_type is None:
+                raise HTTPException(status_code=415, detail="文件格式不支持在线预览")
             return Response(content=resp.content, media_type=content_type)
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="文件下载超时")
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=502, detail=f"源站返回 {e.response.status_code}")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"文件下载失败: {str(e)}")
+
+
+def _is_allowed_preview_source_url(url: str) -> bool:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme == "https" and host.endswith(".aliyuncs.com")
+
+
+def _preview_content_type(value: str | None) -> str | None:
+    content_type = str(value or "").split(";", 1)[0].strip().lower()
+    return content_type if content_type in {"application/pdf", "image/jpeg", "image/png"} else None
 
 
 @api_router.post("/query")
