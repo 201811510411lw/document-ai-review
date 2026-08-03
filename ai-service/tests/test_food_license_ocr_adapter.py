@@ -28,6 +28,7 @@ def test_validate_food_license_ocr_result_accepts_key_fields():
                 "subject_name": "成都市聚和盛供应链管理有限公司",
                 "credit_code": "91510105MA6BCUKR3A",
                 "license_no": "JY15101050167261",
+                "valid_to": "2028-06-05",
             },
             "metadata": {},
         }
@@ -44,6 +45,7 @@ def test_validate_food_license_ocr_result_rejects_business_serial_as_credit_code
                 "subject_name": "成都市聚和盛供应链管理有限公司",
                 "credit_code": "1001010427202311270017",
                 "license_no": "JY15101050167261",
+                "valid_to": "2028-06-05",
             },
             "metadata": {},
         }
@@ -64,6 +66,7 @@ def test_food_license_fallback_adapter_uses_qwen_result_when_validation_passes()
                 "subject_name": "成都市聚和盛供应链管理有限公司",
                 "credit_code": "91510105MA6BCUKR3A",
                 "license_no": "JY15101050167261",
+                "valid_to": "2028-06-05",
             },
             "metadata": {"provider": "qwen_ocr"},
         }
@@ -79,6 +82,94 @@ def test_food_license_fallback_adapter_uses_qwen_result_when_validation_passes()
     assert fallback.calls == []
     assert result["metadata"]["fallback_used"] is False
     assert result["metadata"]["final_provider"] == "qwen_ocr"
+
+
+def test_food_license_fallback_adapter_recovers_valid_to_missing_from_qwen_result():
+    primary = StubAdapter(
+        {
+            "text": "qwen text",
+            "structured_fields": {
+                "document_type": "food_license",
+                "subject_name": "测试食品经营有限公司",
+                "credit_code": "91510105MA6BCUKR3A",
+                "license_no": "JY15101050167261",
+                "valid_to": None,
+            },
+            "metadata": {"provider": "qwen_ocr"},
+        }
+    )
+    fallback = StubAdapter(
+        {
+            "text": "食品经营许可证\n有效期至：2029年01月04日",
+            "metadata": {"provider": "aliyun_ocr_text"},
+        }
+    )
+    parser = StubAdapter(
+        {
+            "text": "aliyun text",
+            "structured_fields": {
+                "valid_to": "2029-01-04",
+            },
+            "metadata": {"provider": "aliyun_ocr_text_llm_parse"},
+        }
+    )
+
+    result = QwenOcrWithAliyunFallbackFoodLicenseAdapter(
+        primary_adapter=primary,
+        fallback_adapter=fallback,
+        fallback_text_parser=parser,
+    ).extract_text({"content": b"fake"})
+
+    assert len(fallback.calls) == 1
+    assert len(parser.calls) == 1
+    assert result["structured_fields"]["subject_name"] == "测试食品经营有限公司"
+    assert result["structured_fields"]["license_no"] == "JY15101050167261"
+    assert result["structured_fields"]["valid_to"] == "2029-01-04"
+    assert result["metadata"]["fallback_used"] is True
+    assert result["metadata"]["fallback_trigger"] == "valid_to_missing"
+
+
+def test_food_license_fallback_adapter_keeps_primary_fields_when_fallback_fails():
+    fields = {
+        "document_type": "food_license",
+        "subject_name": "测试食品经营有限公司",
+        "credit_code": "91510105MA6BCUKR3A",
+        "license_no": "JY15101050167261",
+        "valid_to": None,
+    }
+    primary = StubAdapter(
+        {
+            "text": "qwen text",
+            "structured_fields": fields,
+            "metadata": {"provider": "qwen_ocr"},
+        }
+    )
+    fallback = StubAdapter(
+        {
+            "text": "食品经营许可证",
+            "metadata": {"provider": "aliyun_ocr_text"},
+        }
+    )
+    parser = StubAdapter(
+        {
+            "text": "aliyun text",
+            "metadata": {
+                "provider": "aliyun_ocr_text_llm_parse",
+                "error_code": "OCR_TEXT_PARSE_JSON_MISSING",
+            },
+        }
+    )
+
+    result = QwenOcrWithAliyunFallbackFoodLicenseAdapter(
+        primary_adapter=primary,
+        fallback_adapter=fallback,
+        fallback_text_parser=parser,
+    ).extract_text({"content": b"fake"})
+
+    assert result["structured_fields"] == fields
+    assert result["metadata"]["fallback_used"] is True
+    assert result["metadata"]["fallback_trigger"] == "valid_to_missing"
+    assert result["metadata"]["fallback_validation"]["passed"] is False
 
 
 def test_food_license_fallback_adapter_uses_aliyun_text_and_llm_when_qwen_has_no_fields():

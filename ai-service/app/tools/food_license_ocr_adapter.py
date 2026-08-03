@@ -192,6 +192,22 @@ class QwenOcrWithAliyunFallbackFoodLicenseAdapter:
         fallback_ocr_result = self.fallback_adapter.extract_text(source)
         fallback_result = self.fallback_text_parser.extract_text(fallback_ocr_result)
         fallback_validation = validate_food_license_ocr_result(fallback_result)
+        if primary_validation["failure_reasons"] == ["valid_to_missing"]:
+            merged_result = _merge_recovered_valid_to(primary_result, fallback_result)
+            return _with_fallback_metadata(
+                merged_result or primary_result,
+                final_provider=(
+                    "qwen_ocr_with_aliyun_valid_to_merge"
+                    if merged_result
+                    else "qwen_ocr"
+                ),
+                primary_validation=primary_validation,
+                fallback_validation=fallback_validation,
+                fallback_used=True,
+                fallback_trigger="valid_to_missing",
+                primary_result=primary_result,
+                fallback_ocr_result=fallback_ocr_result,
+            )
         return _with_fallback_metadata(
             fallback_result,
             final_provider=str(
@@ -330,6 +346,9 @@ def validate_food_license_ocr_result(result: dict[str, Any]) -> dict[str, Any]:
     if not _normalize_text(fields.get("license_no")):
         failure_reasons.append("license_no_missing")
 
+    if not _normalize_text(fields.get("valid_to")):
+        failure_reasons.append("valid_to_missing")
+
     return {
         "passed": not failure_reasons,
         "failure_reasons": failure_reasons,
@@ -414,6 +433,30 @@ def _with_fallback_metadata(
             "selected_page": fallback_ocr_metadata.get("selected_page"),
         }
     return {**result, "metadata": metadata}
+
+
+def _merge_recovered_valid_to(
+    primary_result: dict[str, Any],
+    fallback_result: dict[str, Any],
+) -> dict[str, Any] | None:
+    fallback_fields = dict(fallback_result.get("structured_fields") or {})
+    valid_to = _optional_text(fallback_fields.get("valid_to"))
+    if not valid_to:
+        return None
+
+    primary_fields = dict(primary_result.get("structured_fields") or {})
+    primary_fields["valid_to"] = valid_to
+    metadata = dict(primary_result.get("metadata") or {})
+    metadata["merged_missing_fields"] = ["valid_to"]
+    metadata["missing_fields_source"] = "fallback_ocr_text"
+    return {
+        **primary_result,
+        "structured_fields": _sanitize_food_license_fields(
+            primary_fields,
+            source_text=str(primary_result.get("text") or ""),
+        ),
+        "metadata": metadata,
+    }
 
 
 def _sanitize_food_license_fields(
