@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 class ProductReportExtractedFields(BaseModel):
     document_type: str | None = None
+    document_type_raw: str | None = None
     report_no: str | None = None
     product_name: str | None = None
     sample_name: str | None = None
@@ -50,7 +51,8 @@ def extract_product_report_fields(
 
     detected_type = _detect_product_report_type(text)
     extracted = ProductReportExtractedFields(
-        document_type=detected_type,
+        document_type="product_report",
+        document_type_raw=detected_type,
         report_no=report_no,
         product_name=product_name,
         sample_name=product_name,
@@ -192,15 +194,16 @@ def _extract_conclusion(document_text: str) -> str | None:
 
 
 def _detect_product_report_type(document_text: str) -> str | None:
-    """检测文档标题判断证照类型。"""
+    """检测并保留报告标题，稳定类型由调用方映射为 product_report。"""
     text = (document_text or "").strip()
     if not text:
         return None
     # 取前 500 字符判断标题
-    head = text[:500]
-    if re.search(r'检验报告|检测报告', head):
-        return "第三方检验报告"
-    return "product_report"
+    head = re.sub(r"\s+", "", text[:500])
+    for title in ("第三方检验报告", "产品检验报告", "产品检测报告", "检验报告", "检测报告"):
+        if title in head:
+            return title
+    return None
 
 
 def _valid_to(issue_or_approval_date: str | None) -> str | None:

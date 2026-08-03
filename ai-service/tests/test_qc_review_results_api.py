@@ -54,7 +54,7 @@ def test_qc_review_list_queries_business_license_results_by_document_type(
     assert response.status_code == 200
     payload = response.json()
     assert payload["total"] == 1
-    assert payload["items"][0] == {
+    expected_item = {
         "task_id": result.task_id,
         "use_case_name": "business_license",
         "document_type": "business_license",
@@ -73,6 +73,10 @@ def test_qc_review_list_queries_business_license_results_by_document_type(
         "created_at": result.created_at.isoformat(),
         "updated_at": result.updated_at.isoformat(),
     }
+    item = payload["items"][0]
+    assert {key: item[key] for key in expected_item} == expected_item
+    assert item["extracted_fields"]["subject_name"] == "成都示例商贸有限公司"
+    assert item["source_evidence"]["source"]["record_id"] == "SRM-CERT-001"
     assert payload["metrics"]["document_type_counts"] == {"business_license": 1}
 
 

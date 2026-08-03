@@ -308,7 +308,7 @@ def test_wecom_frontend_csv_upload_preview_queries_real_records(tmp_path, monkey
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["stats"] == {"found": 1, "expiring": 0, "expired": 1, "missing": 1}
+    assert payload["stats"] == {"found": 1, "expiring": 0, "expired": 0, "missing": 1}
     assert payload["columns"][0]["name"] == "公司名称"
     assert payload["records"][0]["company_name"] == "杭州批量查询有限公司"
 
@@ -582,7 +582,7 @@ def test_wecom_frontend_dashboard_stats_empty_and_with_data(tmp_path, monkeypatc
     assert empty_response.json()["data"]["type_distribution"] == []
     assert data_response.json()["data"]["total"] == 1
     assert data_response.json()["data"]["type_distribution"][0]["type"] == "营业执照"
-    assert daily_response.json()["data"]["expired"][0]["company_name"] == "看板统计有限公司"
+    assert daily_response.json()["data"]["all_records"][0]["company_name"] == "看板统计有限公司"
 
 
 def test_wecom_frontend_business_license_start_date_falls_back_to_established_date(
@@ -620,12 +620,14 @@ def test_wecom_frontend_business_license_start_date_falls_back_to_established_da
     assert response.status_code == 200
     fields = response.json()["record"]["validation_fields"]
     assert [field["field"] for field in fields] == [
+        "证照类型",
         "主体名称",
         "统一社会信用代码",
         "法定代表人",
         "有效期开始",
         "有效期结束",
         "住所",
+        "OCR 证据完整性",
     ]
     start_date = next(field for field in fields if field["field"] == "有效期开始")
     assert start_date["recognized"] == "2023-05-04"
@@ -713,7 +715,59 @@ def test_wecom_frontend_business_license_detail_compares_against_source_fields(
     assert credit_code["recognized"] == "91410328MA467UBR0H"
     assert credit_code["expected"] == "91410328MA467UBROH"
     assert credit_code["match"] is False
-    assert response.json()["record"]["match_ratio"] == 67
+    assert response.json()["record"]["match_ratio"] == 75
+
+
+def test_wecom_frontend_business_license_detail_ignores_stale_rule_explanation(
+    tmp_path,
+    monkeypatch,
+):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    result = _save_review(
+        tmp_path,
+        monkeypatch,
+        repository,
+        task_name="business-stale-rule-explanation.pdf",
+        supplier_name="当前来源有限公司",
+        supplier_credit_code="91510100STALE001X",
+        source_record_id="SRM-STALE-RULE",
+        attachment_ref_id="ATT-STALE-RULE",
+        source_url="https://files.example.test/business-stale-rule-explanation.pdf",
+    )
+    saved = repository.get_by_task_id(result.task_id)
+    payload = saved.model_dump(mode="json")
+    payload["skill_result"]["extracted_fields"]["subject_name"] = "当前识别有限公司"
+    payload["skill_result"]["normalized_fields"]["subject_name"] = "当前识别有限公司"
+    subject_rule = next(
+        rule
+        for rule in payload["rule_results"]
+        if rule["rule_code"] == "BUSINESS_LICENSE_SUBJECT_NAME_MATCH"
+    )
+    subject_rule["passed"] = False
+    subject_rule["details"] = {
+        "actual": "历史识别有限公司",
+        "expected": "当前来源有限公司",
+        "match_reason": "历史识别值与来源不一致",
+        "confidence": "HIGH",
+    }
+    repository.save(saved.__class__.model_validate(payload))
+    app.dependency_overrides[get_review_read_repository] = lambda: repository
+    client = TestClient(app)
+
+    response = client.get(
+        f"/api/review/{result.task_id}",
+        headers=business_license_auth_headers(client, monkeypatch),
+    )
+
+    assert response.status_code == 200
+    fields = response.json()["record"]["validation_fields"]
+    subject_name = next(field for field in fields if field["field"] == "主体名称")
+    assert subject_name["recognized"] == "当前识别有限公司"
+    assert subject_name["match"] is False
+    assert subject_name.get("match_reason", "") == ""
+    assert subject_name.get("confidence", "") == ""
+    assert subject_name["risk"] == ""
 
 
 def test_wecom_frontend_business_license_match_ratio_counts_field_matches(
@@ -766,7 +820,7 @@ def test_wecom_frontend_business_license_match_ratio_counts_field_matches(
 
     assert response.status_code == 200
     record = response.json()["record"]
-    assert record["match_ratio"] == 83
+    assert record["match_ratio"] == 88
 
 
 def test_wecom_frontend_food_license_detail_uses_food_validation_fields(
@@ -824,6 +878,7 @@ def test_wecom_frontend_food_license_detail_uses_food_validation_fields(
     assert response.status_code == 200
     fields = response.json()["record"]["validation_fields"]
     assert [field["field"] for field in fields] == [
+        "证照类型",
         "经营者名称",
         "统一社会信用代码",
         "许可证编号",
@@ -1218,6 +1273,7 @@ def test_wecom_frontend_food_production_detail_uses_production_validation_fields
     assert response.status_code == 200
     fields = response.json()["record"]["validation_fields"]
     assert [field["field"] for field in fields] == [
+        "证照类型",
         "生产者名称",
         "统一社会信用代码",
         "许可证编号",
@@ -1255,6 +1311,11 @@ def test_wecom_frontend_product_report_detail_uses_product_report_validation_fie
             supplier_name="成都示例食品有限公司",
             supplier_credit_code="",
             declared_document_type="product_report",
+            source={
+                "sku_name": "麻辣牛肉",
+                "vendor_name": "成都示例食品有限公司",
+                "production_date": "2026-06-01",
+            },
         ),
         use_case_name="qc_document_review",
     )
@@ -1267,8 +1328,10 @@ def test_wecom_frontend_product_report_detail_uses_product_report_validation_fie
     )
 
     assert response.status_code == 200
-    fields = response.json()["record"]["validation_fields"]
+    record = response.json()["record"]
+    fields = record["validation_fields"]
     assert [field["field"] for field in fields] == [
+        "文档类型",
         "报告编号",
         "样品名称",
         "委托单位",
@@ -1279,15 +1342,21 @@ def test_wecom_frontend_product_report_detail_uses_product_report_validation_fie
         "批准日期",
         "有效截止日",
         "检验结论",
+        "批次/生产日期",
     ]
+    document_type = next(field for field in fields if field["field"] == "文档类型")
     report_no = next(field for field in fields if field["field"] == "报告编号")
     valid_to = next(field for field in fields if field["field"] == "有效截止日")
     entrusting_party = next(field for field in fields if field["field"] == "委托单位")
+    assert document_type["recognized"] == "商品报告"
+    assert document_type["expected"] == "商品报告"
+    assert document_type["match"] is True
     assert report_no["recognized"] == "BG-20260610-001"
     assert valid_to["recognized"] == "2026-12-07"
     assert valid_to["match"] is True
     assert entrusting_party["expected"] == "成都示例食品有限公司"
     assert entrusting_party["match"] is True
+    assert record["verification_result"]["result"] == "pass", record["verification_result"]
 
 
 def test_wecom_frontend_batch_report_list_detail_and_confirm(monkeypatch):
@@ -1344,6 +1413,8 @@ def test_wecom_frontend_batch_report_list_detail_and_confirm(monkeypatch):
         "生产批号",
         "文档文本",
         "生产日期/批号",
+        "生产日期时效性",
+        "关键字段完整性",
     ]
     product_name = next(field for field in fields if field["field"] == "商品名称")
     assert product_name["expected"] == "游世佳族金唱片面包"
@@ -1426,6 +1497,7 @@ def test_wecom_frontend_food_production_detail_prefers_payload_document_type_ove
     assert record["document_type"] == "food_production_license"
     assert record["license_type"] == "食品生产许可证"
     assert [field["field"] for field in record["validation_fields"]] == [
+        "证照类型",
         "生产者名称",
         "统一社会信用代码",
         "许可证编号",

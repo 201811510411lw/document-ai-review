@@ -30,6 +30,7 @@ def test_business_license_extract_tool_returns_structured_fields_and_metadata():
 
     assert result["fields"] == {
         "document_type": "business_license",
+        "document_type_raw": None,
         "subject_name": "示例科技有限公司",
         "credit_code": "91310000MA1K000000",
         "business_address": None,

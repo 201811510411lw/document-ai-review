@@ -24,6 +24,7 @@ def test_extract_product_report_required_fields_from_complete_text():
     extracted, metadata = extract_product_report_fields(document_text)
 
     assert extracted.document_type == "product_report"
+    assert extracted.document_type_raw == "产品检验报告"
     assert extracted.report_no == "BG-20260610-001"
     assert extracted.product_name == "麻辣牛肉"
     assert extracted.sample_name == "麻辣牛肉"

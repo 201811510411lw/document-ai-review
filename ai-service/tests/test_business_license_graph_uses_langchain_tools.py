@@ -127,6 +127,7 @@ def test_business_license_field_nodes_invoke_langchain_tools(monkeypatch):
     assert calls[2][1] == {
         "extracted_fields": {
             "document_type": "business_license",
+            "document_type_raw": None,
             "subject_name": "示例科技有限公司",
             "credit_code": "91310000MA1K000000",
             "business_address": None,

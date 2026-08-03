@@ -1023,7 +1023,11 @@ def _frontend_workbench_stats(records: list[dict[str, Any]]) -> dict[str, int]:
         "total": len(records),
         "pending": sum(1 for row in records if row.get("review_status") == "pending"),
         "confirmed": sum(1 for row in records if row.get("review_status") == "confirmed"),
-        "flagged": sum(1 for row in records if row.get("review_status") == "flagged"),
+        "flagged": sum(
+            1
+            for row in records
+            if row.get("review_status") == "flagged" or row.get("risk_level") == "HIGH"
+        ),
     }
 
 
@@ -1048,7 +1052,7 @@ def _license_only_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]
     for r in records:
         doc_type = r.get("document_type")
         if doc_type in _LICENSE_ONLY_DOCUMENT_TYPES:
-            if doc_type == "business_license" and r.get("source_system") != "srm":
+            if doc_type == "business_license" and r.get("source_system") == "oa_starrocks":
                 continue
             filtered.append(r)
     return filtered
@@ -1059,8 +1063,11 @@ def _frontend_record_matches_review_filter(record: dict[str, Any], review_filter
         return True
     if review_filter.get("risk_level") and record.get("risk_level") != review_filter["risk_level"]:
         return False
-    if review_filter.get("force_frontend_status"):
-        return True
+    forced_status = review_filter.get("force_frontend_status")
+    if forced_status:
+        return record.get("review_status") == forced_status or (
+            forced_status == "flagged" and record.get("risk_level") == "HIGH"
+        )
     frontend_status = review_filter.get("frontend_status")
     if frontend_status and record.get("review_status") != frontend_status:
         return False
@@ -1371,6 +1378,7 @@ def _frontend_review_filter(status: str) -> dict[str, str]:
         },
         "flagged": {
             "frontend_status": "flagged",
+            "force_frontend_status": "flagged",
         },
     }.get(status or "", {})
 

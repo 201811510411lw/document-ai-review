@@ -15,6 +15,10 @@ from typing import Literal, TypedDict
 # (关键词, 标准显示名, 系统类型)
 # 按关键词长度降序排列，确保最长匹配优先
 _RAW_MAP: list[tuple[str, str, str]] = [
+    # ── 商品报告（对应系统类型：product_report） ──
+    ("第三方检验报告", "商品报告", "product_report"),
+    ("产品检验报告", "商品报告", "product_report"),
+    ("产品检测报告", "商品报告", "product_report"),
     # ── 生产端（对应系统类型：food_production_license） ──
     ("特殊医学用途配方食品生产许可证", "食品生产许可证", "food_production_license"),
     ("婴幼儿配方食品生产许可证", "食品生产许可证", "food_production_license"),

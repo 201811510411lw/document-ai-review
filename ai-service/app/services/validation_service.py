@@ -14,8 +14,18 @@
                                          →  match_ratio（匹配率）
 """
 
+from dataclasses import dataclass
 from datetime import date
 from typing import Any
+
+
+@dataclass(frozen=True)
+class _RuleValidationField:
+    validation: dict[str, Any]
+    actual: str
+    expected: str
+    has_actual: bool
+    has_expected: bool
 
 
 # ─── 规则代码 → 前端字段映射 ───────────────────────────────────────
@@ -26,6 +36,11 @@ from typing import Any
 _RULE_CODE_FIELD_MAP: dict[str, dict[str, Any]] = {
     # ── 营业执照 ──
     "BUSINESS_LICENSE_DOCUMENT_TYPE": {
+        "field": "证照类型",
+        "category": "type",
+        "required": True,
+    },
+    "BUSINESS_LICENSE_TYPE_MATCH": {
         "field": "证照类型",
         "category": "type",
         "required": True,
@@ -41,9 +56,14 @@ _RULE_CODE_FIELD_MAP: dict[str, dict[str, Any]] = {
         "required": True,
     },
     "BUSINESS_LICENSE_VALID_TO_CHECK": {
-        "field": "有效期",
+        "field": "有效期结束",
         "category": "validity",
         "required": True,
+    },
+    "BUSINESS_LICENSE_VALIDITY_PERIOD": {
+        "field": "有效期结束",
+        "category": "validity",
+        "required": False,
     },
     "BUSINESS_LICENSE_KEY_FIELD_INTEGRITY": {
         "field": "关键字段完整性",
@@ -51,6 +71,11 @@ _RULE_CODE_FIELD_MAP: dict[str, dict[str, Any]] = {
         "required": True,
     },
     "BUSINESS_LICENSE_EVIDENCE_REQUIRED": {
+        "field": "OCR 证据完整性",
+        "category": "evidence",
+        "required": False,
+    },
+    "BUSINESS_LICENSE_KEY_FIELD_EVIDENCE_PRESENT": {
         "field": "OCR 证据完整性",
         "category": "evidence",
         "required": False,
@@ -82,12 +107,12 @@ _RULE_CODE_FIELD_MAP: dict[str, dict[str, Any]] = {
         "required": True,
     },
     "FOOD_LICENSE_VALIDITY_PERIOD": {
-        "field": "有效期",
+        "field": "有效期结束",
         "category": "validity",
         "required": True,
     },
     "VALIDITY_PERIOD_CHECK": {
-        "field": "有效期",
+        "field": "有效期结束",
         "category": "validity",
         "required": True,
     },
@@ -113,7 +138,7 @@ _RULE_CODE_FIELD_MAP: dict[str, dict[str, Any]] = {
         "required": True,
     },
     "FOOD_PRODUCTION_LICENSE_VALIDITY_PERIOD": {
-        "field": "有效期",
+        "field": "有效期结束",
         "category": "validity",
         "required": True,
     },
@@ -129,22 +154,27 @@ _RULE_CODE_FIELD_MAP: dict[str, dict[str, Any]] = {
         "required": True,
     },
     "VENDOR_NAME_MATCH": {
-        "field": "供应商名称",
+        "field": "委托单位",
         "category": "field",
         "required": True,
     },
     "PRODUCT_REPORT_VENDOR_NAME_MATCH": {
-        "field": "供应商名称",
+        "field": "委托单位",
         "category": "field",
         "required": True,
     },
     "PRODUCT_NAME_MATCH": {
-        "field": "产品名称",
+        "field": "样品名称",
         "category": "field",
         "required": True,
     },
     "PRODUCT_REPORT_PRODUCT_NAME_MATCH": {
-        "field": "产品名称",
+        "field": "样品名称",
+        "category": "field",
+        "required": True,
+    },
+    "PRODUCT_REPORT_PRODUCT_NAME_PRESENT": {
+        "field": "样品名称",
         "category": "field",
         "required": True,
     },
@@ -156,6 +186,16 @@ _RULE_CODE_FIELD_MAP: dict[str, dict[str, Any]] = {
     "PRODUCT_REPORT_BATCH_OR_DATE": {
         "field": "批次/生产日期",
         "category": "field",
+        "required": True,
+    },
+    "PRODUCT_REPORT_BATCH_OR_PRODUCTION_DATE_PRESENT": {
+        "field": "批次/生产日期",
+        "category": "field",
+        "required": True,
+    },
+    "PRODUCT_REPORT_VALIDITY_PERIOD": {
+        "field": "有效截止日",
+        "category": "validity",
         "required": True,
     },
     "PRODUCT_REPORT_CONCLUSION_PASS": {
@@ -286,7 +326,7 @@ _VALIDATION_FIELD_SPECS: dict[str, list[tuple[str, tuple[str, ...]]]] = {
         ("生产日期", ("production_date",)),
         ("签发日期", ("issue_date", "sign_date")),
         ("批准日期", ("approval_date",)),
-        ("有效截止日", ("issue_date", "sign_date")),
+        ("有效截止日", ("valid_to",)),
         ("检验结论", ("inspection_conclusion", "inspection_result")),
     ],
     "batch_report": [
@@ -334,6 +374,36 @@ _SOURCE_FIELD_KEYS = {
     "credit_code",
 }
 
+_NAME_COMPARISON_FIELDS = {
+    "主体名称",
+    "经营者名称",
+    "生产者名称",
+    "供应商名称",
+    "委托单位",
+    "样品名称",
+}
+
+_SOURCE_COMPARISON_FIELDS = _NAME_COMPARISON_FIELDS | {"统一社会信用代码"}
+
+_DATE_COMPARISON_FIELDS = {
+    "有效期开始",
+    "有效期结束",
+    "有效截止日",
+    "签发日期",
+    "批准日期",
+    "生产日期",
+}
+
+_RULE_ACTUAL_ALIASES = {
+    "主体名称": ("recognized_subject_name",),
+    "经营者名称": ("recognized_subject_name",),
+    "生产者名称": ("recognized_producer_name",),
+    "统一社会信用代码": ("recognized_credit_code",),
+    "有效期结束": ("valid_to",),
+    "有效截止日": ("valid_to",),
+    "检验结论": ("conclusion",),
+}
+
 # ─── 公开接口 ─────────────────────────────────────────────────────
 
 
@@ -354,16 +424,30 @@ def compute_validation_fields(
     rule_results = detail.get("rule_results") or []
     if rule_results:
         rule_fields = _from_rule_results(rule_results, detail)
-        for rf in rule_fields:
+        for rule_field in rule_fields:
+            rf = rule_field.validation
             field_name = rf["field"]
             if field_name in seen_fields:
-                # 更新已有项（rule_results 有值的才覆盖）
+                # 当前结构化字段负责展示和确定性比对；规则结果只补充说明与风险。
                 for i, f in enumerate(fields):
                     if f["field"] == field_name:
-                        if rf.get("recognized") or rf.get("expected"):
-                            fields[i].update(
-                                {k: v for k, v in rf.items() if v is not None and v != ""}
-                            )
+                        if not fields[i].get("recognized") and rf.get("recognized"):
+                            fields[i]["recognized"] = rf["recognized"]
+                            fields[i]["missing_recognized"] = False
+                        if not fields[i].get("expected") and rf.get("expected"):
+                            fields[i]["expected"] = rf["expected"]
+                            fields[i]["missing_expected"] = False
+                        if rf.get("required") is not None:
+                            fields[i]["required"] = rf["required"]
+                        if _rule_overlay_matches_current_field(rule_field, fields[i]):
+                            for key in ("match_reason", "confidence"):
+                                if rf.get(key) not in (None, ""):
+                                    fields[i][key] = rf[key]
+                            fields[i]["match"] = rf["match"]
+                            if rf["match"]:
+                                fields[i]["risk"] = ""
+                            elif rf.get("risk") and not fields[i].get("risk"):
+                                fields[i]["risk"] = rf["risk"]
                         break
             else:
                 fields.append(rf)
@@ -449,7 +533,7 @@ def compute_field_coverage(fields: list[dict[str, Any]]) -> dict[str, int]:
 def _from_rule_results(
     rule_results: list[dict[str, Any]],
     detail: dict[str, Any] | None = None,
-) -> list[dict[str, Any]]:
+) -> list[_RuleValidationField]:
     """将 LLM rule_results 转换为前端 validation_fields 格式，按 field 名去重。
 
     当 rule_results 中 lack details.actual/expected 时，从 detail 中的
@@ -460,45 +544,28 @@ def _from_rule_results(
     source = _source_fallback_fields(detail)
 
     seen_fields: set[str] = set()
-    fields: list[dict[str, Any]] = []
+    fields: list[_RuleValidationField] = []
     for rule in rule_results:
         rule_code = str(rule.get("rule_code") or "")
         details = rule.get("details") or {}
         spec = _RULE_CODE_FIELD_MAP.get(rule_code)
-        if not spec:
-            field_name = rule.get("rule_name") or rule_code
-            if field_name in seen_fields:
-                continue
-            seen_fields.add(field_name)
-            actual = _rule_detail_value(rule, "actual")
-            expected = _rule_detail_value(rule, "expected")
-            if not actual:
-                actual = _lookup_field_value(extracted, normalized, field_name)
-            if not expected:
-                expected = source.get(field_name, "")
-            fields.append(
-                {
-                    "field": field_name,
-                    "recognized": actual,
-                    "expected": expected,
-                    "match": bool(rule.get("passed", False)),
-                    "risk": rule.get("risk_level_on_failure") or "",
-                    "required": True,
-                    "missing_recognized": not actual,
-                    "missing_expected": not expected,
-                    "match_reason": details.get("match_reason") or "",
-                    "confidence": details.get("confidence") or "",
-                }
-            )
+        if not spec and rule_code.endswith("_STUB"):
             continue
+
+        if not spec:
+            field_name = _field_name_from_rule_details(detail, details)
+            field_name = field_name or rule.get("rule_name") or rule_code
+            spec = {"field": field_name, "category": "rule", "required": True}
 
         field_name = spec["field"]
         if field_name in seen_fields:
             continue
         seen_fields.add(field_name)
 
-        actual = _rule_detail_value(rule, "actual")
-        expected = _rule_detail_value(rule, "expected")
+        actual_value, has_rule_actual = _rule_field_value(details, "actual", field_name)
+        expected_value, has_rule_expected = _rule_field_value(details, "expected", field_name)
+        actual = _display_value(actual_value)
+        expected = _display_value(expected_value)
         # rule_results 中缺值则从 extracted/source 回填
         if not actual:
             actual = _lookup_field_value(extracted, normalized, field_name)
@@ -527,20 +594,24 @@ def _from_rule_results(
             passed = False
 
         fields.append(
-            {
-                "field": field_name,
-                "recognized": actual,
-                "expected": expected,
-                "match": passed,
-                "risk": risk if not passed else "",
-                "required": spec.get("required", True),
-                "missing_recognized": not actual,
-                "missing_expected": not expected,
-                "match_reason": details.get("match_reason") or "",
-                "confidence": details.get("confidence") or "",
-                "_rule_code": rule_code,
-                "_category": spec.get("category", ""),
-            }
+            _RuleValidationField(
+                validation={
+                    "field": field_name,
+                    "recognized": actual,
+                    "expected": expected,
+                    "match": passed,
+                    "risk": risk if not passed else "",
+                    "required": spec.get("required", True),
+                    "missing_recognized": not actual,
+                    "missing_expected": not expected,
+                    "match_reason": details.get("match_reason") or "",
+                    "confidence": details.get("confidence") or "",
+                },
+                actual=_display_value(actual_value),
+                expected=_display_value(expected_value),
+                has_actual=has_rule_actual,
+                has_expected=has_rule_expected,
+            )
         )
     return fields
 
@@ -577,6 +648,7 @@ def _source_fallback_fields(detail: dict[str, Any] | None) -> dict[str, str]:
         "商品名称": source_product_name,
         "产品名称": source_product_name,
         "生产日期/批号": source_production_date,
+        "批次/生产日期": source_production_date,
         "生产日期": source_production_date,
         "统一社会信用代码": str(source_evidence.get("supplier_credit_code") or ""),
         "许可证编号": str(source_evidence.get("license_no") or ""),
@@ -592,6 +664,15 @@ def _lookup_field_value(
     field_name: str,
 ) -> str:
     """根据前端字段名在 extracted/normalized 中查找对应值。"""
+    if field_name == "批次/生产日期":
+        value = (
+            normalized.get("batch_no")
+            or normalized.get("production_date")
+            or extracted.get("batch_no")
+            or extracted.get("production_date")
+        )
+        return _display_value(value)
+
     key_map = {
         "主体名称": "subject_name",
         "经营者名称": "subject_name",
@@ -643,13 +724,71 @@ def _lookup_field_value(
     return str(value).strip()
 
 
-def _rule_detail_value(rule: dict[str, Any], key: str) -> str:
-    """安全地从 rule_result.details 取字段值。"""
-    details = rule.get("details") or {}
-    value = details.get(key)
-    if value is None:
-        return ""
-    return str(value).strip()
+def _rule_field_value(
+    details: dict[str, Any],
+    kind: str,
+    field_name: str,
+) -> tuple[Any, bool]:
+    if kind in details:
+        return details.get(kind), True
+    if kind == "expected":
+        return None, False
+    field_key = details.get("field")
+    candidates = (*_RULE_ACTUAL_ALIASES.get(field_name, ()), field_key)
+    for candidate in candidates:
+        if candidate and candidate in details:
+            return details.get(candidate), True
+    return None, False
+
+
+def _field_name_from_rule_details(
+    detail: dict[str, Any] | None,
+    rule_details: dict[str, Any],
+) -> str | None:
+    field_key = str(rule_details.get("field") or "").strip()
+    if not field_key:
+        return None
+    document_type = str((detail or {}).get("document_type") or "")
+    for label, keys in _VALIDATION_FIELD_SPECS.get(document_type, []):
+        if field_key in keys:
+            return label
+    return None
+
+
+def _rule_overlay_matches_current_field(
+    rule_field: _RuleValidationField,
+    current_field: dict[str, Any],
+) -> bool:
+    comparisons = []
+    field_name = str(current_field.get("field") or "")
+    if field_name in _SOURCE_COMPARISON_FIELDS and not rule_field.has_expected:
+        return False
+    if rule_field.has_actual:
+        comparisons.append(
+            _comparable_field_value(field_name, rule_field.actual)
+            == _comparable_field_value(field_name, current_field.get("recognized"))
+        )
+    if rule_field.has_expected:
+        comparisons.append(
+            _comparable_field_value(field_name, rule_field.expected)
+            == _comparable_field_value(field_name, current_field.get("expected"))
+        )
+    return bool(comparisons) and all(comparisons)
+
+
+def _comparable_field_value(field_name: str, value: Any) -> str:
+    if field_name in {"证照类型", "文档类型"}:
+        from app.capabilities.document_type_mapping import system_to_display
+
+        text = _display_value(value)
+        return system_to_display(text) or text
+    if field_name in _NAME_COMPARISON_FIELDS:
+        return _normalize_name(value)
+    if field_name == "统一社会信用代码":
+        return "".join(_display_value(value).split()).upper()
+    if field_name in _DATE_COMPARISON_FIELDS:
+        return _normalize_date(value)
+    return _display_value(value)
 
 
 # ─── 字段比对降级（无 LLM 规则结果时使用） ──────────────────────
@@ -714,10 +853,17 @@ def _field_comparison(
                     match = str(recognized).lower() == str(expected).lower() if recognized and expected else False
         elif _is_date_key(keys):
             match = _normalize_date(recognized) == _normalize_date(expected) if recognized and expected else False
+            if "valid_to" in keys and _valid_to_status(recognized) in {"expired", "invalid"}:
+                match = False
         elif _is_name_key(keys):
             match = _normalize_name(recognized) == _normalize_name(expected) if recognized and expected else False
         else:
             match = _display_value(recognized) == _display_value(expected)
+
+        if document_type == "business_license" and "valid_to" in keys and not recognized:
+            match = True
+        elif required and (missing_rec or missing_exp):
+            match = False
 
         fields.append(
             {
@@ -842,10 +988,12 @@ def _is_required_field(document_type: str, keys: tuple[str, ...]) -> bool:
         return any(k in required for k in keys)
     if document_type == "product_report":
         required = {
-            "report_no", "product_name", "sample_name",
-            "entrusting_party", "manufacturer_name",
-            "batch_no", "production_date", "issue_date",
-            "approval_date", "valid_to", "inspection_conclusion",
+            "document_type",
+            "product_name",
+            "sample_name",
+            "valid_to",
+            "inspection_conclusion",
+            "inspection_result",
         }
         return any(k in required for k in keys)
     if document_type == "batch_report":
