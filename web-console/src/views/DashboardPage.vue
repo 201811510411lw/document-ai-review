@@ -7,31 +7,31 @@
       <button type="button" class="stat-card stat-total"
            :class="{ active: filterExpire === '' }"
            @click="filterExpire = ''; currentPage = 1">
-        <div class="stat-num">{{ stats.total || 0 }}</div>
+        <div class="stat-num">{{ displayedStats.total }}</div>
         <div class="stat-label">总证照数</div>
       </button>
       <button type="button" class="stat-card stat-valid"
            :class="{ active: filterExpire === 'valid' }"
            @click="filterExpire = 'valid'; currentPage = 1">
-        <div class="stat-num">{{ stats.valid || 0 }}</div>
+        <div class="stat-num">{{ displayedStats.valid }}</div>
         <div class="stat-label">正常</div>
       </button>
       <button type="button" class="stat-card stat-warning"
            :class="{ active: filterExpire === 'expiring' }"
            @click="filterExpire = 'expiring'; currentPage = 1">
-        <div class="stat-num">{{ stats.expiring || 0 }}</div>
+        <div class="stat-num">{{ displayedStats.expiring }}</div>
         <div class="stat-label">临期</div>
       </button>
       <button type="button" class="stat-card stat-danger"
            :class="{ active: filterExpire === 'expired' }"
            @click="filterExpire = 'expired'; currentPage = 1">
-        <div class="stat-num">{{ stats.expired || 0 }}</div>
+        <div class="stat-num">{{ displayedStats.expired }}</div>
         <div class="stat-label">已过期</div>
       </button>
       <button type="button" class="stat-card stat-unknown"
            :class="{ active: filterExpire === 'unknown' }"
            @click="filterExpire = 'unknown'; currentPage = 1">
-        <div class="stat-num">{{ stats.unknown || 0 }}</div>
+        <div class="stat-num">{{ displayedStats.unknown }}</div>
         <div class="stat-label">未识别</div>
       </button>
     </div>
@@ -122,6 +122,7 @@ import { useRouter } from 'vue-router'
 import { dashboardApi } from '@/api'
 import { useUserStore } from '@/store/user'
 import { showToast } from 'vant'
+import { buildDashboardMetrics, filterDashboardRecords } from '@/features/dashboard/dashboardModel.js'
 
 const userStore = useUserStore()
 const router = useRouter()
@@ -129,7 +130,7 @@ const isAdmin = computed(() => userStore.isAdmin)
 
 const dailyReport = ref(null)
 const loading = ref(true)
-const stats = ref({})
+const typeDistributionRows = ref([])
 const filterExpire = ref('')
 const filterDocType = ref('')
 const currentPage = ref(1)
@@ -145,7 +146,7 @@ const docTypeOptions = [
 ]
 
 const typeDistribution = computed(() => {
-  const rows = stats.value.type_distribution || []
+  const rows = typeDistributionRows.value
   const max = Math.max(...rows.map(i => i.count), 1)
   return rows.map(i => ({ ...i, percent: (i.count / max) * 100 }))
 })
@@ -157,16 +158,13 @@ const allRecords = computed(() => {
 })
 
 const filteredRecords = computed(() => {
-  let list = allRecords.value
-  if (filterExpire.value) {
-    list = list.filter(r => r.expire_status === filterExpire.value)
-  }
-  if (filterDocType.value) {
-    const dt = filterDocType.value
-    list = list.filter(r => r.document_type === dt || r._document_type === dt)
-  }
-  return list
+  return filterDashboardRecords(allRecords.value, {
+    documentType: filterDocType.value,
+    expireStatus: filterExpire.value,
+  })
 })
+
+const displayedStats = computed(() => buildDashboardMetrics(allRecords.value, filterDocType.value))
 
 const filteredTotal = computed(() => filteredRecords.value.length)
 
@@ -207,14 +205,7 @@ onMounted(async () => {
     dailyReport.value = dailyData
 
     const statsData = statsRes.data || statsRes
-    stats.value = {
-      total: statsData.total || 0,
-      valid: statsData.valid || 0,
-      expiring: statsData.expiring || 0,
-      expired: statsData.expired || 0,
-      unknown: statsData.unknown || 0,
-      type_distribution: statsData.type_distribution || [],
-    }
+    typeDistributionRows.value = statsData.type_distribution || []
   } catch (e) {
     showToast('加载失败: ' + e.message)
   } finally {
