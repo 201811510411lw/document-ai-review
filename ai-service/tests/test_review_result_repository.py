@@ -67,6 +67,21 @@ def test_mysql_repository_returns_none_for_missing_task(monkeypatch):
     assert repository.get_by_task_id("missing-task") is None
 
 
+def test_mysql_repository_claim_is_atomic_and_releasable(monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    claim = build_review_result("tc-oa-614-584412").model_copy(
+        update={"status": ReviewStatus.RUNNING}
+    )
+
+    assert repository.claim(claim) is True
+    assert repository.claim(claim) is False
+
+    repository.release_claim(claim)
+
+    assert repository.claim(claim) is True
+
+
 def test_review_service_can_save_result_with_injected_mysql_repository(monkeypatch):
     install_mysql_repository_stub(monkeypatch)
     repository = _repository()

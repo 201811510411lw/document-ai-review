@@ -22,7 +22,7 @@
 | --- | --- | --- |
 | SRM / StarRocks 来源 | `starrocks.host/port/database`，对应 `STARROCKS_HOST/PORT/DATABASE` | `STARROCKS_USER`、`STARROCKS_PASSWORD` |
 | Review Result MySQL | `review_result_mysql.host/port/database`，对应 `REVIEW_RESULT_MYSQL_HOST/PORT/DATABASE` | `REVIEW_RESULT_MYSQL_USER`、`REVIEW_RESULT_MYSQL_PASSWORD` |
-| OA 来源字段 | `tobacco_consistency.oa_*`，对应 `TOBACCO_CONSISTENCY_OA_BUSINESS_LICENSE_FIELD`、`TOBACCO_CONSISTENCY_OA_RELATIONSHIP_EVIDENCE_FIELD`、`TOBACCO_CONSISTENCY_OA_MULTI_ADDRESS_EVIDENCE_FIELD` | 当前没有 OA 专用 HTTP token；来源库使用 StarRocks 账号 |
+| OA 自动审核 | `tobacco_consistency.oa_*` 配置来源字段 | `OA_AUTO_REVIEW_TOKEN` 用于 `X-OA-Token`；来源库另使用 StarRocks 账号 |
 | 企业微信 | `wecom.corp_id/agent_id/notification_base_url` 及角色配置，对应 `WECOM_CORP_ID`、`WECOM_AGENT_ID` 等 | `WECOM_SECRET`；通知 worker 另用 `WECOM_WORKER_TOKEN` |
 | OCR / LLM | provider、模型、超时等；例如 `BUSINESS_LICENSE_VISION_PROVIDER`、`ALIYUN_OCR_API_URL`、`OPENAI_BASE_URL` | `ALIYUN_OCR_APPCODE`、`OPENAI_API_KEY` |
 | 影刀 RPA | `rpa_verification.tobacco_license.*`，对应启用开关、base URL、access key ID、`RPA_VERIFICATION_YINDAO_ROBOT_UUID`、精确账号和超时参数 | `RPA_YINDAO_ACCESS_KEY_SECRET` |

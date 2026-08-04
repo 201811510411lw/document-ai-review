@@ -473,6 +473,7 @@ def get_consistency_oa_result(
         if isinstance(payload.skill_result, dict)
         else None
     )
+    oa_rpa_info = _oa_rpa_view(rpa_info)
 
     return {
         "code": 0,
@@ -500,7 +501,7 @@ def get_consistency_oa_result(
                     else None
                 ),
                 "completed_at": payload.updated_at or payload.created_at,
-                "rpa_verification": rpa_info,
+                "rpa_verification": oa_rpa_info,
             },
         }
     }
@@ -599,3 +600,24 @@ def _oa_exception_response(
             "error": error,
         },
     }
+
+
+def _oa_rpa_view(rpa_info: Any) -> dict[str, Any] | None:
+    if not isinstance(rpa_info, dict):
+        return None
+    status = str(rpa_info.get("status") or "")
+    payload = {
+        key: rpa_info.get(key)
+        for key in (
+            "status",
+            "certificate_no",
+            "verified_at",
+            "screenshot_url",
+            "result_label",
+            "attempts",
+        )
+        if key in rpa_info
+    }
+    if status == "ERROR":
+        payload["error_message"] = "烟草证官网验真未可靠完成"
+    return payload

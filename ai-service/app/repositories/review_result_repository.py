@@ -122,6 +122,40 @@ class MySQLReviewResultRepository:
                 self._save_product_report_projection(cursor, review_result)
             connection.commit()
 
+    def claim(self, review_result: ReviewResult) -> bool:
+        """Atomically reserve a task_id before external or model side effects."""
+        self._ensure_schema_once()
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT IGNORE INTO review_results (task_id, payload_json, created_at)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (
+                        review_result.task_id,
+                        review_result.model_dump_json(),
+                        review_result.created_at.isoformat(),
+                    ),
+                )
+                claimed = cursor.rowcount == 1
+            connection.commit()
+        return claimed
+
+    def release_claim(self, review_result: ReviewResult) -> None:
+        """Release only the unchanged placeholder owned by this attempt."""
+        self._ensure_schema_once()
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    DELETE FROM review_results
+                    WHERE task_id = %s AND payload_json = %s
+                    """,
+                    (review_result.task_id, review_result.model_dump_json()),
+                )
+            connection.commit()
+
     def close(self) -> None:
         with self._pool_lock:
             while True:

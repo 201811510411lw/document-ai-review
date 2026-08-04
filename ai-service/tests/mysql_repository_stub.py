@@ -2,11 +2,13 @@ class StubMySQLCursor:
     def __init__(self, storage):
         self.storage = storage
         self.result = None
+        self.rowcount = 0
 
     def execute(self, sql, params=None):
         compact = " ".join(sql.split()).lower()
         params = params or ()
         self.storage["executed_sql"].append(sql)
+        self.rowcount = 0
         if compact.startswith("create table"):
             return
         if compact.startswith("alter table"):
@@ -14,7 +16,19 @@ class StubMySQLCursor:
         if compact.startswith("delete from "):
             table = compact.split()[2]
             if table in self.storage:
-                self.storage[table].pop(params[0], None)
+                self.rowcount = int(
+                    self.storage[table].pop(params[0], None) is not None
+                )
+            return
+        if compact.startswith("insert ignore into review_results"):
+            if params[0] in self.storage["review_results"]:
+                return
+            self.storage["review_results"][params[0]] = {
+                "task_id": params[0],
+                "payload_json": params[1],
+                "created_at": params[2],
+            }
+            self.rowcount = 1
             return
         if compact.startswith("insert into review_results"):
             self.storage["review_results"][params[0]] = {
@@ -22,6 +36,7 @@ class StubMySQLCursor:
                 "payload_json": params[1],
                 "created_at": params[2],
             }
+            self.rowcount = 1
             return
         if compact.startswith("select payload_json from review_results"):
             if "where task_id = %s" in compact:

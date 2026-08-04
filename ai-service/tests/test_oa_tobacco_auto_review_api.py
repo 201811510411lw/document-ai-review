@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
 
 import pytest
 from fastapi import HTTPException
@@ -71,12 +72,30 @@ class ManualReviewRepository:
 class NewResultRepository:
     def __init__(self):
         self.saved = []
+        self.lock = Lock()
 
     def get_by_task_id(self, task_id):
         return self.saved[-1] if self.saved and self.saved[-1].task_id == task_id else None
 
     def save(self, result):
-        self.saved.append(result)
+        with self.lock:
+            self.saved[:] = [item for item in self.saved if item.task_id != result.task_id]
+            self.saved.append(result)
+
+    def claim(self, result):
+        with self.lock:
+            if any(item.task_id == result.task_id for item in self.saved):
+                return False
+            self.saved.append(result)
+            return True
+
+    def release_claim(self, result):
+        with self.lock:
+            self.saved[:] = [
+                item
+                for item in self.saved
+                if not (item.task_id == result.task_id and item.status == ReviewStatus.RUNNING)
+            ]
 
 
 class FailingSaveRepository(NewResultRepository):
@@ -103,6 +122,14 @@ class ConflictingChildReviewService(ChildReviewService):
         fields = _business_fields() if use_case_name == "business_license" else _tobacco_fields()
         if use_case_name == "tobacco_license":
             fields["license_no"] = review_input.source["record_id"]
+        return _child_result(use_case_name, fields)
+
+
+class MismatchingChildReviewService(ChildReviewService):
+    def review(self, review_input, use_case_name=None):
+        fields = _business_fields() if use_case_name == "business_license" else _tobacco_fields()
+        if use_case_name == "tobacco_license":
+            fields["subject_name"] = "另一主体"
         return _child_result(use_case_name, fields)
 
 
@@ -243,6 +270,33 @@ def test_result_save_failure_returns_exception_not_in_memory_pass(monkeypatch, t
     assert "database unavailable" not in response["data"]["error"]["message"]
 
 
+def test_deterministic_reject_still_runs_one_rpa_verification(monkeypatch, tmp_path):
+    source_files = [_source("business_license", 1001), _source("tobacco_license", 1002)]
+    documents = [_stored(tmp_path, source) for source in source_files]
+    repository = NewResultRepository()
+    rpa_calls = []
+    monkeypatch.setattr(
+        "app.services.oa_tobacco_auto_review.fetch_tobacco_license_source_files_by_request",
+        lambda sql_client, requestid, workflow_id: source_files,
+    )
+    monkeypatch.setattr(
+        "app.services.oa_tobacco_auto_review.execute_tobacco_rpa_verification",
+        lambda **kwargs: rpa_calls.append(kwargs["certificate_no"]),
+    )
+
+    response = create_oa_auto_review(
+        OaAutoReviewRequest(requestid=584412, store_code="00001"),
+        _oa_client={"client": "oa"},
+        sql_client=object(),
+        file_store=StoredDocumentsFileStore(documents),
+        repository=repository,
+        document_review_service=MismatchingChildReviewService(),
+    )
+
+    assert response["data"]["decision"] == "reject"
+    assert rpa_calls == ["510100000001"]
+
+
 def test_incomplete_evidence_is_manual_review_not_reject():
     rule = _rule(
         "TOBACCO_LICENSE_EVIDENCE_FOR_CONSISTENCY",
@@ -311,6 +365,33 @@ def test_oa_polling_is_consistent_after_manual_approval():
     assert callback["decision"] == "pass"
     assert callback["review_status"] == "通过"
     assert callback["needs_manual_review"] is False
+
+
+def test_oa_polling_redacts_internal_rpa_error_text():
+    result = _result().model_copy(
+        update={
+            "skill_result": {
+                "rpa_verification": {
+                    "status": "ERROR",
+                    "error_message": "POST https://internal-rpa.local failed",
+                    "raw_yindao_response": {"internal": "secret"},
+                }
+            }
+        }
+    )
+    repository = ExistingResultRepository(result)
+
+    response = get_consistency_oa_result(
+        result.task_id,
+        _oa_client={"client": "oa"},
+        repository=repository,
+    )
+
+    rpa = response["data"]["callback"]["rpa_verification"]
+    assert rpa == {
+        "status": "ERROR",
+        "error_message": "烟草证官网验真未可靠完成",
+    }
 
 
 def test_manual_review_is_persisted_through_repository():

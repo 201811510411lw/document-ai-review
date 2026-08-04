@@ -1,4 +1,4 @@
-from threading import Lock
+from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
@@ -7,7 +7,15 @@ from app.integrations.starrocks.tobacco_license_sources import (
     SqlFetchClient,
     fetch_tobacco_license_source_files_by_request,
 )
-from app.models import ReviewInput, ReviewInputContext, ReviewResult
+from app.models import (
+    ManualReview,
+    ManualReviewStatus,
+    ReviewInput,
+    ReviewInputContext,
+    ReviewResult,
+    ReviewStatus,
+    RiskLevel,
+)
 from app.services.tobacco_consistency_extraction import (
     DocumentReviewService,
     extract_consistency_document_results,
@@ -18,16 +26,17 @@ from app.services.tobacco_rpa_verification import execute_tobacco_rpa_verificati
 from app.use_cases.tobacco_license_consistency_review import (
     tobacco_license_consistency_review_use_case,
 )
-from app.workflows.tobacco_license_consistency_review.decision import (
-    oa_review_decision,
-)
-
-
 class ReviewRepository(Protocol):
     def get_by_task_id(self, task_id: str) -> ReviewResult | None:
         ...
 
     def save(self, result: ReviewResult) -> None:
+        ...
+
+    def claim(self, result: ReviewResult) -> bool:
+        ...
+
+    def release_claim(self, result: ReviewResult) -> None:
         ...
 
 
@@ -51,10 +60,6 @@ class OaAutoReviewOutcome(BaseModel):
     error: OaAutoReviewError | None = None
 
 
-_task_locks_guard = Lock()
-_task_locks: dict[str, Lock] = {}
-
-
 class OaTobaccoAutoReviewService:
     def __init__(
         self,
@@ -71,10 +76,9 @@ class OaTobaccoAutoReviewService:
 
     def review(self, command: OaAutoReviewCommand) -> OaAutoReviewOutcome:
         task_id = f"tc-oa-{command.workflow_id}-{command.requestid}"
-        with _task_lock(task_id):
-            return self._review_locked(task_id, command)
+        return self._review_once(task_id, command)
 
-    def _review_locked(
+    def _review_once(
         self,
         task_id: str,
         command: OaAutoReviewCommand,
@@ -89,7 +93,9 @@ class OaTobaccoAutoReviewService:
                 retryable=True,
             )
         if existing is not None:
-            return OaAutoReviewOutcome(task_id=task_id, result=existing)
+            existing_outcome = self._existing_outcome(task_id, existing)
+            if existing_outcome is not None:
+                return existing_outcome
 
         try:
             source_files = fetch_tobacco_license_source_files_by_request(
@@ -122,9 +128,36 @@ class OaTobaccoAutoReviewService:
                 retryable=False,
             )
 
+        claim = _claim_result(task_id, command)
+        try:
+            claimed = self._repository.claim(claim)
+        except Exception:
+            return _error(
+                task_id,
+                "RESULT_STORE_UNAVAILABLE",
+                "审核结果存储不可用",
+                retryable=True,
+            )
+        if not claimed:
+            existing = self._repository.get_by_task_id(task_id)
+            if existing is not None:
+                return self._existing_outcome(task_id, existing) or _error(
+                    task_id,
+                    "REVIEW_IN_PROGRESS",
+                    "自动审核正在执行，请稍后轮询",
+                    retryable=True,
+                )
+            return _error(
+                task_id,
+                "REVIEW_IN_PROGRESS",
+                "自动审核正在执行，请稍后轮询",
+                retryable=True,
+            )
+
         try:
             stored_documents = self._file_store.store_source_files(source_files)
         except Exception:
+            self._release_claim(claim)
             return _error(
                 task_id,
                 "SOURCE_FILE_PREPARATION_FAILED",
@@ -148,6 +181,7 @@ class OaTobaccoAutoReviewService:
             if value != "MULTIPLE_CONFLICTING_CANDIDATES"
         }
         if technical_errors:
+            self._release_claim(claim)
             return _error(
                 task_id,
                 "DOCUMENT_EXTRACTION_FAILED",
@@ -161,6 +195,7 @@ class OaTobaccoAutoReviewService:
             if role not in document_results
         }
         if missing_roles - conflicting_roles:
+            self._release_claim(claim)
             return _error(
                 task_id,
                 "REQUIRED_DOCUMENT_MISSING",
@@ -207,19 +242,21 @@ class OaTobaccoAutoReviewService:
         )
         try:
             result = tobacco_license_consistency_review_use_case.review(input_context)
-            if oa_review_decision(result) == "pass":
-                tobacco_fields = resolved_consistency_fields(
-                    document_results.get("tobacco_license"), {}
-                )
+            tobacco_fields = resolved_consistency_fields(
+                document_results.get("tobacco_license"), {}
+            )
+            certificate_no = str(tobacco_fields.get("license_no") or "").strip()
+            if certificate_no:
                 execute_tobacco_rpa_verification(
                     result=result,
                     task_id=task_id,
-                    certificate_no=str(tobacco_fields.get("license_no") or "").strip(),
+                    certificate_no=certificate_no,
                     store_name=store_name,
                     requestid=str(command.requestid),
                 )
             self._repository.save(result)
         except Exception:
+            self._release_claim(claim)
             return _error(
                 task_id,
                 "AUTO_REVIEW_FAILED",
@@ -228,10 +265,54 @@ class OaTobaccoAutoReviewService:
             )
         return OaAutoReviewOutcome(task_id=task_id, result=result)
 
+    def _existing_outcome(
+        self,
+        task_id: str,
+        existing: ReviewResult,
+    ) -> OaAutoReviewOutcome | None:
+        if existing.status != ReviewStatus.RUNNING:
+            return OaAutoReviewOutcome(task_id=task_id, result=existing)
+        if datetime.now(timezone.utc) - existing.created_at > timedelta(minutes=30):
+            self._release_claim(existing)
+            return None
+        return _error(
+            task_id,
+            "REVIEW_IN_PROGRESS",
+            "自动审核正在执行，请稍后轮询",
+            retryable=True,
+        )
 
-def _task_lock(task_id: str) -> Lock:
-    with _task_locks_guard:
-        return _task_locks.setdefault(task_id, Lock())
+    def _release_claim(self, claim: ReviewResult) -> None:
+        try:
+            self._repository.release_claim(claim)
+        except Exception:
+            pass
+
+
+def _claim_result(task_id: str, command: OaAutoReviewCommand) -> ReviewResult:
+    now = datetime.now(timezone.utc)
+    return ReviewResult(
+        task_id=task_id,
+        use_case_name="tobacco_license_consistency_review",
+        use_case_version="v1",
+        skill_name="tobacco_license_consistency_review",
+        skill_version="v1",
+        ruleset_version="tobacco-license-consistency-rules-v1",
+        document_type="business_tobacco_consistency",
+        status=ReviewStatus.RUNNING,
+        risk_level=RiskLevel.NONE,
+        needs_manual_review=False,
+        summary="OA 自动审核执行中",
+        manual_review=ManualReview(status=ManualReviewStatus.NOT_REQUIRED),
+        created_at=now,
+        updated_at=now,
+        skill_result={
+            "oa_claim": {
+                "requestid": command.requestid,
+                "workflow_id": command.workflow_id,
+            }
+        },
+    )
 
 
 def _error(
