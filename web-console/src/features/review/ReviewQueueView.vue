@@ -36,9 +36,9 @@
         </button>
       </section>
 
-      <div v-if="stats.pending > 0" class="pending-notice" role="status">
+      <div v-if="pendingNotice" class="pending-notice" role="status">
         <van-icon name="info-o" />
-        <span>有 {{ stats.pending }} 条记录需要人工复核，请优先处理。</span>
+        <span>{{ pendingNotice }}</span>
       </div>
 
       <details class="queue-guidance">
@@ -130,6 +130,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { reviewQueueNotice } from './queueModel.js'
 
 const props = defineProps({
   currentDocument: { type: Object, required: true },
@@ -169,6 +170,10 @@ const statusItems = computed(() => [
 ])
 
 const activeStatusLabel = computed(() => statusItems.value.find((item) => item.value === props.filterStatus)?.label || '全部任务')
+const pendingNotice = computed(() => reviewQueueNotice({
+  filterStatus: props.filterStatus,
+  stats: props.stats,
+}))
 
 function clearFilters() {
   emit('update:keyword', '')
