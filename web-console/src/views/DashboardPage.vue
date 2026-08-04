@@ -4,36 +4,36 @@
 
     <!-- 统计筛选卡片 -->
     <div class="stats-scroll">
-      <div class="stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"
+      <button type="button" class="stat-card stat-total"
            :class="{ active: filterExpire === '' }"
            @click="filterExpire = ''; currentPage = 1">
         <div class="stat-num">{{ stats.total || 0 }}</div>
         <div class="stat-label">总证照数</div>
-      </div>
-      <div class="stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);"
+      </button>
+      <button type="button" class="stat-card stat-valid"
            :class="{ active: filterExpire === 'valid' }"
            @click="filterExpire = 'valid'; currentPage = 1">
         <div class="stat-num">{{ stats.valid || 0 }}</div>
         <div class="stat-label">正常</div>
-      </div>
-      <div class="stat-card stat-warning"
+      </button>
+      <button type="button" class="stat-card stat-warning"
            :class="{ active: filterExpire === 'expiring' }"
            @click="filterExpire = 'expiring'; currentPage = 1">
         <div class="stat-num">{{ stats.expiring || 0 }}</div>
-        <div class="stat-label">⚠️ 临期</div>
-      </div>
-      <div class="stat-card stat-danger"
+        <div class="stat-label">临期</div>
+      </button>
+      <button type="button" class="stat-card stat-danger"
            :class="{ active: filterExpire === 'expired' }"
            @click="filterExpire = 'expired'; currentPage = 1">
         <div class="stat-num">{{ stats.expired || 0 }}</div>
-        <div class="stat-label">🚫 已过期</div>
-      </div>
-      <div class="stat-card" style="background: linear-gradient(135deg, #969799 0%, #646566 100%);"
+        <div class="stat-label">已过期</div>
+      </button>
+      <button type="button" class="stat-card stat-unknown"
            :class="{ active: filterExpire === 'unknown' }"
            @click="filterExpire = 'unknown'; currentPage = 1">
         <div class="stat-num">{{ stats.unknown || 0 }}</div>
         <div class="stat-label">未识别</div>
-      </div>
+      </button>
     </div>
 
     <!-- 权限提示 -->
@@ -49,19 +49,19 @@
     <div class="doc-type-bar">
       <span class="doc-type-label">证照类型：</span>
       <div class="doc-type-options">
-        <span v-for="opt in docTypeOptions" :key="opt.value"
+        <button v-for="opt in docTypeOptions" :key="opt.value" type="button"
           class="doc-type-btn"
           :class="{ active: filterDocType === opt.value }"
           @click="filterDocType = opt.value; currentPage = 1">
           {{ opt.text }}
-        </span>
+        </button>
       </div>
     </div>
 
     <!-- 结果信息 -->
     <div class="result-info" v-if="!loading">
       <span class="filter-result">{{ filteredTotal }} 条记录</span>
-      <span v-if="filterExpire" class="clear-filter" @click="filterExpire = ''; currentPage = 1">清除筛选</span>
+      <button v-if="filterExpire" type="button" class="clear-filter" @click="filterExpire = ''; currentPage = 1">清除筛选</button>
     </div>
 
     <!-- 数据表格 -->
@@ -224,49 +224,41 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.dashboard-page { padding-bottom: 16px; }
+.dashboard-page { width: min(100% - 32px, 1180px); margin: 0 auto; padding: 22px 0 32px; }
 .stats-scroll {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 12px 16px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
 }
 .stat-card {
-  flex: 1 1 calc(33.33% - 8px);
-  min-width: 100px;
-  border-radius: 10px;
-  padding: 14px 8px;
-  color: #fff;
-  text-align: center;
+  min-height: 96px;
+  padding: 16px;
+  border: 1px solid #dfe4ec;
+  border-top: 3px solid #315ee3;
+  border-radius: 7px;
+  color: #1e293b;
+  background: #fff;
+  text-align: left;
+  font: inherit;
   cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition: border-color 0.15s, background-color 0.15s;
 }
 .stat-card.active {
-  transform: scale(0.95);
-  box-shadow: inset 0 0 0 3px rgba(255,255,255,0.6);
-}
-@media (min-width: 480px) {
-  .stat-card { flex: 1; min-width: 0; }
+  border-color: #315ee3;
+  background: #f5f8ff;
 }
 .stat-num { font-size: 28px; font-weight: 700; }
-.stat-label { font-size: 12px; opacity: 0.9; margin-top: 4px; }
-/* 临期 - 暖橙醒目 */
-.stat-warning {
-  background: linear-gradient(135deg, #ff7a00 0%, #ff9400 100%);
-  box-shadow: 0 2px 8px rgba(255, 122, 0, 0.3);
-}
-/* 已过期 - 深红突出 */
-.stat-danger {
-  background: linear-gradient(135deg, #cf1322 0%, #ff4d4f 100%);
-  box-shadow: 0 2px 8px rgba(207, 19, 34, 0.35);
-}
+.stat-label { margin-top: 5px; color: #758196; font-size: 12px; }
+.stat-valid { border-top-color: #20805b; }.stat-warning { border-top-color: #d99317; }.stat-danger { border-top-color: #c63d4a; }.stat-unknown { border-top-color: #8791a2; }
 
 /* 证照类型按钮栏 */
 .doc-type-bar {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 8px 16px;
+  padding: 10px 12px;
+  border: 1px solid #e0e5ec;
   background: #fff;
   flex-wrap: wrap;
 }
@@ -284,9 +276,9 @@ onMounted(async () => {
 }
 .doc-type-btn {
   display: inline-block;
-  padding: 4px 12px;
+  padding: 6px 10px;
   font-size: 12px;
-  border-radius: 14px;
+  border-radius: 4px;
   border: 1px solid #dcdee0;
   color: #646566;
   background: #fff;
@@ -295,9 +287,9 @@ onMounted(async () => {
   white-space: nowrap;
 }
 .doc-type-btn.active {
-  background: #1989fa;
+  background: #315ee3;
   color: #fff;
-  border-color: #1989fa;
+  border-color: #315ee3;
 }
 .doc-type-btn:active {
   opacity: 0.7;
@@ -313,14 +305,18 @@ onMounted(async () => {
 }
 .filter-result { color: #969799; }
 .clear-filter {
-  color: #1989fa;
+  border: 0;
+  color: #315ee3;
+  background: transparent;
+  font: inherit;
   cursor: pointer;
 }
 .clear-filter:active { opacity: 0.7; }
 
 /* 数据表格 */
 .data-table {
-  margin: 8px 16px;
+  margin: 8px 0;
+  border: 1px solid #e0e5ec;
   background: #fff;
   border-radius: 8px;
   overflow: hidden;
@@ -376,7 +372,7 @@ onMounted(async () => {
   padding: 16px 16px 8px;
 }
 .type-distribution {
-  margin: 0 16px; background: #fff; border-radius: 8px; padding: 12px 16px;
+  margin: 0; border: 1px solid #e0e5ec; background: #fff; border-radius: 7px; padding: 16px;
 }
 .type-bar-item {
   display: flex; align-items: center; margin-bottom: 10px;
@@ -391,4 +387,10 @@ onMounted(async () => {
 }
 .type-count { font-size: 12px; color: #969799; width: 30px; text-align: right; }
 .page-loading { display: flex; justify-content: center; padding: 40px; }
+@media (max-width: 760px) {
+  .dashboard-page { width: 100%; padding: 14px 12px 24px; }
+  .stats-scroll { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .stat-card { min-height: 82px; padding: 12px; }
+  .stat-num { font-size: 23px; }
+}
 </style>

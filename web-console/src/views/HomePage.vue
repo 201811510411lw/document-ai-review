@@ -19,7 +19,7 @@
         :class="['metric-item', `tone-${metric.tone}`, { 'desktop-only': index === 3 }]"
       >
         <span>{{ metric.label }}</span>
-        <strong>{{ loading ? '--' : metric.value }}</strong>
+        <strong>{{ loading || metricUnavailable(metric.tone) ? '--' : metric.value }}</strong>
         <small>{{ metricHint(metric.tone) }}</small>
       </article>
     </section>
@@ -75,9 +75,9 @@
         </template>
 
         <div v-else class="task-empty">
-          <van-icon :name="loadError ? 'warning-o' : 'passed'" />
-          <strong>{{ loadError ? '数据加载失败' : isAdmin ? '当前没有审核任务' : '证照数据已准备就绪' }}</strong>
-          <p>{{ loadError ? '请稍后刷新页面重试' : isAdmin ? '新任务发起后会显示在这里' : '可通过证照查询或效期看板继续工作' }}</p>
+          <van-icon :name="taskLoadError ? 'warning-o' : 'passed'" />
+          <strong>{{ taskLoadError ? '数据加载失败' : isAdmin ? '当前没有审核任务' : '证照数据已准备就绪' }}</strong>
+          <p>{{ taskLoadError ? '请稍后刷新页面重试' : isAdmin ? '新任务发起后会显示在这里' : '可通过证照查询或效期看板继续工作' }}</p>
         </div>
       </section>
 
@@ -126,16 +126,18 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { dashboardApi, reviewApi } from '@/api'
+import { dashboardApi, reviewApi, tobaccoApi } from '@/api'
 import { useUserStore } from '@/store/user'
 import { buildWorkbenchOverview } from '@/features/workbench/overview'
 
 const router = useRouter()
 const userStore = useUserStore()
 const loading = ref(true)
-const loadError = ref(false)
+const dashboardError = ref(false)
+const reviewError = ref(false)
 const dashboardStats = ref({})
 const reviewResponse = ref({ records: [], stats: {} })
+const tobaccoStats = ref({})
 
 const isAdmin = computed(() => userStore.isAdmin)
 const userName = computed(() => userStore.user?.name || userStore.user?.username || '用户')
@@ -150,6 +152,12 @@ const overview = computed(() => buildWorkbenchOverview({
   dashboardStats: dashboardStats.value,
   reviewResponse: reviewResponse.value,
 }))
+const taskLoadError = computed(() => isAdmin.value ? reviewError.value : dashboardError.value)
+const tobaccoSummary = computed(() => {
+  const stats = tobaccoStats.value
+  if (!Object.keys(stats).length) return '营业执照与烟草证'
+  return `通过 ${stats.passed || 0} · 异常 ${(stats.pending || 0) + (stats.failed || 0)}`
+})
 
 const quickEntries = computed(() => {
   const entries = isAdmin.value
@@ -157,12 +165,12 @@ const quickEntries = computed(() => {
         { label: '营业执照审核', description: '主体、期限、登记状态', icon: 'certificate', path: '/review?document_type=business_license' },
         { label: '食品证照审核', description: '许可范围与有效期', icon: 'records-o', path: '/review?document_type=food_license' },
         { label: '商品报告审核', description: '报告、结论与效期', icon: 'orders-o', path: '/review?document_type=product_report' },
-        { label: '烟草证一致性', description: '营业执照与烟草证', icon: 'balance-list', path: '/tobacco/reports' },
+        { label: '烟草证一致性', description: tobaccoSummary.value, icon: 'balance-list', path: '/tobacco/reports' },
       ]
     : [
         { label: '证照查询', description: '按企业名称或编码', icon: 'search', path: '/query' },
         { label: '效期看板', description: '查看临期与过期记录', icon: 'bar-chart-o', path: '/dashboard' },
-        { label: '烟草证一致性', description: '查看一致性校验', icon: 'balance-list', path: '/tobacco/reports' },
+        { label: '烟草证一致性', description: tobaccoSummary.value, icon: 'balance-list', path: '/tobacco/reports' },
       ]
   return entries
 })
@@ -171,21 +179,25 @@ onMounted(loadOverview)
 
 async function loadOverview() {
   loading.value = true
-  loadError.value = false
-  const requests = [dashboardApi.stats()]
-  if (isAdmin.value) requests.push(reviewApi.list({ limit: 5 }))
-  try {
-    const [dashboardResult, reviewResult] = await Promise.allSettled(requests)
-    if (dashboardResult.status === 'fulfilled') {
-      dashboardStats.value = dashboardResult.value?.data || dashboardResult.value || {}
-    }
-    if (reviewResult?.status === 'fulfilled') reviewResponse.value = reviewResult.value
-    loadError.value = dashboardResult.status === 'rejected' && (!reviewResult || reviewResult.status === 'rejected')
-  } catch {
-    loadError.value = true
-  } finally {
-    loading.value = false
+  dashboardError.value = false
+  reviewError.value = false
+  const [dashboardResult, reviewResult, tobaccoResult] = await Promise.allSettled([
+    dashboardApi.stats(),
+    isAdmin.value ? reviewApi.list({ limit: 5 }) : Promise.resolve(null),
+    tobaccoApi.list({ limit: 1 }),
+  ])
+  if (dashboardResult.status === 'fulfilled') {
+    dashboardStats.value = dashboardResult.value?.data || dashboardResult.value || {}
+  } else {
+    dashboardError.value = true
   }
+  if (reviewResult.status === 'fulfilled' && reviewResult.value) {
+    reviewResponse.value = reviewResult.value
+  } else if (isAdmin.value) {
+    reviewError.value = true
+  }
+  if (tobaccoResult.status === 'fulfilled') tobaccoStats.value = tobaccoResult.value?.stats || {}
+  loading.value = false
 }
 
 function metricHint(tone) {
@@ -195,6 +207,10 @@ function metricHint(tone) {
     flagged: '需重点关注',
     confirmed: '状态正常',
   }[tone] || ''
+}
+
+function metricUnavailable(tone) {
+  return dashboardError.value && (tone === 'primary' || tone === 'confirmed')
 }
 
 function formatDocumentType(value) {

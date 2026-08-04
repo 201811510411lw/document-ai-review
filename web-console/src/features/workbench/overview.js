@@ -24,10 +24,11 @@ export function buildWorkbenchOverview({ dashboardStats = {}, reviewResponse = {
   const pending = Number(reviewStats.pending ?? dashboardStats.pending_manual_review ?? 0)
   const flagged = Number(reviewStats.flagged ?? dashboardStats.expired ?? 0)
   const confirmed = Number(reviewStats.confirmed ?? dashboardStats.valid ?? 0)
-  const other = Math.max(total - confirmed - pending - flagged, 0)
+  const distributionTotal = reviewTotal || total
+  const other = Math.max(distributionTotal - confirmed - pending - flagged, 0)
 
   return {
-    distributionTotal: reviewTotal || total,
+    distributionTotal,
     metrics: [
       { label: '证照总量', value: total, tone: 'primary' },
       { label: '待人工复核', value: pending, tone: 'pending' },

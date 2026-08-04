@@ -5,7 +5,6 @@
     <van-search
       v-model="keyword"
       placeholder="输入供应商编码或公司名称"
-      shape="round"
       clearable
       @search="handleSearch"
       @clear="handleClear"
@@ -43,28 +42,28 @@
       <div v-else class="batch-result">
         <van-sticky>
           <div class="batch-summary">
-            <span class="summary-item success">✅ 找到 {{ searchResult.stats.found }}</span>
-            <span class="summary-item warning">⚠️ 临期 {{ searchResult.stats.expiring }}</span>
-            <span class="summary-item danger">❌ 过期 {{ searchResult.stats.expired }}</span>
-            <span class="summary-item muted">❓ 未找到 {{ searchResult.stats.missing }}</span>
+            <span class="summary-item success">找到 {{ searchResult.stats.found }}</span>
+            <span class="summary-item warning">临期 {{ searchResult.stats.expiring }}</span>
+            <span class="summary-item danger">过期 {{ searchResult.stats.expired }}</span>
+            <span class="summary-item muted">未找到 {{ searchResult.stats.missing }}</span>
           </div>
           <div class="batch-actions">
             <van-button
               type="primary"
               size="small"
-              round
+              icon="down"
               :disabled="!hasResults"
               @click="handleBatchDownload"
             >
-              📦 打包下载全部
+              打包下载全部
             </van-button>
             <van-button
               size="small"
-              round
+              icon="description"
               plain
               @click="handleExportCsv"
             >
-              📋 导出结果
+              导出结果
             </van-button>
           </div>
         </van-sticky>
@@ -163,7 +162,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { queryApi } from '@/api'
 import { addSearchHistory, getSearchHistory, downloadBlob } from '@/utils'
@@ -205,14 +204,12 @@ const hasResults = computed(() => {
   return searchResult.value?.records?.length > 0
 })
 
-onMounted(() => {
-  // 从路由参数读取 keyword（从效期看板点击跳转过来）
-  const kw = route.query.keyword
+watch(() => route.query.keyword, (kw) => {
   if (kw) {
-    keyword.value = kw
+    keyword.value = String(kw)
     handleSearch()
   }
-})
+}, { immediate: true })
 
 // 单个搜索
 async function handleSearch() {
@@ -356,13 +353,18 @@ function handleExportCsv() {
 
 <style scoped>
 .query-page {
-  padding-bottom: 16px;
+  width: min(100% - 32px, 1180px);
+  margin: 0 auto;
+  padding: 22px 0 32px;
 }
 .batch-section {
-  margin: 0 16px 12px;
+  margin: 12px 0;
+  border: 1px solid #e0e5ec;
+  border-radius: 6px;
+  overflow: hidden;
 }
 .result-section {
-  padding: 0 16px;
+  padding: 0;
 }
 .page-loading {
   display: flex;
@@ -375,14 +377,14 @@ function handleExportCsv() {
   gap: 8px;
   padding: 12px 16px;
   background: #fff;
-  border-radius: 8px;
+  border: 1px solid #e0e5ec;
+  border-radius: 6px;
   margin-bottom: 8px;
 }
 .summary-item {
   font-size: 13px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: #f5f6f8;
+  padding: 2px 10px 2px 0;
+  border-right: 1px solid #e0e5ec;
 }
 .summary-item.success { color: #07c160; }
 .summary-item.warning { color: #ff976a; }
@@ -419,22 +421,33 @@ function handleExportCsv() {
 .preview-row:last-child { border-bottom: none; }
 .type-filter-row {
   display: flex;
-  gap: 6px;
-  padding: 0 16px 8px;
+  gap: 0;
+  padding: 0;
   overflow-x: auto;
+  border: 1px solid #e0e5ec;
+  border-top: 0;
+  background: #fff;
   -webkit-overflow-scrolling: touch;
 }
 .type-chip {
   flex-shrink: 0;
   font-size: 12px;
-  padding: 4px 12px;
-  border-radius: 14px;
-  background: #f5f6f8;
+  padding: 11px 15px 9px;
+  border-right: 1px solid #edf0f4;
+  border-bottom: 2px solid transparent;
+  background: #fff;
   color: #646566;
   cursor: pointer;
 }
 .type-chip.active {
-  background: #1989fa;
-  color: #fff;
+  border-bottom-color: #315ee3;
+  color: #315ee3;
+  font-weight: 650;
+}
+.query-page :deep(.van-search) { padding: 0; background: transparent; }
+.query-page :deep(.van-search__content) { border: 1px solid #d9e0e9; border-radius: 6px 0 0 6px; background: #fff; }
+.query-page :deep(.van-search__action) { min-width: 62px; margin: 0; padding: 0 16px; border-radius: 0 6px 6px 0; color: #fff; background: #315ee3; text-align: center; }
+@media (max-width: 640px) {
+  .query-page { width: 100%; padding: 14px 12px 24px; }
 }
 </style>

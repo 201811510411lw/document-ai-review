@@ -36,6 +36,18 @@
         </button>
       </section>
 
+      <div v-if="stats.pending > 0" class="pending-notice" role="status">
+        <van-icon name="info-o" />
+        <span>有 {{ stats.pending }} 条记录需要人工复核，请优先处理。</span>
+      </div>
+
+      <details class="queue-guidance">
+        <summary>审核状态说明</summary>
+        <p><strong>待审核</strong>：规则审核未通过或关键字段缺失，需要人工复核。</p>
+        <p><strong>已认可</strong>：管理员已人工确认记录有效。</p>
+        <p><strong>异常</strong>：包含自动审核失败、人工驳回或关键字段不匹配等高风险记录。</p>
+      </details>
+
       <section class="queue-panel" aria-labelledby="queue-title">
         <div class="queue-toolbar">
           <div>
@@ -293,6 +305,23 @@ function formatDate(value) {
 .status-item.active { background: #f5f9fc; border-bottom-color: var(--queue-accent); }
 .status-pending strong, .status-flagged strong { color: #b4232f; }
 .status-confirmed strong { color: #24734b; }
+
+.pending-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 9px 16px;
+  border: 1px solid #ead8aa;
+  border-top: 0;
+  color: #805b06;
+  background: #fffbef;
+  font-size: 12px;
+}
+.queue-guidance { padding: 9px 16px; border: 1px solid var(--queue-border); border-top: 0; color: #66717d; background: #fff; font-size: 11px; }
+.queue-guidance summary { width: fit-content; color: var(--queue-accent); cursor: pointer; font-weight: 600; }
+.queue-guidance p { margin: 8px 0 0; line-height: 1.6; }
+.queue-guidance p strong { color: #394550; }
 
 .queue-panel {
   margin-top: 14px;

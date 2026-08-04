@@ -74,3 +74,4 @@ const mixedTotals = buildWorkbenchOverview({
 })
 assert.equal(mixedTotals.metrics[0].value, 920)
 assert.equal(mixedTotals.distributionTotal, 80)
+assert.equal(mixedTotals.distribution.at(-1).value, 10)
