@@ -151,6 +151,22 @@ def test_oa_token_is_required_and_compared_against_dedicated_secret(monkeypatch)
     assert error.value.detail["code"] == "OA_UNAUTHORIZED"
 
 
+def test_empty_legacy_callback_url_is_ignored_but_non_empty_url_is_rejected():
+    request = OaAutoReviewRequest(
+        requestid=584412,
+        store_code="00001",
+        callback_url="",
+    )
+
+    assert request.callback_url is None
+    with pytest.raises(ValueError):
+        OaAutoReviewRequest(
+            requestid=584412,
+            store_code="00001",
+            callback_url="https://oa.example/callback",
+        )
+
+
 def test_repeated_oa_request_returns_saved_result_without_reprocessing():
     repository = ExistingResultRepository(_result())
 

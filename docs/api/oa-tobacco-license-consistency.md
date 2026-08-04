@@ -15,8 +15,9 @@
 }
 ```
 
-`requestid` 和 `store_code` 必填，`workflow_id` 只能为 `614`。接口不接受
-`callback_url` 或证照字段。任务 ID 固定为 `tc-oa-614-{requestid}`，重复请求返回
+`requestid` 和 `store_code` 必填，`workflow_id` 只能为 `614`。为兼容现有 OA 调用，
+`callback_url` 可传空字符串并会被忽略，非空 URL 会被拒绝；接口不接受证照字段。
+任务 ID 固定为 `tc-oa-614-{requestid}`，重复请求返回
 已持久化结果，不重复执行审核。
 
 并发请求由结果库中的原子任务占位协调。审核尚未完成时返回

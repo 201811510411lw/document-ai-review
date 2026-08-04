@@ -76,6 +76,7 @@ class OaAutoReviewRequest(BaseModel):
     store_code: str = Field(min_length=1, max_length=128)
     store_name: str | None = Field(default=None, max_length=256)
     workflow_id: Literal[614] = 614
+    callback_url: str | None = None
 
     @field_validator("store_code")
     @classmethod
@@ -83,6 +84,13 @@ class OaAutoReviewRequest(BaseModel):
         if not value.strip():
             raise ValueError("store_code must not be blank")
         return value.strip()
+
+    @field_validator("callback_url")
+    @classmethod
+    def allow_only_empty_legacy_callback(cls, value: str | None) -> None:
+        if value is not None and value.strip():
+            raise ValueError("callback_url is not supported")
+        return None
 
 
 def get_starrocks_sql_client() -> SqlFetchClient:
@@ -348,7 +356,14 @@ def create_oa_auto_review(
         file_store=file_store,
         repository=repository,
         document_review_service=document_review_service,
-    ).review(OaAutoReviewCommand(**request.model_dump()))
+    ).review(
+        OaAutoReviewCommand(
+            requestid=request.requestid,
+            store_code=request.store_code,
+            store_name=request.store_name,
+            workflow_id=request.workflow_id,
+        )
+    )
     return _oa_outcome_response(outcome)
 
 
