@@ -17,6 +17,7 @@ from app.models import (
     ReviewInput,
     ReviewInputContext,
     ReviewResult,
+    ReviewStatus,
 )
 from app.repositories import build_review_result_repository_from_env
 from app.services.review_service import ReviewService
@@ -474,6 +475,15 @@ def get_consistency_oa_result(
         else None
     )
     oa_rpa_info = _oa_rpa_view(rpa_info)
+    progress_error = (
+        {
+            "code": "REVIEW_IN_PROGRESS",
+            "message": "自动审核正在执行，请稍后轮询",
+            "retryable": True,
+        }
+        if payload.status == ReviewStatus.RUNNING
+        else None
+    )
 
     return {
         "code": 0,
@@ -502,6 +512,7 @@ def get_consistency_oa_result(
                 ),
                 "completed_at": payload.updated_at or payload.created_at,
                 "rpa_verification": oa_rpa_info,
+                "error": progress_error,
             },
         }
     }

@@ -289,7 +289,10 @@ def test_deterministic_reject_still_runs_one_rpa_verification(monkeypatch, tmp_p
     )
     monkeypatch.setattr(
         "app.services.oa_tobacco_auto_review.execute_tobacco_rpa_verification",
-        lambda **kwargs: rpa_calls.append(kwargs["certificate_no"]),
+        lambda **kwargs: (
+            rpa_calls.append(kwargs["certificate_no"])
+            or {"status": "AUTHENTIC"}
+        ),
     )
 
     response = create_oa_auto_review(
@@ -303,6 +306,39 @@ def test_deterministic_reject_still_runs_one_rpa_verification(monkeypatch, tmp_p
 
     assert response["data"]["decision"] == "reject"
     assert rpa_calls == ["510100000001"]
+
+
+def test_rpa_is_not_repeated_when_final_persistence_fails(monkeypatch, tmp_path):
+    source_files = [_source("business_license", 1001), _source("tobacco_license", 1002)]
+    documents = [_stored(tmp_path, source) for source in source_files]
+    repository = FailingSaveRepository()
+    rpa_calls = []
+    monkeypatch.setattr(
+        "app.services.oa_tobacco_auto_review.fetch_tobacco_license_source_files_by_request",
+        lambda sql_client, requestid, workflow_id: source_files,
+    )
+    monkeypatch.setattr(
+        "app.services.oa_tobacco_auto_review.execute_tobacco_rpa_verification",
+        lambda **kwargs: rpa_calls.append(kwargs["task_id"]) or {"status": "AUTHENTIC"},
+    )
+
+    def invoke():
+        return create_oa_auto_review(
+            OaAutoReviewRequest(requestid=584412, store_code="00001"),
+            _oa_client={"client": "oa"},
+            sql_client=object(),
+            file_store=StoredDocumentsFileStore(documents),
+            repository=repository,
+            document_review_service=ChildReviewService(),
+        )
+
+    first = invoke()
+    second = invoke()
+
+    assert first["data"]["error"]["code"] == "RESULT_STORE_UNAVAILABLE"
+    assert first["data"]["error"]["retryable"] is False
+    assert second["data"]["error"]["code"] == "REVIEW_IN_PROGRESS"
+    assert rpa_calls == ["tc-oa-614-584412"]
 
 
 def test_incomplete_evidence_is_manual_review_not_reject():
@@ -416,6 +452,11 @@ def test_oa_polling_never_passes_a_running_claim():
     assert callback["decision"] == "exception"
     assert callback["review_status"] == "异常"
     assert callback["needs_manual_review"] is True
+    assert callback["error"] == {
+        "code": "REVIEW_IN_PROGRESS",
+        "message": "自动审核正在执行，请稍后轮询",
+        "retryable": True,
+    }
 
 
 def test_manual_review_is_persisted_through_repository():

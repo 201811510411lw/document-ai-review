@@ -244,6 +244,7 @@ class OaTobaccoAutoReviewService:
             use_case_version=tobacco_license_consistency_review_use_case.version,
             ruleset_version=tobacco_license_consistency_review_use_case.ruleset_version,
         )
+        rpa_started = False
         try:
             result = tobacco_license_consistency_review_use_case.review(input_context)
             tobacco_fields = resolved_consistency_fields(
@@ -251,13 +252,14 @@ class OaTobaccoAutoReviewService:
             )
             certificate_no = str(tobacco_fields.get("license_no") or "").strip()
             if certificate_no:
-                execute_tobacco_rpa_verification(
+                rpa_payload = execute_tobacco_rpa_verification(
                     result=result,
                     task_id=task_id,
                     certificate_no=certificate_no,
                     store_name=store_name,
                     requestid=str(command.requestid),
                 )
+                rpa_started = rpa_payload is not None
             if not self._repository.complete_claim(claim, result):
                 return _error(
                     task_id,
@@ -266,6 +268,13 @@ class OaTobaccoAutoReviewService:
                     retryable=False,
                 )
         except Exception:
+            if rpa_started:
+                return _error(
+                    task_id,
+                    "RESULT_STORE_UNAVAILABLE",
+                    "官网验真已执行，但最终结果保存失败，需人工处理",
+                    retryable=False,
+                )
             return self._error_after_release(
                 claim,
                 task_id,
