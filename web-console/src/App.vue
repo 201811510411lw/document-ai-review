@@ -1,33 +1,33 @@
 <template>
-  <div class="app-container">
+  <div v-if="route.meta.noShell" class="app-container bare-container">
     <router-view />
-    <van-tabbar v-if="!route.meta.noTabbar" route fixed placeholder>
-      <van-tabbar-item to="/home" icon="home-o">
-        首页
-      </van-tabbar-item>
-      <van-tabbar-item to="/profile" icon="contact">
-        我的
-      </van-tabbar-item>
-    </van-tabbar>
   </div>
+  <WorkspaceShell v-else><router-view /></WorkspaceShell>
 </template>
 
 <script setup>
 import { useRoute } from 'vue-router'
+import WorkspaceShell from '@/components/WorkspaceShell.vue'
 
 const route = useRoute()
 </script>
 
 <style>
 :root {
-  --van-primary-color: #1989fa;
+  --van-primary-color: #3864f4;
+  color-scheme: light;
+  font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
 }
+* { box-sizing: border-box; }
 body {
   margin: 0;
-  background: #f5f6f8;
+  background: #f3f6fb;
+  color: #182238;
 }
 .app-container {
-  min-height: 100vh;
-  padding-bottom: 50px;
+  min-height: 100dvh;
+}
+.workspace-content.top-level-route > [class$="-page"] > .van-nav-bar {
+  display: none;
 }
 </style>
