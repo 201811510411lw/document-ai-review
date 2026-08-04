@@ -172,8 +172,8 @@
         <span class="rule-summary-tag">{{ ruleSummaryText }}</span>
         <van-icon :name="showRuleDetails ? 'arrow-up' : 'arrow-down'" class="toggle-icon" />
       </div>
-      <div v-if="showRuleDetails && record.rule_results?.length" class="rule-results-section">
-        <div v-for="rule in record.rule_results" :key="rule.rule_code" class="rule-item" :class="{ 'rule-failed': !rule.passed }">
+      <div v-if="showRuleDetails && auditRules.length" class="rule-results-section">
+        <div v-for="rule in auditRules" :key="rule.rule_code" class="rule-item" :class="{ 'rule-failed': !rule.passed }">
           <div class="rule-top">
             <van-icon
               :name="rule.passed ? 'success' : (rule.risk_level_on_failure === 'HIGH' ? 'fail' : 'warning-o')"
@@ -181,11 +181,8 @@
               size="16"
             />
             <span class="rule-name">{{ rule.rule_name || rule.rule_code }}</span>
-            <span v-if="rule.risk_level_on_failure" class="rule-risk-badge" :class="'risk-' + rule.risk_level_on_failure.toLowerCase()">
-              {{ rule.risk_level_on_failure }}
-            </span>
-            <span v-if="rule.details?.confidence" class="rule-confidence" :class="'conf-' + rule.details.confidence.toLowerCase()">
-              {{ rule.details.confidence }}
+            <span v-if="rule.riskBadge" class="rule-risk-badge" :class="rule.riskBadge.className">
+              {{ rule.riskBadge.label }}
             </span>
           </div>
           <div class="rule-message">{{ rule.message || rule.details?.match_reason || '' }}</div>
@@ -247,6 +244,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { reviewApi } from '@/api'
+import { buildRuleRiskBadge } from '@/features/review/detailModel.js'
 import { showToast, showConfirmDialog } from 'vant'
 
 const router = useRouter()
@@ -285,6 +283,11 @@ const ruleSummaryText = computed(() => {
   const passed = rules.filter(r => r.passed).length
   return `${passed}/${rules.length} 规则通过`
 })
+
+const auditRules = computed(() => (record.value?.rule_results || []).map(rule => ({
+  ...rule,
+  riskBadge: buildRuleRiskBadge(rule),
+})))
 
 const riskLevelClass = computed(() => {
   const level = (record.value?.risk_level || '').toLowerCase()
@@ -767,16 +770,6 @@ async function handleFlag() {
 .rule-risk-badge.risk-high { background: #ee0a24; color: #fff; }
 .rule-risk-badge.risk-medium { background: #ff976a; color: #fff; }
 .rule-risk-badge.risk-low { background: #e8fae8; color: #07c160; }
-.rule-confidence {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 8px;
-  flex-shrink: 0;
-}
-.rule-confidence.conf-high { background: #e8fae8; color: #07c160; }
-.rule-confidence.conf-medium { background: #fff7e6; color: #ff976a; }
-.rule-confidence.conf-low { background: #ffeeed; color: #ee0a24; }
 .rule-message {
   font-size: 12px;
   color: #646566;
