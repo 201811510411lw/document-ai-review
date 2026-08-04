@@ -11,15 +11,15 @@
       :records="displayRecords"
       :loading="loading"
       :creating="creating"
-      :list-loading="listLoading"
-      :list-finished="listFinished"
+      :current-page="pagination.currentPage"
+      :total-pages="pagination.totalPages"
       :create-button-text="createButtonText"
       :on-switch-document="switchDocumentType"
       :on-set-filter="setFilterStatus"
       :on-search="loadList"
       :on-create="createReviewFromSrm"
       :on-open="goToDetail"
-      :on-load-more="onLoadMore"
+      :on-set-page="setCurrentPage"
       :record-title="recordTitle"
       :record-primary-meta="recordPrimaryMeta"
       :record-secondary-meta="recordSecondaryMeta"
@@ -37,6 +37,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { reviewApi } from '@/api'
 import { showToast } from 'vant'
 import ReviewQueueView from '@/features/review/ReviewQueueView.vue'
+import { fetchCurrentReviewPage, reviewPagination } from '@/features/review/queueModel.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -47,12 +48,11 @@ const creating = ref(false)
 const keyword = ref('')
 const filterStatus = ref('')
 const activeDocumentType = ref('')
-// 分页状态
-const displayRecords = ref([])
-const listLoading = ref(false)
-const listFinished = ref(false)
+const currentPage = ref(1)
 const filteredTotal = ref(0)
 const pageSize = 20
+const pagination = computed(() => reviewPagination(filteredTotal.value, currentPage.value, pageSize))
+const displayRecords = computed(() => records.value)
 const documentTypeOptions = [
   {
     value: 'business_license',
@@ -101,6 +101,7 @@ const createButtonText = computed(() => (
 ))
 
 let isMounted = false
+let listRequestId = 0
 
 onMounted(() => {
   isMounted = true
@@ -131,45 +132,46 @@ watch(documentType, (value) => {
   if (isMounted) loadList()
 })
 
-async function loadList() {
+async function loadList(requestedPage = 1, { resetContext = true } = {}) {
+  const requestId = ++listRequestId
   loading.value = true
-  displayRecords.value = []
-  listFinished.value = false
+  const targetPage = Math.max(1, Number(requestedPage) || 1)
+  if (resetContext) {
+    currentPage.value = targetPage
+    records.value = []
+    stats.value = {}
+    filteredTotal.value = 0
+  }
   try {
-    const res = await reviewApi.list({
-      review_status: filterStatus.value,
-      keyword: keyword.value,
-      document_type: documentType.value,
-      limit: 200,
+    const result = await fetchCurrentReviewPage({
+      requestedPage: targetPage,
+      pageSize,
+      isCurrent: () => requestId === listRequestId,
+      fetchPage: ({ limit, offset }) => reviewApi.list({
+        review_status: filterStatus.value,
+        keyword: keyword.value,
+        document_type: documentType.value,
+        limit,
+        offset,
+      }),
     })
+    if (!result) return
+
+    const { response: res, currentPage: resolvedPage } = result
     records.value = res.records || []
     stats.value = res.stats || {}
     filteredTotal.value = res.filtered_total ?? records.value.length
-    // 首次显示前 pageSize 条
-    displayRecords.value = records.value.slice(0, pageSize)
-    if (records.value.length <= pageSize) {
-      listFinished.value = true
-    }
+    currentPage.value = resolvedPage
   } catch (e) {
-    showToast('加载失败')
+    if (requestId === listRequestId) showToast('加载失败')
   } finally {
-    loading.value = false
+    if (requestId === listRequestId) loading.value = false
   }
 }
 
-function onLoadMore() {
-  const current = displayRecords.value.length
-  const next = current + pageSize
-  if (current >= records.value.length) {
-    listFinished.value = true
-    listLoading.value = false
-    return
-  }
-  displayRecords.value = records.value.slice(0, next)
-  listLoading.value = false
-  if (next >= records.value.length) {
-    listFinished.value = true
-  }
+function setCurrentPage(page) {
+  loadList(page, { resetContext: false })
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 function switchDocumentType(name) {

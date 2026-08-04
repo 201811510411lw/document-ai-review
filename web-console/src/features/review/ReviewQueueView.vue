@@ -110,12 +110,14 @@
             </article>
           </div>
 
-          <div v-if="!listFinished" class="load-more">
-            <button type="button" :disabled="listLoading" @click="onLoadMore">
-              {{ listLoading ? '加载中' : '加载更多' }}
-            </button>
+          <div v-if="totalPages > 1" class="pagination-wrapper">
+            <van-pagination
+              :model-value="currentPage"
+              :page-count="totalPages"
+              mode="simple"
+              @update:model-value="onSetPage"
+            />
           </div>
-          <p v-else class="list-end">已显示全部记录</p>
         </template>
 
         <div v-else class="queue-empty">
@@ -143,15 +145,15 @@ const props = defineProps({
   records: { type: Array, required: true },
   loading: { type: Boolean, required: true },
   creating: { type: Boolean, required: true },
-  listLoading: { type: Boolean, required: true },
-  listFinished: { type: Boolean, required: true },
+  currentPage: { type: Number, required: true },
+  totalPages: { type: Number, required: true },
   createButtonText: { type: String, required: true },
   onSwitchDocument: { type: Function, required: true },
   onSetFilter: { type: Function, required: true },
   onSearch: { type: Function, required: true },
   onCreate: { type: Function, required: true },
   onOpen: { type: Function, required: true },
-  onLoadMore: { type: Function, required: true },
+  onSetPage: { type: Function, required: true },
   recordTitle: { type: Function, required: true },
   recordPrimaryMeta: { type: Function, required: true },
   recordSecondaryMeta: { type: Function, required: true },
@@ -240,8 +242,7 @@ function formatDate(value) {
   cursor: pointer;
 }
 
-.create-button:disabled,
-.load-more button:disabled { opacity: 0.55; cursor: wait; }
+.create-button:disabled { opacity: 0.55; cursor: wait; }
 
 .create-button:focus-visible,
 .document-switcher button:focus-visible,
@@ -250,7 +251,6 @@ function formatDate(value) {
 .queue-search button:focus-visible,
 .queue-row:focus-visible,
 .open-button:focus-visible,
-.load-more button:focus-visible,
 .queue-empty button:focus-visible {
   outline: 2px solid #0b518a;
   outline-offset: 2px;
@@ -406,9 +406,10 @@ function formatDate(value) {
 @keyframes skeleton { from { opacity: 0.55; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .queue-skeleton div { animation: none; background: #f6f7f8; } }
 
-.load-more, .queue-empty { display: flex; justify-content: center; padding: 20px; }
-.load-more button, .queue-empty button { padding: 8px 16px; border: 1px solid #b7c0c8; border-radius: 4px; color: #394550; background: #fff; font: inherit; font-size: 12px; cursor: pointer; }
-.list-end { margin: 0; padding: 18px; color: #8a949d; font-size: 11px; text-align: center; }
+.pagination-wrapper { display: flex; justify-content: center; padding: 18px 0; }
+.pagination-wrapper :deep(.van-pagination__item) { white-space: nowrap; }
+.queue-empty { display: flex; justify-content: center; padding: 20px; }
+.queue-empty button { padding: 8px 16px; border: 1px solid #b7c0c8; border-radius: 4px; color: #394550; background: #fff; font: inherit; font-size: 12px; cursor: pointer; }
 .queue-empty { min-height: 180px; align-items: center; flex-direction: column; color: #606b75; }
 .queue-empty strong { font-size: 14px; }.queue-empty p { margin: 6px 0 16px; font-size: 12px; }
 

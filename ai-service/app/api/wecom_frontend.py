@@ -170,6 +170,7 @@ def review_list(
     keyword: str = Query(default=""),
     document_type: str = Query(default=""),
     limit: int = Query(default=100, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
     _current_user: dict[str, Any] = Depends(get_wecom_frontend_user),
     repository: FrontendRepository = Depends(get_review_read_repository),
 ) -> dict[str, Any]:
@@ -186,7 +187,11 @@ def review_list(
     ]
     filtered_total = len(records)
     stats = _frontend_workbench_stats(records_scope)
-    return {"records": records[:limit], "stats": stats, "filtered_total": filtered_total}
+    return {
+        "records": records[offset : offset + limit],
+        "stats": stats,
+        "filtered_total": filtered_total,
+    }
 
 
 @api_router.get("/review/{task_id}")

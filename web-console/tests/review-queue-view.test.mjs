@@ -12,7 +12,7 @@ const vite = await createServer({
   plugins: [vue({
     template: {
       compilerOptions: {
-        isCustomElement: (tag) => tag === 'van-icon',
+        isCustomElement: (tag) => ['van-icon', 'van-pagination'].includes(tag),
       },
     },
   })],
@@ -22,7 +22,7 @@ const vite = await createServer({
 try {
   const { default: ReviewQueueView } = await vite.ssrLoadModule('/src/features/review/ReviewQueueView.vue')
 
-  async function renderQueue(filterStatus) {
+  async function renderQueue(filterStatus, { records = [], totalPages = 1 } = {}) {
     const app = createSSRApp({
       render: () => h(ReviewQueueView, {
         currentDocument: { label: '营业执照', subjectLabel: '公司名' },
@@ -32,18 +32,18 @@ try {
         filterStatus,
         keyword: '',
         filteredTotal: 0,
-        records: [],
+        records,
         loading: false,
         creating: false,
-        listLoading: false,
-        listFinished: true,
+        currentPage: 1,
+        totalPages,
         createButtonText: '发起营业执照审核',
         onSwitchDocument: () => {},
         onSetFilter: () => {},
         onSearch: () => {},
         onCreate: () => {},
         onOpen: () => {},
-        onLoadMore: () => {},
+        onSetPage: () => {},
         recordTitle: () => '',
         recordPrimaryMeta: () => '',
         recordSecondaryMeta: () => '',
@@ -63,6 +63,10 @@ try {
   for (const filterStatus of ['confirmed', 'flagged']) {
     assert.doesNotMatch(await renderQueue(filterStatus), /class="pending-notice"/)
   }
+
+  const sampleRecord = { id: 'record-1', review_status: 'pending' }
+  assert.match(await renderQueue('', { records: [sampleRecord], totalPages: 3 }), /<van-pagination/)
+  assert.doesNotMatch(await renderQueue('', { records: [sampleRecord], totalPages: 1 }), /<van-pagination/)
 } finally {
   await vite.close()
 }
