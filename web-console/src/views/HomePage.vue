@@ -165,12 +165,12 @@ const quickEntries = computed(() => {
         { label: '营业执照审核', description: '主体、期限、登记状态', icon: 'certificate', path: '/review?document_type=business_license' },
         { label: '食品证照审核', description: '许可范围与有效期', icon: 'records-o', path: '/review?document_type=food_license' },
         { label: '商品报告审核', description: '报告、结论与效期', icon: 'orders-o', path: '/review?document_type=product_report' },
-        { label: '烟草证一致性', description: tobaccoSummary.value, icon: 'balance-list', path: '/tobacco/reports' },
+        { label: '烟草证校验', description: tobaccoSummary.value, icon: 'balance-list', path: '/tobacco/reports' },
       ]
     : [
         { label: '证照查询', description: '按企业名称或编码', icon: 'search', path: '/query' },
         { label: '效期看板', description: '查看临期与过期记录', icon: 'bar-chart-o', path: '/dashboard' },
-        { label: '烟草证一致性', description: tobaccoSummary.value, icon: 'balance-list', path: '/tobacco/reports' },
+        { label: '烟草证校验', description: tobaccoSummary.value, icon: 'balance-list', path: '/tobacco/reports' },
       ]
   return entries
 })

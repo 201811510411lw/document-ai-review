@@ -2,7 +2,7 @@ const workspaceItems = [
   { label: '审核概览', to: '/home', icon: 'apps-o' },
   { label: '证照查询', to: '/query', icon: 'search' },
   { label: '证照审核', to: '/review', icon: 'records-o', adminOnly: true },
-  { label: '一致性校验', to: '/tobacco/reports', icon: 'balance-list' },
+  { label: '烟草证校验', to: '/tobacco/reports', icon: 'balance-list' },
   { label: '效期看板', to: '/dashboard', icon: 'bar-chart-o' },
 ]
 

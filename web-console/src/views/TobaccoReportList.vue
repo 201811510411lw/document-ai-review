@@ -1,6 +1,6 @@
 <template>
   <div class="tobacco-page">
-    <van-nav-bar title="烟草证一致性监控" left-arrow @click-left="router.push('/home')" />
+    <van-nav-bar title="烟草证校验" left-arrow @click-left="router.push('/home')" />
     <main class="page-shell">
       <p class="page-desc">查看 OA 自动审核结果，处理异常记录。</p>
       <TobaccoReportCenter

@@ -79,13 +79,13 @@ const routes = [
     path: '/tobacco/reports',
     name: 'TobaccoReports',
     component: TobaccoReportList,
-    meta: { title: '一致性校验', topLevel: true },
+    meta: { title: '烟草证校验', topLevel: true },
   },
   {
     path: '/tobacco/reports/:id',
     name: 'TobaccoReportDetail',
     component: TobaccoReportDetail,
-    meta: { title: '一致性校验详情' },
+    meta: { title: '烟草证校验详情' },
   },
   {
     path: '/profile',
