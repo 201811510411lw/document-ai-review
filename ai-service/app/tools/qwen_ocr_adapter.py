@@ -389,7 +389,8 @@ def qwen_ocr_parse_prompt() -> str:
         "valid_to 只能提取营业期限字段中的截止值，valid_to_evidence 必须同时包含“营业期限”标签及其值。"
         "登记日期、发照日期、核准日期只能填入 issue_date，不得填入 valid_to。"
         "同页同时出现“营业期限：长期”和其他日期时，valid_to 必须输出 长期，其他日期按标签填入对应字段。\n"
-        "5. subject_name、credit_code 只要输出字段值，就必须同时输出对应 evidence；"
+        "5. subject_name、credit_code、business_address、legal_person 只要输出字段值，"
+        "就必须同时输出对应 evidence；"
         "evidence 字段必须包含能支撑对应字段的图片/PDF 可见原文片段，不能只重复字段值；没有原文片段输出 null。\n"
         "6. 多页文件只选择营业执照页抽取，source_page 输出页码；ignored_pages 输出被忽略页面及原因。"
     )

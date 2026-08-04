@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from fastapi import HTTPException
@@ -6,10 +7,13 @@ from fastapi import HTTPException
 from app.api.auth import require_oa_token
 from app.api.tobacco_license_consistency import (
     OaAutoReviewRequest,
-    _oa_decision,
     create_oa_auto_review,
+    get_consistency_oa_result,
     manual_review_consistency_result,
     TobaccoManualReviewRequest,
+)
+from app.workflows.tobacco_license_consistency_review.decision import (
+    oa_review_decision as _oa_decision,
 )
 from app.core.config import settings
 from app.integrations.starrocks.tobacco_license_sources import TobaccoLicenseSourceFile
@@ -69,10 +73,15 @@ class NewResultRepository:
         self.saved = []
 
     def get_by_task_id(self, task_id):
-        return None
+        return self.saved[-1] if self.saved and self.saved[-1].task_id == task_id else None
 
     def save(self, result):
         self.saved.append(result)
+
+
+class FailingSaveRepository(NewResultRepository):
+    def save(self, result):
+        raise RuntimeError("database unavailable")
 
 
 class StoredDocumentsFileStore:
@@ -80,13 +89,20 @@ class StoredDocumentsFileStore:
         self.documents = documents
 
     def store_source_files(self, source_files):
-        assert len(source_files) == 2
         return self.documents
 
 
 class ChildReviewService:
     def review(self, review_input, use_case_name=None):
         fields = _business_fields() if use_case_name == "business_license" else _tobacco_fields()
+        return _child_result(use_case_name, fields)
+
+
+class ConflictingChildReviewService(ChildReviewService):
+    def review(self, review_input, use_case_name=None):
+        fields = _business_fields() if use_case_name == "business_license" else _tobacco_fields()
+        if use_case_name == "tobacco_license":
+            fields["license_no"] = review_input.source["record_id"]
         return _child_result(use_case_name, fields)
 
 
@@ -125,7 +141,7 @@ def test_oa_auto_review_executes_current_project_review_chain(monkeypatch, tmp_p
     documents = [_stored(tmp_path, source) for source in source_files]
     repository = NewResultRepository()
     monkeypatch.setattr(
-        "app.api.tobacco_license_consistency.fetch_tobacco_license_source_files_by_request",
+        "app.services.oa_tobacco_auto_review.fetch_tobacco_license_source_files_by_request",
         lambda sql_client, requestid, workflow_id: source_files,
     )
     monkeypatch.setattr(settings, "rpa_verification_tobacco_enabled", False)
@@ -142,6 +158,89 @@ def test_oa_auto_review_executes_current_project_review_chain(monkeypatch, tmp_p
     assert response["data"]["decision"] == "pass"
     assert response["data"]["task_id"] == "tc-oa-614-584412"
     assert repository.saved[-1].task_id == "tc-oa-614-584412"
+
+
+def test_concurrent_repeated_request_executes_source_chain_once(monkeypatch, tmp_path):
+    source_files = [_source("business_license", 1001), _source("tobacco_license", 1002)]
+    documents = [_stored(tmp_path, source) for source in source_files]
+    repository = NewResultRepository()
+    calls = {"source": 0}
+
+    def fetch_once(sql_client, requestid, workflow_id):
+        calls["source"] += 1
+        return source_files
+
+    monkeypatch.setattr(
+        "app.services.oa_tobacco_auto_review.fetch_tobacco_license_source_files_by_request",
+        fetch_once,
+    )
+    monkeypatch.setattr(settings, "rpa_verification_tobacco_enabled", False)
+
+    def invoke():
+        return create_oa_auto_review(
+            OaAutoReviewRequest(requestid=584412, store_code="00001"),
+            _oa_client={"client": "oa"},
+            sql_client=object(),
+            file_store=StoredDocumentsFileStore(documents),
+            repository=repository,
+            document_review_service=ChildReviewService(),
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(lambda _: invoke(), range(2)))
+
+    assert [item["data"]["decision"] for item in responses] == ["pass", "pass"]
+    assert calls["source"] == 1
+
+
+def test_conflicting_candidates_are_persisted_for_manual_review(monkeypatch, tmp_path):
+    source_files = [
+        _source("business_license", 1001),
+        _source("tobacco_license", 1002),
+        _source("tobacco_license", 1003),
+    ]
+    documents = [_stored(tmp_path, source) for source in source_files]
+    repository = NewResultRepository()
+    monkeypatch.setattr(
+        "app.services.oa_tobacco_auto_review.fetch_tobacco_license_source_files_by_request",
+        lambda sql_client, requestid, workflow_id: source_files,
+    )
+    monkeypatch.setattr(settings, "rpa_verification_tobacco_enabled", False)
+
+    response = create_oa_auto_review(
+        OaAutoReviewRequest(requestid=584412, store_code="00001"),
+        _oa_client={"client": "oa"},
+        sql_client=object(),
+        file_store=StoredDocumentsFileStore(documents),
+        repository=repository,
+        document_review_service=ConflictingChildReviewService(),
+    )
+
+    assert response["data"]["decision"] == "manual_review"
+    assert repository.saved[-1].needs_manual_review is True
+
+
+def test_result_save_failure_returns_exception_not_in_memory_pass(monkeypatch, tmp_path):
+    source_files = [_source("business_license", 1001), _source("tobacco_license", 1002)]
+    documents = [_stored(tmp_path, source) for source in source_files]
+    monkeypatch.setattr(
+        "app.services.oa_tobacco_auto_review.fetch_tobacco_license_source_files_by_request",
+        lambda sql_client, requestid, workflow_id: source_files,
+    )
+    monkeypatch.setattr(settings, "rpa_verification_tobacco_enabled", False)
+
+    response = create_oa_auto_review(
+        OaAutoReviewRequest(requestid=584412, store_code="00001"),
+        _oa_client={"client": "oa"},
+        sql_client=object(),
+        file_store=StoredDocumentsFileStore(documents),
+        repository=FailingSaveRepository(),
+        document_review_service=ChildReviewService(),
+    )
+
+    assert response["data"]["decision"] == "exception"
+    assert response["data"]["error"]["code"] == "AUTO_REVIEW_FAILED"
+    assert "database unavailable" not in response["data"]["error"]["message"]
 
 
 def test_incomplete_evidence_is_manual_review_not_reject():
@@ -183,6 +282,35 @@ def test_request_more_info_remains_manual_review_even_without_failed_rules():
     )
 
     assert _oa_decision(result) == "manual_review"
+
+
+def test_oa_polling_is_consistent_after_manual_approval():
+    result = _result(
+        _rule(
+            "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
+            details={"expected": "甲公司", "actual": "乙公司"},
+        )
+    ).model_copy(
+        update={
+            "status": ReviewStatus.MANUAL_REVIEWED,
+            "manual_review": ManualReview(
+                status=ManualReviewStatus.COMPLETED,
+                action="approved",
+            ),
+        }
+    )
+    repository = ExistingResultRepository(result)
+
+    response = get_consistency_oa_result(
+        result.task_id,
+        _oa_client={"client": "oa"},
+        repository=repository,
+    )
+
+    callback = response["data"]["callback"]
+    assert callback["decision"] == "pass"
+    assert callback["review_status"] == "通过"
+    assert callback["needs_manual_review"] is False
 
 
 def test_manual_review_is_persisted_through_repository():

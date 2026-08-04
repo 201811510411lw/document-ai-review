@@ -11,19 +11,21 @@ from app.integrations.starrocks.tobacco_license_sources import (
     build_pending_stores_sql,
     fetch_pending_stores,
     fetch_latest_tobacco_license_source_files,
-    fetch_tobacco_license_source_files_by_request,
     TobaccoLicenseSourceTaskError,
 )
 from app.models import (
     ReviewInput,
     ReviewInputContext,
     ReviewResult,
-    ReviewStatus,
-    RiskLevel,
-    RuleResult,
 )
 from app.repositories import build_review_result_repository_from_env
 from app.services.review_service import ReviewService
+from app.services.oa_tobacco_auto_review import (
+    OaAutoReviewCommand,
+    OaAutoReviewOutcome,
+    OaTobaccoAutoReviewService,
+    _oa_source_snapshot,
+)
 from app.services.tobacco_consistency_extraction import (
     extract_consistency_document_results,
     resolved_consistency_fields,
@@ -32,9 +34,13 @@ from app.services.tobacco_license_files import (
     TobaccoLicenseFileStore,
     TobaccoLicenseFileStoreError,
 )
+from app.services.tobacco_rpa_verification import execute_tobacco_rpa_verification
 from app.services.tobacco_review_cache import save_tobacco_report
 from app.use_cases.tobacco_license_consistency_review import (
     tobacco_license_consistency_review_use_case,
+)
+from app.workflows.tobacco_license_consistency_review.decision import (
+    oa_review_decision,
 )
 
 
@@ -269,14 +275,7 @@ def create_consistency_review(
             },
         ) from error
 
-    # 5. 保存审核结果
-    try:
-        repository.save(result)
-    except Exception as error:
-        # 结果保存失败不影响比对结果返回
-        pass
-
-    # 6. 从规则结果中提取比对结论
+    # 5. 从规则结果中提取比对结论
     rule_results = result.rule_results or []
     unmatched = [r.rule_name for r in rule_results if not r.passed]
     has_validity_issue = any(not r.passed and "VALIDITY" in (r.rule_code or "") for r in rule_results)
@@ -307,16 +306,21 @@ def create_consistency_review(
         "source_request_id": first.requestid,
         "oa": oa_source,
     }
-    # 7. 执行官网 RPA 验真
-    _execute_and_store_rpa_verification(
-        repository=repository,
+    # 6. 执行官网 RPA 验真，再统一保存最终结果。
+    report["rpa_verification"] = execute_tobacco_rpa_verification(
         result=result,
         task_id=task_id,
         certificate_no=str(tobacco_fields.get("license_no") or "").strip(),
         store_name=store_name,
         requestid=str(first.requestid or ""),
-        report=report,
     )
+    try:
+        repository.save(result)
+    except Exception as error:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "RESULT_STORE_UNAVAILABLE", "message": "审核结果保存失败"},
+        ) from error
     save_tobacco_report(report)
     return {
         "task_id": result.task_id,
@@ -338,139 +342,13 @@ def create_oa_auto_review(
     document_review_service: ReviewService = Depends(get_document_review_service),
 ) -> dict[str, Any]:
     """按 OA 请求身份同步执行烟草证一致性自动审核。"""
-    task_id = _oa_task_id(request.workflow_id, request.requestid)
-    try:
-        existing = repository.get_by_task_id(task_id)
-    except Exception as error:
-        return _oa_exception_response(
-            task_id,
-            "RESULT_STORE_UNAVAILABLE",
-            f"审核结果存储不可用: {error}",
-            retryable=True,
-        )
-    if existing is not None:
-        return _oa_response(existing)
-
-    try:
-        source_files = fetch_tobacco_license_source_files_by_request(
-            sql_client,
-            request.requestid,
-            workflow_id=request.workflow_id,
-        )
-    except Exception as error:
-        return _oa_exception_response(
-            task_id,
-            "SOURCE_QUERY_FAILED",
-            f"OA 来源查询失败: {error}",
-            retryable=True,
-        )
-    if not source_files:
-        return _oa_exception_response(
-            task_id,
-            "SOURCE_RECORD_NOT_READY",
-            "未找到该 OA 请求的证照附件，请稍后重试",
-            retryable=True,
-        )
-    if any((item.store_code or "").strip() != request.store_code for item in source_files):
-        return _oa_exception_response(
-            task_id,
-            "SOURCE_IDENTITY_MISMATCH",
-            "OA 请求中的门店编码与来源记录不一致",
-            retryable=False,
-        )
-
-    try:
-        stored_documents = file_store.store_source_files(source_files)
-    except Exception as error:
-        return _oa_exception_response(
-            task_id,
-            "SOURCE_FILE_PREPARATION_FAILED",
-            f"OA 附件准备失败: {error}",
-            retryable=True,
-        )
-    document_results, extraction_errors = extract_consistency_document_results(
-        stored_documents,
-        review_service=document_review_service,
-        store_identifier=request.store_code,
-    )
-    if extraction_errors:
-        return _oa_exception_response(
-            task_id,
-            "DOCUMENT_EXTRACTION_FAILED",
-            "部分证照附件无法形成唯一可靠的抽取结果",
-            retryable=False,
-            details=extraction_errors,
-        )
-    missing_roles = [
-        role
-        for role in ("business_license", "tobacco_license")
-        if role not in document_results
-    ]
-    if missing_roles:
-        return _oa_exception_response(
-            task_id,
-            "REQUIRED_DOCUMENT_MISSING",
-            "OA 请求缺少必需证照附件",
-            retryable=False,
-            details={"missing_roles": missing_roles},
-        )
-
-    first = source_files[0]
-    store_name = first.store_name or request.store_name or request.store_code
-    oa_source = _oa_source_snapshot(
-        first,
-        source_files=source_files,
-        stored_documents=stored_documents,
-        selected_files=[],
-    )
-    review_input = ReviewInput(
-        supplier_name=store_name,
-        supplier_credit_code="",
-        declared_document_type="business_tobacco_consistency",
-        source={
-            "store_identifier": request.store_code,
-            "requestid": request.requestid,
-            "workflow_id": request.workflow_id,
-            "oa": oa_source,
-        },
-        options={
-            "review_mode": "standard",
-            "business_license_result": document_results["business_license"],
-            "tobacco_license_result": document_results["tobacco_license"],
-        },
-    )
-    input_context = ReviewInputContext(
-        task_id=task_id,
-        input=review_input,
-        use_case_name=tobacco_license_consistency_review_use_case.name,
-        use_case_version=tobacco_license_consistency_review_use_case.version,
-        ruleset_version=tobacco_license_consistency_review_use_case.ruleset_version,
-    )
-    try:
-        result = tobacco_license_consistency_review_use_case.review(input_context)
-        repository.save(result)
-        _execute_and_store_rpa_verification(
-            repository=repository,
-            result=result,
-            task_id=task_id,
-            certificate_no=str(
-                resolved_consistency_fields(
-                    document_results["tobacco_license"], {}
-                ).get("license_no")
-                or ""
-            ).strip(),
-            store_name=store_name,
-            requestid=str(request.requestid),
-            report={},
-        )
-    except Exception as error:
-        return _oa_exception_response(
-            task_id,
-            "AUTO_REVIEW_FAILED",
-            f"自动审核执行失败: {error}",
-            retryable=True,
-        )
-    return _oa_response(result)
+    outcome = OaTobaccoAutoReviewService(
+        sql_client=sql_client,
+        file_store=file_store,
+        repository=repository,
+        document_review_service=document_review_service,
+    ).review(OaAutoReviewCommand(**request.model_dump()))
+    return _oa_outcome_response(outcome)
 
 
 @router.post("/reviews/batch")
@@ -574,162 +452,60 @@ def get_consistency_oa_result(
     # 1. 从 review_results 表读取完整 payload
     payload = repository.get_by_task_id(task_id)
     if payload is None:
-        # fallback: 尝试从 qc_review_detail 读取
-        try:
-            detail = repository.get_qc_review_detail(task_id)
-        except Exception:
-            detail = None
-        if detail is None:
-            raise HTTPException(status_code=404, detail={"code": "REVIEW_NOT_FOUND", "message": "比对结果不存在"})
-        # 旧格式兼容
-        comparison = dict(detail.get("comparison") or {})
-        source_evidence = dict(detail.get("source_evidence") or {})
-        source = dict(source_evidence.get("source") or {})
-        payload = ReviewResult(
-            task_id=task_id,
-            status=ReviewStatus(detail.get("status", "reviewed")),
-            risk_level=RiskLevel(detail.get("risk_level", "NONE")),
-            needs_manual_review=detail.get("needs_manual_review", False),
-            rule_results=[RuleResult(**r) for r in (detail.get("rule_results") or [])],
-            skill_result={
-                "comparison": comparison,
-                "source_evidence": source_evidence,
-                "rpa_verification": detail.get("skill_result", {}).get("rpa_verification"),
-            },
-            created_at=detail.get("created_at"),
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "REVIEW_NOT_FOUND", "message": "比对结果不存在"},
         )
 
-    # 2. 提取一致性比对结论
-    rule_results = payload.rule_results or []
-    unmatched = [r for r in rule_results if not r.passed]
-    overall_result = "待校验" if payload.needs_manual_review else ("通过" if payload.risk_level == RiskLevel.NONE else "不通过")
-
-    # 3. 提取 RPA 验真结果
-    rpa_info = None
-    if isinstance(payload.skill_result, dict):
-        rpa_info = payload.skill_result.get("rpa_verification")
-    rpa_status = (rpa_info or {}).get("status") if isinstance(rpa_info, dict) else None
-
-    # 4. 综合一致性 + RPA 结果
-    if rpa_status in ("FAILED", "SUSPECTED", "NOT_FOUND"):
-        review_status = "不通过"
-        needs_manual = True
-        risk_level = "HIGH"
-        unmatched_names = [r.rule_name for r in unmatched] + ["烟草证官网验真"]
-        summary_parts = ["烟草证官网验真不通过"]
-        if rpa_status == "FAILED":
-            summary_parts.append("官网返回验真未通过，影刀未提供具体原因")
-        elif rpa_status == "NOT_FOUND":
-            summary_parts.append("未在国家烟草专卖局官网查到该证照记录")
-        else:
-            summary_parts.append("证照信息与官网记录不符，疑似伪造")
-        if unmatched:
-            summary_parts.append("；".join(r.rule_name for r in unmatched))
-        summary = "；".join(summary_parts)
-    elif rpa_status == "AUTHENTIC":
-        review_status = overall_result
-        needs_manual = bool(payload.needs_manual_review)
-        risk_level = payload.risk_level.value if payload.risk_level else "NONE"
-        unmatched_names = [r.rule_name for r in unmatched]
-        summary = _callback_summary(overall_result, unmatched)
-        if review_status == "通过":
-            summary = "烟草证一致性自动核对通过，官网验真通过"
-    else:
-        # 未验真或验真出错
-        review_status = overall_result
-        needs_manual = bool(payload.needs_manual_review)
-        risk_level = payload.risk_level.value if payload.risk_level else "NONE"
-        unmatched_names = [r.rule_name for r in unmatched]
-        summary = _callback_summary(overall_result, unmatched)
-
-    # 5. 从 source 中提取 requestid
+    decision = oa_review_decision(payload)
+    status_label = {
+        "pass": "通过",
+        "reject": "不通过",
+        "manual_review": "待校验",
+        "exception": "异常",
+    }[decision]
     source_raw = {}
     if isinstance(payload.skill_result, dict):
         source_raw = dict(payload.skill_result.get("source_evidence", {}) or {}).get("source", {})
     requestid = source_raw.get("requestid")
+    rpa_info = (
+        payload.skill_result.get("rpa_verification")
+        if isinstance(payload.skill_result, dict)
+        else None
+    )
 
     return {
         "code": 0,
         "message": "success",
         "data": {
             "callback": {
-            "requestid": requestid,
-            "review_task_id": payload.task_id,
-            "review_mode": source_raw.get("oa", {}).get("review_mode"),
-            "decision": _oa_decision(payload),
-            "review_status": review_status,
-            "risk_level": risk_level,
-            "needs_manual_review": needs_manual,
-            "summary": summary,
-            "rule_results": [r.model_dump(mode="json") for r in rule_results],
-            "manual_review": payload.manual_review.model_dump(mode="json") if payload.manual_review else None,
-            "completed_at": payload.updated_at or payload.created_at,
-            "rpa_verification": rpa_info,
+                "requestid": requestid,
+                "review_task_id": payload.task_id,
+                "review_mode": source_raw.get("oa", {}).get("review_mode"),
+                "decision": decision,
+                "review_status": status_label,
+                "risk_level": payload.risk_level.value,
+                "needs_manual_review": decision in {"manual_review", "exception"},
+                "summary": (
+                    "系统无法自动完成核对，需人工处理"
+                    if decision == "exception"
+                    else payload.summary
+                ),
+                "rule_results": [
+                    rule.model_dump(mode="json") for rule in payload.rule_results
+                ],
+                "manual_review": (
+                    payload.manual_review.model_dump(mode="json")
+                    if payload.manual_review
+                    else None
+                ),
+                "completed_at": payload.updated_at or payload.created_at,
+                "rpa_verification": rpa_info,
             },
         }
     }
 
 
-def _callback_summary(overall_result: str, unmatched: list[Any]) -> str:
-    if overall_result == "通过":
-        return "烟草证一致性自动核对通过"
-    failed = [r.rule_name if hasattr(r, "rule_name") else str(r) for r in unmatched]
-    return "；".join(failed) or "烟草证一致性核对待人工复核"
-
-
-def _oa_source_snapshot(
-    first,
-    *,
-    source_files: list,
-    stored_documents: list,
-    selected_files: list[dict[str, Any]],
-) -> dict[str, Any]:
-    attachments = []
-    stored_docids = set()
-    for document in stored_documents:
-        stored_docids.add(document.source.docid)
-        for stored_file in document.files:
-            attachments.append({
-                "document_role": document.source.document_role,
-                "docid": document.source.docid,
-                "doc_subject": document.source.doc_subject,
-                "file_name": stored_file.file_name,
-                "relative_path": stored_file.relative_path,
-            })
-    for source_file in source_files:
-        if source_file.docid in stored_docids:
-            continue
-        file_name = source_file.real_filename or source_file.docimage_filename
-        attachments.append({
-            "document_role": source_file.document_role,
-            "docid": source_file.docid,
-            "doc_subject": source_file.doc_subject,
-            "file_name": file_name,
-            "relative_path": None,
-        })
-    attachments.extend({
-        "document_role": "selected_attachment",
-        "file_name": item.get("file_name"),
-        "relative_path": item.get("relative_path"),
-    } for item in selected_files if item.get("relative_path"))
-    deduplicated = []
-    seen = set()
-    for attachment in attachments:
-        key = (attachment.get("docid"), attachment.get("file_name"), attachment.get("relative_path"))
-        if key not in seen:
-            seen.add(key)
-            deduplicated.append(attachment)
-    return {
-        "requestid": first.requestid,
-        "workflow_id": first.workflow_id,
-        "request_name": first.request_name,
-        "summary_title": first.summary_title,
-        "content_summary": first.content_summary,
-        "created_date": first.created_date,
-        "created_time": first.created_time,
-        "request_status": first.request_status,
-        "attachments": deduplicated,
-    }
 def _generate_task_id(store_identifier: str) -> str:
     import hashlib
     import time
@@ -738,94 +514,27 @@ def _generate_task_id(store_identifier: str) -> str:
     return f"tc-{hashlib.md5(raw.encode()).hexdigest()[:16]}"
 
 
-def _execute_and_store_rpa_verification(
-    *,
-    repository,
-    result,
-    task_id: str,
-    certificate_no: str,
-    store_name: str,
-    requestid: str,
-    report: dict,
-) -> None:
-    """触发影刀 RPA 验真（同步轮询），将结果写入 review_result 和 report。"""
-    import logging
-    import os
-
-    logger = logging.getLogger(__name__)
-    try:
-        from app.core.config import settings as app_settings
-        if not app_settings.rpa_verification_tobacco_enabled:
-            report["rpa_verification"] = None
-            return
-
-        from app.services.rpa_verification import RpaVerificationService, YindaoRpaClient
-        client = YindaoRpaClient(
-            api_base_url=app_settings.rpa_verification_yindao_base_url,
-            access_key_id=app_settings.rpa_verification_yindao_access_key_id,
-            access_key_secret=os.environ.get("RPA_YINDAO_ACCESS_KEY_SECRET", ""),
-            robot_uuid=app_settings.rpa_verification_yindao_robot_uuid,
-            account_name=app_settings.rpa_verification_yindao_account_name,
-            run_timeout_seconds=min(app_settings.rpa_verification_yindao_run_timeout_seconds, 30),
-            wait_timeout_seconds=app_settings.rpa_verification_yindao_wait_timeout_seconds,
-            poll_interval=app_settings.rpa_verification_yindao_poll_interval,
-        )
-        rpa_service = RpaVerificationService(client)
-        rpa_result = rpa_service.verify(
-            task_id=task_id,
-            certificate_no=certificate_no,
-            store_name=store_name,
-            requestid=requestid,
-        )
-        # 将验真结果存入 review_result 的 skill_result（含原始回调）
-        if isinstance(result.skill_result, dict):
-            result.skill_result["rpa_verification"] = rpa_service.to_skill_result_dict(
-                rpa_result,
-                raw_yindao_response=rpa_result.raw_response if rpa_result.raw_response else None,
-            )
-            try:
-                repository.save(result)
-            except Exception:
-                logger.warning("RPA 验真结果保存失败（不影响返回）")
-        report["rpa_verification"] = {
-            "status": rpa_result.status.value,
-            "certificate_no": rpa_result.certificate_no,
-            "verified_at": rpa_result.verified_at.isoformat() if rpa_result.verified_at else None,
-            "screenshot_url": rpa_result.screenshot_url,
-            "result_label": rpa_result.result_label,
-            "error_message": rpa_result.error_message,
-        }
-    except Exception as exc:
-        logger.warning("RPA 验真异常（不阻断流程）: %s", exc)
-        error_payload = {
-            "status": "ERROR",
-            "error_message": f"{type(exc).__name__}: {exc}",
-        }
-        report["rpa_verification"] = error_payload
-        if isinstance(result.skill_result, dict):
-            result.skill_result["rpa_verification"] = error_payload
-            try:
-                repository.save(result)
-            except Exception:
-                logger.warning("RPA 异常状态保存失败")
-
-
-def _oa_task_id(workflow_id: int, requestid: int) -> str:
-    return f"tc-oa-{workflow_id}-{requestid}"
-
-
 def _oa_response(result: ReviewResult) -> dict[str, Any]:
-    decision = _oa_decision(result)
+    decision = oa_review_decision(result)
     failed = [rule for rule in result.rule_results if not rule.passed]
+    rpa_info = (
+        result.skill_result.get("rpa_verification")
+        if isinstance(result.skill_result, dict)
+        else None
+    )
     data: dict[str, Any] = {
         "decision": decision,
         "task_id": result.task_id,
-        "summary": result.summary,
+        "summary": (
+            "系统无法自动完成核对，需人工处理"
+            if decision == "exception"
+            else result.summary
+        ),
         "rule_results": [rule.model_dump(mode="json") for rule in result.rule_results],
         "needs_manual_review": decision in {"manual_review", "exception"},
     }
     if decision == "reject":
-        data["reject_reasons"] = [
+        reject_reasons = [
             {
                 "rule_code": rule.rule_code,
                 "rule_name": rule.rule_name,
@@ -833,53 +542,38 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
             }
             for rule in failed
         ]
+        if isinstance(rpa_info, dict) and rpa_info.get("status") in {
+            "FAILED",
+            "SUSPECTED",
+            "NOT_FOUND",
+        }:
+            reject_reasons.append(
+                {
+                    "rule_code": "TOBACCO_LICENSE_RPA_VERIFICATION",
+                    "rule_name": "烟草证官网验真",
+                    "message": "烟草证官网验真未通过",
+                }
+            )
+        data["reject_reasons"] = reject_reasons
+    if decision == "exception" and isinstance(rpa_info, dict):
+        data["error"] = {
+            "code": "RPA_VERIFICATION_FAILED",
+            "message": "烟草证官网验真未可靠完成",
+            "retryable": True,
+        }
     return {"code": 0, "message": "success", "data": data}
 
 
-def _oa_decision(result: ReviewResult) -> Literal[
-    "pass", "reject", "manual_review", "exception"
-]:
-    if result.manual_review and result.manual_review.status.value == "COMPLETED":
-        if result.manual_review.action == "approved":
-            return "pass"
-        if result.manual_review.action == "rejected":
-            return "reject"
-        if result.manual_review.action == "request_more_info":
-            return "manual_review"
-    if result.status == ReviewStatus.FAILED:
-        return "exception"
-
-    rpa_info = (
-        result.skill_result.get("rpa_verification")
-        if isinstance(result.skill_result, dict)
-        else None
-    )
-    rpa_status = str((rpa_info or {}).get("status") or "")
-    if rpa_status == "ERROR":
-        return "exception"
-    if rpa_status in {"FAILED", "SUSPECTED", "NOT_FOUND"}:
-        return "reject"
-
-    failed = [rule for rule in result.rule_results if not rule.passed]
-    if not failed:
-        return "pass"
-    if all(_is_deterministic_rejection(rule) for rule in failed):
-        return "reject"
-    return "manual_review"
-
-
-def _is_deterministic_rejection(rule: RuleResult) -> bool:
-    if rule.rule_code in {
-        "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
-        "BUSINESS_TOBACCO_ADDRESS_MATCH",
-        "BUSINESS_TOBACCO_PERSON_MATCH",
-    }:
-        return bool(rule.details.get("expected") and rule.details.get("actual"))
-    if rule.rule_code.endswith("_TYPE_FOR_CONSISTENCY"):
-        return bool(rule.details.get("actual"))
-    return (
-        rule.rule_code == "BUSINESS_TOBACCO_TOBACCO_VALIDITY"
-        and rule.details.get("difference") == "expired"
+def _oa_outcome_response(outcome: OaAutoReviewOutcome) -> dict[str, Any]:
+    if outcome.result is not None:
+        return _oa_response(outcome.result)
+    assert outcome.error is not None
+    return _oa_exception_response(
+        outcome.task_id,
+        outcome.error.code,
+        outcome.error.message,
+        retryable=outcome.error.retryable,
+        details=outcome.error.details,
     )
 
 
