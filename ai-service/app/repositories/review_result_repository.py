@@ -156,6 +156,41 @@ class MySQLReviewResultRepository:
                 )
             connection.commit()
 
+    def complete_claim(
+        self,
+        claim: ReviewResult,
+        review_result: ReviewResult,
+    ) -> bool:
+        """Replace only the claim owned by this execution and save projections."""
+        self._ensure_schema_once()
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE review_results
+                    SET payload_json = %s, created_at = %s
+                    WHERE task_id = %s AND payload_json = %s
+                    """,
+                    (
+                        review_result.model_dump_json(),
+                        review_result.created_at.isoformat(),
+                        review_result.task_id,
+                        claim.model_dump_json(),
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    connection.rollback()
+                    return False
+                self._delete_stale_projection_rows(cursor, review_result)
+                self._save_business_license_projection(cursor, review_result)
+                self._save_food_license_projection(cursor, review_result)
+                self._save_food_production_license_projection(cursor, review_result)
+                self._save_tobacco_license_projection(cursor, review_result)
+                self._save_tobacco_consistency_projection(cursor, review_result)
+                self._save_product_report_projection(cursor, review_result)
+            connection.commit()
+        return True
+
     def close(self) -> None:
         with self._pool_lock:
             while True:

@@ -16,9 +16,15 @@ class StubMySQLCursor:
         if compact.startswith("delete from "):
             table = compact.split()[2]
             if table in self.storage:
-                self.rowcount = int(
-                    self.storage[table].pop(params[0], None) is not None
+                row = self.storage[table].get(params[0])
+                payload_matches = (
+                    "and payload_json = %s" not in compact
+                    or (row is not None and row.get("payload_json") == params[1])
                 )
+                if payload_matches:
+                    self.rowcount = int(
+                        self.storage[table].pop(params[0], None) is not None
+                    )
             return
         if compact.startswith("insert ignore into review_results"):
             if params[0] in self.storage["review_results"]:
@@ -43,6 +49,16 @@ class StubMySQLCursor:
                 self.result = self.storage["review_results"].get(params[0])
             else:
                 self.result = list(self.storage["review_results"].values())
+            return
+        if (
+            compact.startswith("update review_results set payload_json")
+            and "and payload_json = %s" in compact
+        ):
+            row = self.storage["review_results"].get(params[2])
+            if row is not None and row["payload_json"] == params[3]:
+                row["payload_json"] = params[0]
+                row["created_at"] = params[1]
+                self.rowcount = 1
             return
         if compact.startswith("update review_results set payload_json"):
             row = self.storage["review_results"].get(params[1])
@@ -542,6 +558,9 @@ class StubMySQLConnection:
 
     def commit(self):
         self.commits += 1
+
+    def rollback(self):
+        return None
 
     def close(self):
         self.closed = True

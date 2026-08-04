@@ -7,6 +7,8 @@ OaReviewDecision = Literal["pass", "reject", "manual_review", "exception"]
 
 
 def oa_review_decision(result: ReviewResult) -> OaReviewDecision:
+    if result.status in {ReviewStatus.CREATED, ReviewStatus.RUNNING}:
+        return "exception"
     if result.manual_review and result.manual_review.status.value == "COMPLETED":
         if result.manual_review.action == "approved":
             return "pass"

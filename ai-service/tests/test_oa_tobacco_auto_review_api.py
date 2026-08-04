@@ -97,9 +97,17 @@ class NewResultRepository:
                 if not (item.task_id == result.task_id and item.status == ReviewStatus.RUNNING)
             ]
 
+    def complete_claim(self, claim, result):
+        with self.lock:
+            for index, existing in enumerate(self.saved):
+                if existing.model_dump_json() == claim.model_dump_json():
+                    self.saved[index] = result
+                    return True
+            return False
+
 
 class FailingSaveRepository(NewResultRepository):
-    def save(self, result):
+    def complete_claim(self, claim, result):
         raise RuntimeError("database unavailable")
 
 
@@ -392,6 +400,22 @@ def test_oa_polling_redacts_internal_rpa_error_text():
         "status": "ERROR",
         "error_message": "烟草证官网验真未可靠完成",
     }
+
+
+def test_oa_polling_never_passes_a_running_claim():
+    result = _result().model_copy(update={"status": ReviewStatus.RUNNING})
+    repository = ExistingResultRepository(result)
+
+    response = get_consistency_oa_result(
+        result.task_id,
+        _oa_client={"client": "oa"},
+        repository=repository,
+    )
+
+    callback = response["data"]["callback"]
+    assert callback["decision"] == "exception"
+    assert callback["review_status"] == "异常"
+    assert callback["needs_manual_review"] is True
 
 
 def test_manual_review_is_persisted_through_repository():

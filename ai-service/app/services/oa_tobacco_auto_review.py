@@ -1,5 +1,6 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Protocol
+from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
@@ -37,6 +38,9 @@ class ReviewRepository(Protocol):
         ...
 
     def release_claim(self, result: ReviewResult) -> None:
+        ...
+
+    def complete_claim(self, claim: ReviewResult, result: ReviewResult) -> bool:
         ...
 
 
@@ -157,8 +161,8 @@ class OaTobaccoAutoReviewService:
         try:
             stored_documents = self._file_store.store_source_files(source_files)
         except Exception:
-            self._release_claim(claim)
-            return _error(
+            return self._error_after_release(
+                claim,
                 task_id,
                 "SOURCE_FILE_PREPARATION_FAILED",
                 "OA 附件准备失败",
@@ -181,8 +185,8 @@ class OaTobaccoAutoReviewService:
             if value != "MULTIPLE_CONFLICTING_CANDIDATES"
         }
         if technical_errors:
-            self._release_claim(claim)
-            return _error(
+            return self._error_after_release(
+                claim,
                 task_id,
                 "DOCUMENT_EXTRACTION_FAILED",
                 "部分证照附件抽取失败",
@@ -195,8 +199,8 @@ class OaTobaccoAutoReviewService:
             if role not in document_results
         }
         if missing_roles - conflicting_roles:
-            self._release_claim(claim)
-            return _error(
+            return self._error_after_release(
+                claim,
                 task_id,
                 "REQUIRED_DOCUMENT_MISSING",
                 "OA 请求缺少必需证照附件",
@@ -254,10 +258,16 @@ class OaTobaccoAutoReviewService:
                     store_name=store_name,
                     requestid=str(command.requestid),
                 )
-            self._repository.save(result)
+            if not self._repository.complete_claim(claim, result):
+                return _error(
+                    task_id,
+                    "REVIEW_CLAIM_LOST",
+                    "自动审核任务占位已失效，结果未写入",
+                    retryable=False,
+                )
         except Exception:
-            self._release_claim(claim)
-            return _error(
+            return self._error_after_release(
+                claim,
                 task_id,
                 "AUTO_REVIEW_FAILED",
                 "自动审核执行或保存失败",
@@ -272,9 +282,6 @@ class OaTobaccoAutoReviewService:
     ) -> OaAutoReviewOutcome | None:
         if existing.status != ReviewStatus.RUNNING:
             return OaAutoReviewOutcome(task_id=task_id, result=existing)
-        if datetime.now(timezone.utc) - existing.created_at > timedelta(minutes=30):
-            self._release_claim(existing)
-            return None
         return _error(
             task_id,
             "REVIEW_IN_PROGRESS",
@@ -282,11 +289,32 @@ class OaTobaccoAutoReviewService:
             retryable=True,
         )
 
-    def _release_claim(self, claim: ReviewResult) -> None:
+    def _error_after_release(
+        self,
+        claim: ReviewResult,
+        task_id: str,
+        code: str,
+        message: str,
+        *,
+        retryable: bool,
+        details: Any = None,
+    ) -> OaAutoReviewOutcome:
         try:
             self._repository.release_claim(claim)
         except Exception:
-            pass
+            return _error(
+                task_id,
+                "RESULT_STORE_UNAVAILABLE",
+                "审核结果存储不可用",
+                retryable=True,
+            )
+        return _error(
+            task_id,
+            code,
+            message,
+            retryable=retryable,
+            details=details,
+        )
 
 
 def _claim_result(task_id: str, command: OaAutoReviewCommand) -> ReviewResult:
@@ -308,6 +336,7 @@ def _claim_result(task_id: str, command: OaAutoReviewCommand) -> ReviewResult:
         updated_at=now,
         skill_result={
             "oa_claim": {
+                "claim_token": uuid4().hex,
                 "requestid": command.requestid,
                 "workflow_id": command.workflow_id,
             }

@@ -82,6 +82,27 @@ def test_mysql_repository_claim_is_atomic_and_releasable(monkeypatch):
     assert repository.claim(claim) is True
 
 
+def test_mysql_repository_old_claim_cannot_overwrite_new_owner(monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    first_claim = build_review_result("tc-oa-614-584412").model_copy(
+        update={"status": ReviewStatus.RUNNING, "skill_result": {"claim": "first"}}
+    )
+    second_claim = first_claim.model_copy(update={"skill_result": {"claim": "second"}})
+    final_result = build_review_result("tc-oa-614-584412")
+
+    assert repository.claim(first_claim) is True
+    repository.release_claim(first_claim)
+    assert repository.claim(second_claim) is True
+
+    assert repository.complete_claim(first_claim, final_result) is False
+    assert repository.get_by_task_id(final_result.task_id).skill_result == {
+        "claim": "second"
+    }
+    assert repository.complete_claim(second_claim, final_result) is True
+    assert repository.get_by_task_id(final_result.task_id).status == ReviewStatus.REVIEWED
+
+
 def test_review_service_can_save_result_with_injected_mysql_repository(monkeypatch):
     install_mysql_repository_stub(monkeypatch)
     repository = _repository()

@@ -19,6 +19,9 @@
 `callback_url` 或证照字段。任务 ID 固定为 `tc-oa-614-{requestid}`，重复请求返回
 已持久化结果，不重复执行审核。
 
+并发请求由结果库中的原子任务占位协调。审核尚未完成时返回
+`exception` 和 `REVIEW_IN_PROGRESS`，OA 应稍后轮询，不能据此推进流程。
+
 ```json
 {
   "code": 0,
