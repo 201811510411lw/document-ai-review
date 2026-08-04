@@ -875,6 +875,7 @@ class MySQLReviewResultRepository:
         self._ensure_schema_once()
         table = self._qc_projection_table_for_task(task_id)
         reviewed_at_text = reviewed_at.isoformat()
+        requests_more_info = decision == "request_more_info"
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -911,8 +912,8 @@ class MySQLReviewResultRepository:
                         WHERE task_id = %s
                         """,
                         (
-                            "MANUAL_REVIEWED",
-                            0,
+                            "PENDING_MANUAL_REVIEW" if requests_more_info else "MANUAL_REVIEWED",
+                            1 if requests_more_info else 0,
                             "COMPLETED",
                             decision,
                             comment,
@@ -2777,6 +2778,7 @@ def _manual_review_payload(
     reviewed_at: datetime,
 ) -> ReviewResult:
     result = ReviewResult.model_validate_json(payload_json)
+    requests_more_info = decision == "request_more_info"
     audit_event = AuditEvent(
         event_type="BUSINESS_LICENSE_MANUAL_REVIEW",
         message=_manual_review_audit_message(decision),
@@ -2790,8 +2792,12 @@ def _manual_review_payload(
     )
     return result.model_copy(
         update={
-            "status": ReviewStatus.MANUAL_REVIEWED,
-            "needs_manual_review": False,
+            "status": (
+                ReviewStatus.PENDING_MANUAL_REVIEW
+                if requests_more_info
+                else ReviewStatus.MANUAL_REVIEWED
+            ),
+            "needs_manual_review": requests_more_info,
             "manual_review": ManualReview(
                 status=ManualReviewStatus.COMPLETED,
                 reasons=result.manual_review.reasons,

@@ -28,6 +28,17 @@ class StubReviewService:
         )
 
 
+class CandidateReviewService:
+    def __init__(self, outcomes):
+        self.outcomes = outcomes
+
+    def review(self, review_input, use_case_name=None):
+        outcome = self.outcomes[review_input.file.file_name]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return SimpleNamespace(skill_result={"normalized_fields": outcome})
+
+
 def test_source_documents_are_reviewed_by_their_oa_document_role(tmp_path):
     service = StubReviewService()
     documents = [
@@ -88,6 +99,59 @@ def test_manual_fields_override_only_non_empty_business_values():
         "subject_name": "证照主体",
         "business_address": "人工修正地址",
     }
+
+
+def test_conflicting_same_role_candidates_are_not_silently_selected(tmp_path):
+    documents = [
+        _stored_document(tmp_path, role="tobacco_license", docid=1001),
+        _stored_document(tmp_path, role="tobacco_license", docid=1002),
+    ]
+    service = CandidateReviewService(
+        {
+            "tobacco_license-1001.jpg": {
+                "document_type": "tobacco_license",
+                "license_no": "A-001",
+            },
+            "tobacco_license-1002.jpg": {
+                "document_type": "tobacco_license",
+                "license_no": "B-002",
+            },
+        }
+    )
+
+    results, errors = extract_consistency_document_results(
+        documents,
+        review_service=service,
+        store_identifier="B65230024",
+    )
+
+    assert "tobacco_license" not in results
+    assert errors["tobacco_license"] == "MULTIPLE_CONFLICTING_CANDIDATES"
+
+
+def test_usable_candidate_is_retained_when_another_attachment_fails(tmp_path):
+    documents = [
+        _stored_document(tmp_path, role="business_license", docid=1001),
+        _stored_document(tmp_path, role="business_license", docid=1002),
+    ]
+    service = CandidateReviewService(
+        {
+            "business_license-1001.jpg": RuntimeError("unreadable image"),
+            "business_license-1002.jpg": {
+                "document_type": "business_license",
+                "subject_name": "可用主体",
+            },
+        }
+    )
+
+    results, errors = extract_consistency_document_results(
+        documents,
+        review_service=service,
+        store_identifier="B65230024",
+    )
+
+    assert results["business_license"].skill_result["normalized_fields"]["subject_name"] == "可用主体"
+    assert "RuntimeError: unreadable image" in errors["business_license:business_license-1001.jpg"]
 
 
 def _stored_document(tmp_path, *, role, docid):

@@ -14,6 +14,7 @@ from app.repositories import (
     build_review_result_repository_from_env,
     reset_review_result_repository_cache,
 )
+from app.repositories.review_result_repository import _manual_review_payload
 from app.services.review_service import ReviewService
 from app.workflows.runtime import ReviewGraphDefinition, ReviewRuntimeEntry
 from tests.mysql_repository_stub import install_mysql_repository_stub
@@ -108,6 +109,23 @@ def test_review_service_without_repository_keeps_existing_no_persistence_behavio
     service = ReviewService()
 
     assert service.repository is None
+
+
+def test_request_more_info_keeps_review_pending():
+    reviewed_at = datetime(2026, 8, 4, 10, 0, tzinfo=timezone.utc)
+
+    updated = _manual_review_payload(
+        payload_json=build_review_result().model_dump_json(),
+        decision="request_more_info",
+        comment="请补充清晰证照",
+        reviewer_id="reviewer-1",
+        reviewer_username="reviewer",
+        reviewed_at=reviewed_at,
+    )
+
+    assert updated.status == ReviewStatus.PENDING_MANUAL_REVIEW
+    assert updated.needs_manual_review is True
+    assert updated.manual_review.action == "request_more_info"
 
 
 def test_mysql_repository_reuses_connection_between_queries(monkeypatch):

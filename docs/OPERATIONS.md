@@ -13,6 +13,9 @@
 
 `.env` 文件只接收 `SECRET_ENV_KEYS`；数据库地址、模型名、开关等非敏感配置必须放在 YAML 或真实 Shell 环境。以 `.env.example` 和 `app-config/app.yaml.example` 为模板，不要提交实际 `.env`、`app.local.yaml` 或凭据。
 
+OA 自动审核必须配置独立的 `OA_AUTO_REVIEW_TOKEN`。未配置或请求头
+`X-OA-Token` 不匹配时，触发和轮询接口均返回 HTTP 401。
+
 ## 数据库准备
 
 StarRocks 保存同步后的来源数据。按 [SQL 指南](sql/README.md) 创建来源表，并由外部同步作业持续装载 SRM、批次报告和 OA 数据。
@@ -78,6 +81,8 @@ npm run build
 | 来源接口返回不可用或记录不存在 | 检查 StarRocks 连接、同步延迟、租户与业务筛选条件；不要回退为伪造数据 |
 | Review Result 保存失败 | 检查数据库是否存在、账号 DDL/DML 权限及兼容列创建日志 |
 | OA 附件无法准备 | 检查 NAS 挂载、允许根目录、文件是否加密、zip 是否有效及路径是否越界 |
+| OA 调用连接超时 | 从 OA 服务器检查域名解析、443/目标端口、防火墙、反向代理和服务监听；连接超时发生在 HTTP 建连阶段，与 JSON 参数无关 |
+| OA 返回 `SOURCE_RECORD_NOT_READY` | 检查 `workflow_id=614`、精确 `requestid` 的 StarRocks 同步延迟；禁止改为门店模糊查询 |
 | OCR / LLM 失败 | 检查文件类型与内容、模型配置、API Secret、超时和 provider 日志 |
 | 通知持续失败 | 检查 `WECOM_WORKER_TOKEN`、企业微信应用配置、队列 `attempts` 和最后错误 |
 | RPA 返回 `ERROR` | 检查影刀鉴权、精确账号/机器人配置、超时和响应完整性；不要解释为业务不通过 |

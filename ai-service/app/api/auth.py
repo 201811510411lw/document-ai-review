@@ -178,6 +178,18 @@ def require_web_console_user(
     }
 
 
+def require_oa_token(
+    x_oa_token: str | None = Header(default=None, alias="X-OA-Token"),
+) -> dict[str, str]:
+    expected = settings.oa_auto_review_token
+    if not expected or not x_oa_token or not compare_digest(x_oa_token, expected):
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "OA_UNAUTHORIZED", "message": "OA 调用凭证无效"},
+        )
+    return {"client": "oa"}
+
+
 @router.get("/me")
 def me(current_user: dict[str, Any] = Depends(require_web_console_user)) -> dict[str, Any]:
     return {"user": current_user}

@@ -48,6 +48,43 @@ def build_tobacco_license_source_sql(store_identifier: str, *, limit: int = 50) 
     store_identifier = _required_text(store_identifier, "store_identifier")
     safe_limit = max(1, min(int(limit), 200))
     store_literal = _sql_string_literal(store_identifier)
+    identity_predicate = f"""(
+    f.mdbm = {store_literal}
+    OR f.mdmc = {store_literal}
+    OR INSTR(IFNULL(f.qsbt, ''), {store_literal}) > 0
+    OR INSTR(IFNULL(f.nrgk, ''), {store_literal}) > 0
+    OR INSTR(IFNULL(r.REQUESTNAME, ''), {store_literal}) > 0
+  )"""
+    return _build_source_sql(
+        workflow_id=614,
+        identity_predicate=identity_predicate,
+        order_by="r.CREATEDATE DESC, r.CREATETIME DESC, f.id DESC, d.ID, dif.IMAGEFILEID",
+        limit=safe_limit,
+    )
+
+
+def build_tobacco_license_source_by_request_sql(
+    requestid: int,
+    *,
+    workflow_id: int = 614,
+) -> str:
+    safe_requestid = _required_positive_int(requestid, "requestid")
+    safe_workflow_id = _required_positive_int(workflow_id, "workflow_id")
+    return _build_source_sql(
+        workflow_id=safe_workflow_id,
+        identity_predicate=f"f.requestid = {safe_requestid}",
+        order_by="d.ID, dif.IMAGEFILEID",
+    )
+
+
+def _build_source_sql(
+    *,
+    workflow_id: int,
+    identity_predicate: str,
+    order_by: str,
+    limit: int | None = None,
+) -> str:
+    limit_clause = f"\nLIMIT {limit}" if limit is not None else ""
     return f"""
 SELECT
     f.id AS form_id,
@@ -92,20 +129,13 @@ LEFT JOIN ods_oa_ecology_docimagefile_df dif
   ON dif.DOCID = d.ID
 LEFT JOIN ods_oa_ecology_imagefile_df i
   ON i.IMAGEFILEID = dif.IMAGEFILEID
-WHERE r.WORKFLOWID = 614
+WHERE r.WORKFLOWID = {workflow_id}
   AND f.ycxsxkz IS NOT NULL
   AND TRIM(f.ycxsxkz) <> ''
   AND i.FILEREALPATH IS NOT NULL
   AND TRIM(i.FILEREALPATH) <> ''
-  AND (
-    f.mdbm = {store_literal}
-    OR f.mdmc = {store_literal}
-    OR INSTR(IFNULL(f.qsbt, ''), {store_literal}) > 0
-    OR INSTR(IFNULL(f.nrgk, ''), {store_literal}) > 0
-    OR INSTR(IFNULL(r.REQUESTNAME, ''), {store_literal}) > 0
-  )
-ORDER BY r.CREATEDATE DESC, r.CREATETIME DESC, f.id DESC, d.ID, dif.IMAGEFILEID
-LIMIT {safe_limit}
+  AND {identity_predicate}
+ORDER BY {order_by}{limit_clause}
 """.strip()
 
 
@@ -193,6 +223,31 @@ def fetch_latest_tobacco_license_source_files(
     ]
 
 
+def fetch_tobacco_license_source_files_by_request(
+    sql_client: SqlFetchClient,
+    requestid: int,
+    *,
+    workflow_id: int = 614,
+    sql: str | None = None,
+) -> list[TobaccoLicenseSourceFile]:
+    safe_requestid = _required_positive_int(requestid, "requestid")
+    safe_workflow_id = _required_positive_int(workflow_id, "workflow_id")
+    rows = sql_client.fetch_all(
+        sql
+        or build_tobacco_license_source_by_request_sql(
+            safe_requestid,
+            workflow_id=safe_workflow_id,
+        )
+    )
+    return [
+        source_file
+        for source_file in (_to_source_file(row) for row in rows)
+        if source_file.file_real_path.strip()
+        and source_file.requestid == safe_requestid
+        and source_file.workflow_id == safe_workflow_id
+    ]
+
+
 def _to_source_file(row: dict[str, Any]) -> TobaccoLicenseSourceFile:
     return TobaccoLicenseSourceFile(
         form_id=_int_or_none(row.get("form_id")),
@@ -253,3 +308,13 @@ def _int_or_none(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _required_positive_int(value: Any, field_name: str) -> int:
+    parsed = _int_or_none(value)
+    if parsed is None or parsed <= 0:
+        raise TobaccoLicenseSourceTaskError(
+            "TOBACCO_LICENSE_SOURCE_FIELD_INVALID",
+            f"{field_name} 必须为正整数",
+        )
+    return parsed

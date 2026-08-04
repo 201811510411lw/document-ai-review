@@ -1,5 +1,8 @@
+from datetime import date as real_date
+
 from app.models import ReviewInput, ReviewStatus, RiskLevel
 from app.services.review_service import ReviewService
+from app.workflows.tobacco_license_consistency_review import workflow as consistency_workflow
 
 
 BASE_BUSINESS_FIELDS = {
@@ -7,6 +10,9 @@ BASE_BUSINESS_FIELDS = {
     "subject_name": "成都示例烟草商行",
     "business_address": "成都市高新区天府大道 1 号",
     "legal_person": "张三",
+    "subject_name_evidence": "名称：成都示例烟草商行",
+    "business_address_evidence": "住所：成都市高新区天府大道 1 号",
+    "legal_person_evidence": "经营者：张三",
 }
 
 BASE_TOBACCO_FIELDS = {
@@ -14,7 +20,13 @@ BASE_TOBACCO_FIELDS = {
     "subject_name": "成都示例烟草商行",
     "business_address": "成都市高新区天府大道 1 号",
     "legal_person": "张三",
+    "license_no": "烟专零售许第510100000001号",
     "valid_to": "2099-12-31",
+    "subject_name_evidence": "企业名称：成都示例烟草商行",
+    "business_address_evidence": "经营场所：成都市高新区天府大道 1 号",
+    "legal_person_evidence": "负责人：张三",
+    "license_no_evidence": "许可证号：烟专零售许第510100000001号",
+    "valid_to_evidence": "有效期至：2099-12-31",
 }
 
 
@@ -26,6 +38,95 @@ def test_tobacco_license_consistency_all_match_passes():
     assert result.risk_level == RiskLevel.NONE
     assert result.needs_manual_review is False
     assert result.skill_result["comparison"]["differences"] == []
+
+
+def test_tobacco_license_consistency_missing_license_number_routes_manual_review():
+    result = _review(
+        tobacco_fields={
+            **BASE_TOBACCO_FIELDS,
+            "license_no": None,
+            "license_no_evidence": None,
+        }
+    )
+
+    assert result.status == ReviewStatus.PENDING_MANUAL_REVIEW
+    assert "TOBACCO_LICENSE_NO_FOR_CONSISTENCY" in _failed_codes(result)
+
+
+def test_tobacco_license_consistency_missing_key_field_evidence_routes_manual_review():
+    result = _review(
+        tobacco_fields={**BASE_TOBACCO_FIELDS, "business_address_evidence": None}
+    )
+
+    assert result.status == ReviewStatus.PENDING_MANUAL_REVIEW
+    evidence_rule = next(
+        rule
+        for rule in result.rule_results
+        if rule.rule_code == "TOBACCO_LICENSE_EVIDENCE_FOR_CONSISTENCY"
+    )
+    assert evidence_rule.details["missing_evidence_fields"] == [
+        "business_address_evidence"
+    ]
+
+
+def test_tobacco_license_consistency_child_manual_review_cannot_auto_pass():
+    result = _review(
+        tobacco_result={
+            "status": "PENDING_MANUAL_REVIEW",
+            "needs_manual_review": True,
+            "skill_result": {"normalized_fields": BASE_TOBACCO_FIELDS},
+        },
+        tobacco_fields={},
+    )
+
+    assert result.status == ReviewStatus.PENDING_MANUAL_REVIEW
+    assert "TOBACCO_LICENSE_CHILD_REVIEW_READY" in _failed_codes(result)
+
+
+def test_tobacco_license_consistency_expiring_within_thirty_days_routes_manual_review(
+    monkeypatch,
+):
+    class FixedDate:
+        @classmethod
+        def today(cls):
+            return real_date(2026, 8, 4)
+
+        @classmethod
+        def fromisoformat(cls, value):
+            return real_date.fromisoformat(value)
+
+    monkeypatch.setattr(consistency_workflow, "date", FixedDate)
+
+    result = _review(
+        tobacco_fields={**BASE_TOBACCO_FIELDS, "valid_to": "2026-08-30"}
+    )
+
+    assert result.status == ReviewStatus.PENDING_MANUAL_REVIEW
+    validity_rule = next(
+        rule
+        for rule in result.rule_results
+        if rule.rule_code == "BUSINESS_TOBACCO_TOBACCO_VALIDITY"
+    )
+    assert validity_rule.risk_level_on_failure == RiskLevel.MEDIUM
+    assert validity_rule.details["days_until_expiry"] == 26
+
+
+def test_tobacco_license_consistency_missing_validity_routes_manual_review():
+    result = _review(
+        tobacco_fields={
+            **BASE_TOBACCO_FIELDS,
+            "valid_to": None,
+            "valid_to_evidence": None,
+        }
+    )
+
+    assert result.status == ReviewStatus.PENDING_MANUAL_REVIEW
+    validity_rule = next(
+        rule
+        for rule in result.rule_results
+        if rule.rule_code == "BUSINESS_TOBACCO_TOBACCO_VALIDITY"
+    )
+    assert validity_rule.details["difference"] == "actual_missing"
 
 
 def test_tobacco_license_consistency_name_mismatch_routes_manual_review():
@@ -157,6 +258,8 @@ def _review(
     tobacco_fields: dict | None = None,
     review_mode: str = "standard",
     store_in_store: dict | None = None,
+    business_result: dict | None = None,
+    tobacco_result: dict | None = None,
 ):
     return ReviewService().review(
         ReviewInput(
@@ -165,8 +268,14 @@ def _review(
             supplier_credit_code="91510100MA0000000X",
             declared_document_type="business_tobacco_consistency",
             options={
-                "business_license_fields": business_fields or BASE_BUSINESS_FIELDS,
-                "tobacco_license_fields": tobacco_fields or BASE_TOBACCO_FIELDS,
+                "business_license_fields": (
+                    BASE_BUSINESS_FIELDS if business_fields is None else business_fields
+                ),
+                "tobacco_license_fields": (
+                    BASE_TOBACCO_FIELDS if tobacco_fields is None else tobacco_fields
+                ),
+                "business_license_result": business_result,
+                "tobacco_license_result": tobacco_result,
                 "review_mode": review_mode,
                 "store_in_store": store_in_store or {},
             },

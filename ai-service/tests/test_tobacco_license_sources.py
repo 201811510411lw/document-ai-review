@@ -1,8 +1,10 @@
 from app.integrations.starrocks.tobacco_license_sources import (
     build_pending_stores_sql,
+    build_tobacco_license_source_by_request_sql,
     build_tobacco_license_source_sql,
     fetch_pending_stores,
     fetch_latest_tobacco_license_source_files,
+    fetch_tobacco_license_source_files_by_request,
 )
 
 
@@ -85,6 +87,43 @@ def test_fetch_latest_tobacco_license_source_files_returns_empty_list():
     files = fetch_latest_tobacco_license_source_files(StubSqlClient([]), "unknown")
 
     assert files == []
+
+
+def test_build_source_by_request_sql_uses_exact_workflow_and_request_identity():
+    sql = build_tobacco_license_source_by_request_sql(2801287)
+
+    assert "r.WORKFLOWID = 614" in sql
+    assert "f.requestid = 2801287" in sql
+    assert "f.mdbm =" not in sql
+    assert "INSTR(" not in sql
+    assert "ORDER BY d.ID, dif.IMAGEFILEID" in sql
+
+
+def test_fetch_source_files_by_request_does_not_select_another_request():
+    expected = {
+        "form_id": 3497,
+        "requestid": 2801287,
+        "store_code": "B65230024",
+        "workflow_id": 614,
+        "document_role": "tobacco_license",
+        "file_real_path": "/data/oaec/license.jpg",
+    }
+    client = StubSqlClient([
+        expected,
+        {**expected, "requestid": 2801288, "file_real_path": "/data/oaec/other.jpg"},
+    ])
+
+    files = fetch_tobacco_license_source_files_by_request(client, 2801287)
+
+    assert [item.requestid for item in files] == [2801287]
+    assert "f.requestid = 2801287" in client.executed_sql[0]
+
+
+def test_fetch_source_files_by_request_returns_empty_without_fallback():
+    client = StubSqlClient([])
+
+    assert fetch_tobacco_license_source_files_by_request(client, 2801287) == []
+    assert len(client.executed_sql) == 1
 
 
 def test_pending_stores_include_latest_oa_title_and_content():

@@ -31,7 +31,6 @@ def test_api_guides_only_advertise_current_review_routes():
         "GET /api/v1/food-license/reviews/{task_id}",
         "POST /api/v1/food-license/reviews/{task_id}/manual-review",
         "POST /api/v1/food-license/reviews:upload",
-        "POST /api/v1/tobacco-license-consistency/oa-auto-review",
         "GET /api/v1/tobacco-license-consistency/reviews/{task_id}/details",
     ]
     combined_guides = api_contract + oa_guide

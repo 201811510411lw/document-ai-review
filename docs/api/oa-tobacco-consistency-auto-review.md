@@ -1,12 +1,13 @@
 # OA 烟草证一致性审核接口（现行）
 
-本文档说明当前已经实现的 OA 来源烟草证一致性审核链路。文件名保留历史链接，但正文只描述
-FastAPI 当前可调用的接口；未来的 OA 专用自动节点或主动 callback 不属于现行契约。
+本文档说明 Web Console 使用的 OA 来源烟草证一致性审核链路。OA 自动节点的专用触发、
+鉴权和轮询契约见 [OA 烟草证一致性自动审核接口](oa-tobacco-license-consistency.md)。
 
 ## 1. 当前链路
 
 ```text
 OA 来源记录同步到 StarRocks
+  -> OA 按 workflow_id + requestid 精确触发，或控制台查询待处理门店
   -> 查询待处理门店
   -> 获取营业执照和烟草证附件
   -> 文档识别与字段抽取
@@ -16,8 +17,8 @@ OA 来源记录同步到 StarRocks
   -> Web Console 人工复核或读取 OA 结果载荷
 ```
 
-当前接口使用 Web Console Bearer token 或企业微信 session cookie。系统尚未实现独立的
-`X-OA-Token` 认证入口，也不会向请求中提供的任意 URL 主动推送结果。
+控制台接口使用 Web Console Bearer token 或企业微信 session cookie。OA 专用触发和轮询
+使用 `X-OA-Token`。系统不会向请求中提供的任意 URL 主动推送结果。
 
 ## 2. 查询待处理门店
 
@@ -167,7 +168,8 @@ GET /api/v1/tobacco-license-consistency/reviews/{task_id}/oa-result
 ```
 
 该接口从结果库读取一致性 Rule Result 和 RPA 验真结果，返回适合 OA adapter 继续映射的
-`callback` 数据。它只读取结果，不主动调用 OA，也不执行状态流转。
+`code / message / data.callback` 数据，要求 `X-OA-Token`。它只读取结果，不主动调用 OA，
+也不执行状态流转。
 
 综合语义：
 
@@ -193,11 +195,8 @@ GET /api/tobacco/reports/{task_id}
 详情响应包含字段比对、Rule Result、来源证据、人工复核信息和已保存的 RPA 状态。OA 对接方
 不应依赖前端投影字段作为长期外部契约；需要回传时读取上一节的 OA 结果载荷。
 
-## 8. 当前未实现
+## 8. 当前边界
 
-- 没有 OA 专用的“一次调用后按 pass/reject/exception 自动推进流程”入口。
 - 没有独立的烟草一致性详情 V1 路由；详情由 Web Console 报告接口提供。
 - 没有接收 `callback_url` 后异步主动推送 OA 的后台任务。
-- 没有 `X-OA-Token` 鉴权实现。
-
-需要上述能力时，应先新增明确需求、路由、认证、持久化和回归测试，再更新本文档。
+- OA 专用入口返回 `pass`、`reject`、`manual_review`、`exception`，由 OA 自身执行流程流转。

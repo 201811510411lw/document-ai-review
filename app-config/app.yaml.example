@@ -73,6 +73,9 @@ tobacco_consistency:
 web_console_auth:
   username: reviewer
 
+# OA 自动审核共享密钥放在 .env 的 OA_AUTO_REVIEW_TOKEN，不提交到配置文件。
+oa_auto_review: {}
+
 # 企业微信登录和通知路由配置；密钥和 worker 令牌放在 .env。
 wecom:
   corp_id: your-corp-id

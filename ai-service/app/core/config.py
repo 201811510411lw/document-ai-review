@@ -185,6 +185,7 @@ CONFIG_KEY_PATHS = {
         "web_console_auth",
         "token_ttl_seconds",
     ),
+    "OA_AUTO_REVIEW_TOKEN": ("oa_auto_review", "token"),
     "WECOM_CORP_ID": ("wecom", "corp_id"),
     "WECOM_AGENT_ID": ("wecom", "agent_id"),
     "WECOM_REDIRECT_URI": ("wecom", "redirect_uri"),
@@ -223,6 +224,7 @@ SECRET_ENV_KEYS = {
     "STARROCKS_USER",
     "STARROCKS_PASSWORD",
     "WEB_CONSOLE_AUTH_PASSWORD",
+    "OA_AUTO_REVIEW_TOKEN",
     "WEB_CONSOLE_AUTH_SECRET",
     "WECOM_SECRET",
     "WECOM_WORKER_TOKEN",
@@ -320,6 +322,7 @@ class Settings(BaseModel):
     web_console_auth_token_ttl_seconds: int = int(
         os.environ.get("WEB_CONSOLE_AUTH_TOKEN_TTL_SECONDS", "28800")
     )
+    oa_auto_review_token: str = os.environ.get("OA_AUTO_REVIEW_TOKEN", "")
     wecom_corp_id: str = os.environ.get("WECOM_CORP_ID", "")
     wecom_agent_id: str = os.environ.get("WECOM_AGENT_ID", "")
     wecom_secret: str = os.environ.get("WECOM_SECRET", "")

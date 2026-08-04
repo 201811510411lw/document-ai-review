@@ -51,3 +51,19 @@ _Avoid_: Technical error, incomplete verification
 **Technical Verification Error**:
 An external verification that did not complete reliably enough to make a business claim and may be retried.
 _Avoid_: Verification failed, counterfeit result
+
+**OA Auto Review**:
+One idempotent review request initiated by an OA workflow for a specific OA request and its submitted evidence.
+_Avoid_: Store review, latest store review
+
+**Auto Review Decision**:
+The partner-facing outcome of an OA Auto Review: `pass`, `reject`, `manual_review`, or `exception`.
+_Avoid_: Status, result
+
+**Manual-Review Decision**:
+An Auto Review Decision used when evidence is incomplete, contradictory, or requires an accountable human judgement.
+_Avoid_: Exception, retry
+
+**Exception Decision**:
+An Auto Review Decision used when a technical dependency did not complete reliably enough to form a business conclusion.
+_Avoid_: Reject, verification failed

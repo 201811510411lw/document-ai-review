@@ -211,10 +211,17 @@ GET /api/v1/tobacco-license/source-files/local/{relative_path}
 | Method | Path | 说明 |
 | --- | --- | --- |
 | `GET` | `/api/v1/tobacco-license-consistency/pending-stores` | 分页查询有待处理 OA 流程的门店 |
+| `POST` | `/api/v1/tobacco-license-consistency/oa-auto-review` | 按 `workflow_id + requestid` 同步触发 OA 自动审核 |
 | `POST` | `/api/v1/tobacco-license-consistency/reviews` | 获取来源文件并执行单门店一致性审核 |
 | `POST` | `/api/v1/tobacco-license-consistency/reviews/batch` | 批量执行最多 20 个门店审核 |
 | `POST` | `/api/v1/tobacco-license-consistency/reviews/{task_id}/manual-review` | 对报告提交人工复核 |
 | `GET` | `/api/v1/tobacco-license-consistency/reviews/{task_id}/oa-result` | 读取可供 OA 适配器使用的结果载荷 |
+
+OA 两个接口使用独立请求头 `X-OA-Token`，密钥由 `OA_AUTO_REVIEW_TOKEN` 配置。
+自动审核仅接受 `workflow_id=614`，以 `workflow_id + requestid` 生成稳定任务 ID；
+`store_code` 只做来源记录交叉校验。外部决策为 `pass`、`reject`、
+`manual_review`、`exception`。完整请求和响应见
+[`docs/api/oa-tobacco-license-consistency.md`](api/oa-tobacco-license-consistency.md)。
 
 单门店请求：
 

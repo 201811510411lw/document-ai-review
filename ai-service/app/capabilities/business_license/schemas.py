@@ -26,6 +26,8 @@ class BusinessLicenseExtractedFields(BaseModel):
     ignored_pages: list[dict] = Field(default_factory=list)
     subject_name_evidence: str | None = None
     credit_code_evidence: str | None = None
+    business_address_evidence: str | None = None
+    legal_person_evidence: str | None = None
     valid_to_evidence: str | None = None
 
 

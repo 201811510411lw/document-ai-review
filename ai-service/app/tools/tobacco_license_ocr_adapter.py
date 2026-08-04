@@ -155,10 +155,12 @@ def tobacco_license_qwen_ocr_prompt() -> str:
     return (
         "你是烟草专卖零售许可证 OCR 字段抽取器。只允许依据图片/PDF 页面中的可见文字，"
         "不得使用文件名、OA 申请信息、门店名称或常识猜测。只输出 JSON 对象，不要 Markdown。"
-        "字段：document_type, subject_name, business_address, legal_person, license_no, valid_from, valid_to。"
+        "字段：document_type, subject_name, business_address, legal_person, license_no, valid_from, valid_to, "
+        "subject_name_evidence, business_address_evidence, legal_person_evidence, license_no_evidence, valid_to_evidence。"
         "document_type 仅在可确认大标题为烟草专卖零售许可证时输出 tobacco_license，否则输出 null。"
         "subject_name 提取许可证上的企业/经营主体；business_address 提取经营场所；"
         "legal_person 提取负责人、经营者或法定代表人；license_no 提取许可证号。"
+        "每个非空关键字段必须同时返回图片中的对应原文 evidence，不能改写或推断。"
         "日期规范为 YYYY-MM-DD，长期有效输出 长期，无法确认输出 null。"
     )
 

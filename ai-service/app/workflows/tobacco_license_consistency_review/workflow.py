@@ -21,6 +21,8 @@ def run_tobacco_license_consistency_workflow(input_context: ReviewInputContext) 
         tobacco_fields,
         review_mode=review_mode,
         store_in_store=store_in_store,
+        business_result=input_context.input.options.get("business_license_result"),
+        tobacco_result=input_context.input.options.get("tobacco_license_result"),
     )
     failed = [rule for rule in rule_results if not rule.passed]
     comparison = {
@@ -88,10 +90,32 @@ def _review_rules(
     *,
     review_mode: str,
     store_in_store: dict,
+    business_result=None,
+    tobacco_result=None,
 ) -> list[RuleResult]:
     rules = [
+        _child_review_ready_rule("BUSINESS_LICENSE", "营业执照", business_result),
+        _child_review_ready_rule("TOBACCO_LICENSE", "烟草证", tobacco_result),
         _type_rule("business_license", business_fields.get("document_type"), "营业执照类型"),
         _type_rule("tobacco_license", tobacco_fields.get("document_type"), "烟草证类型"),
+        _required_field_rule(
+            "TOBACCO_LICENSE_NO_FOR_CONSISTENCY",
+            "烟草证许可证号完整",
+            "license_no",
+            tobacco_fields.get("license_no"),
+        ),
+        _evidence_rule(
+            "BUSINESS_LICENSE_EVIDENCE_FOR_CONSISTENCY",
+            "营业执照关键字段证据完整",
+            business_fields,
+            ("subject_name", "business_address", "legal_person"),
+        ),
+        _evidence_rule(
+            "TOBACCO_LICENSE_EVIDENCE_FOR_CONSISTENCY",
+            "烟草证关键字段证据完整",
+            tobacco_fields,
+            ("subject_name", "business_address", "legal_person", "license_no", "valid_to"),
+        ),
     ]
     if review_mode == "store_in_store":
         rules.extend(_store_in_store_rules(business_fields, tobacco_fields, store_in_store))
@@ -185,6 +209,81 @@ def _store_in_store_rules(
     ]
 
 
+def _child_review_ready_rule(code_prefix: str, name: str, result_payload) -> RuleResult:
+    if result_payload is None:
+        return RuleResult(
+            rule_code=f"{code_prefix}_CHILD_REVIEW_READY",
+            rule_name=f"{name}子审核就绪",
+            passed=True,
+            risk_level_on_failure=RiskLevel.MEDIUM,
+            message=f"{name}使用显式确认字段",
+            details={"source": "explicit_fields"},
+        )
+    payload = (
+        result_payload.model_dump(mode="json")
+        if hasattr(result_payload, "model_dump")
+        else dict(result_payload)
+    )
+    status = str(payload.get("status") or "")
+    needs_manual_review = bool(payload.get("needs_manual_review", False))
+    passed = status == "REVIEWED" and not needs_manual_review
+    return RuleResult(
+        rule_code=f"{code_prefix}_CHILD_REVIEW_READY",
+        rule_name=f"{name}子审核就绪",
+        passed=passed,
+        risk_level_on_failure=RiskLevel.MEDIUM,
+        message=f"{name}子审核已完成" if passed else f"{name}子审核未形成可靠自动结论",
+        details={
+            "status": status or None,
+            "needs_manual_review": needs_manual_review,
+            "difference": None if passed else "child_review_not_ready",
+            "technical_error": status == "FAILED",
+        },
+    )
+
+
+def _required_field_rule(code: str, name: str, field: str, value) -> RuleResult:
+    passed = bool(_normalize_text(value))
+    return RuleResult(
+        rule_code=code,
+        rule_name=name,
+        passed=passed,
+        risk_level_on_failure=RiskLevel.MEDIUM,
+        message=f"{name}通过" if passed else f"{name}缺失",
+        details={
+            "field": field,
+            "actual": value,
+            "difference": None if passed else "actual_missing",
+        },
+    )
+
+
+def _evidence_rule(
+    code: str,
+    name: str,
+    fields: dict,
+    required_fields: tuple[str, ...],
+) -> RuleResult:
+    required_evidence_fields = [f"{field}_evidence" for field in required_fields]
+    missing = [
+        evidence_field
+        for evidence_field in required_evidence_fields
+        if not _normalize_text(fields.get(evidence_field))
+    ]
+    return RuleResult(
+        rule_code=code,
+        rule_name=name,
+        passed=not missing,
+        risk_level_on_failure=RiskLevel.MEDIUM,
+        message=f"{name}通过" if not missing else f"{name}不足",
+        details={
+            "required_evidence_fields": required_evidence_fields,
+            "missing_evidence_fields": missing,
+            "difference": None if not missing else "evidence_missing",
+        },
+    )
+
+
 def _optional_same_field_rule(code: str, name: str, field: str, expected: str | None, actual: str | None) -> RuleResult:
     if not _normalize_text(expected) or not _normalize_text(actual):
         return RuleResult(rule_code=code, rule_name=name, passed=True, risk_level_on_failure=RiskLevel.MEDIUM, message=f"{name}未完整识别，需结合其他证据复核", details={"field": field, "expected": expected, "actual": actual, "evidence": {}})
@@ -250,14 +349,14 @@ def _tobacco_validity_rule(valid_to: str | None) -> RuleResult:
         return RuleResult(
             rule_code="BUSINESS_TOBACCO_TOBACCO_VALIDITY",
             rule_name="烟草证有效期",
-            passed=True,
+            passed=False,
             risk_level_on_failure=RiskLevel.MEDIUM,
-            message="烟草证未识别截止日期，按长期有效处理",
+            message="烟草证未识别截止日期，无法自动判断有效期",
             details={
                 "field": "valid_to",
                 "expected": "not_expired",
                 "actual": valid_to,
-                "difference": None,
+                "difference": "actual_missing",
                 "evidence": {"actual_source": "tobacco_license"},
             },
         )
@@ -279,18 +378,30 @@ def _tobacco_validity_rule(valid_to: str | None) -> RuleResult:
                 "evidence": {"actual_source": "tobacco_license"},
             },
         )
-    passed = days >= 0
+    passed = days > 30
+    if days < 0:
+        risk_level = RiskLevel.HIGH
+        message = "烟草证已过期"
+        difference = "expired"
+    elif days <= 30:
+        risk_level = RiskLevel.MEDIUM
+        message = "烟草证三十天内到期"
+        difference = "expiring_soon"
+    else:
+        risk_level = RiskLevel.HIGH
+        message = "烟草证在有效期内"
+        difference = None
     return RuleResult(
         rule_code="BUSINESS_TOBACCO_TOBACCO_VALIDITY",
         rule_name="烟草证有效期",
         passed=passed,
-        risk_level_on_failure=RiskLevel.HIGH,
-        message="烟草证在有效期内" if passed else "烟草证已过期",
+        risk_level_on_failure=risk_level,
+        message=message,
         details={
             "field": "valid_to",
             "expected": "not_expired",
             "actual": valid_to,
-            "difference": None if passed else "expired",
+            "difference": difference,
             "days_until_expiry": days,
             "evidence": {"actual_source": "tobacco_license"},
         },

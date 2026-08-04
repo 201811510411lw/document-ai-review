@@ -17,6 +17,11 @@ class TobaccoLicenseExtractedFields(BaseModel):
     license_no: str | None = None
     valid_from: str | None = None
     valid_to: str | None = None
+    subject_name_evidence: str | None = None
+    business_address_evidence: str | None = None
+    legal_person_evidence: str | None = None
+    license_no_evidence: str | None = None
+    valid_to_evidence: str | None = None
 
 
 class TobaccoLicenseNormalizedFields(TobaccoLicenseExtractedFields):

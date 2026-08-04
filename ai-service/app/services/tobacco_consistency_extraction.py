@@ -31,26 +31,42 @@ def extract_consistency_document_results(
     store_identifier: str,
 ) -> tuple[dict[str, ReviewResult], dict[str, str]]:
     """Review the current OA attachments using their document-specific workflow."""
-    results: dict[str, ReviewResult] = {}
+    candidates: dict[str, list[ReviewResult]] = {}
     errors: dict[str, str] = {}
     for document in stored_documents:
         role = document.source.document_role
         document_type = _DOCUMENT_TYPES_BY_ROLE.get(role)
-        if document_type is None or role in results or not document.files:
+        if document_type is None or not document.files:
             continue
 
-        review_input = _review_input_for_document(
-            document,
-            store_identifier=store_identifier,
-            document_type=document_type,
-        )
-        try:
-            results[role] = review_service.review(
-                review_input,
-                use_case_name=document_type,
+        for stored_file in document.files:
+            review_input = _review_input_for_document(
+                document,
+                stored_file=stored_file,
+                store_identifier=store_identifier,
+                document_type=document_type,
             )
-        except Exception as error:
-            errors[role] = f"{type(error).__name__}: {error}"
+            try:
+                result = review_service.review(
+                    review_input,
+                    use_case_name=document_type,
+                )
+                candidates.setdefault(role, []).append(result)
+            except Exception as error:
+                errors[f"{role}:{stored_file.file_name}"] = (
+                    f"{type(error).__name__}: {error}"
+                )
+
+    results: dict[str, ReviewResult] = {}
+    for role, role_candidates in candidates.items():
+        reference_fields = _review_result_fields(role_candidates[0])
+        if any(
+            _review_result_fields(candidate) != reference_fields
+            for candidate in role_candidates[1:]
+        ):
+            errors[role] = "MULTIPLE_CONFLICTING_CANDIDATES"
+            continue
+        results[role] = role_candidates[0]
     return results, errors
 
 
@@ -79,10 +95,10 @@ def _review_result_fields(review_result: ReviewResult | None) -> dict[str, Any]:
 def _review_input_for_document(
     document: TobaccoLicenseStoredDocument,
     *,
+    stored_file: Any,
     store_identifier: str,
     document_type: str,
 ) -> ReviewInput:
-    stored_file = document.files[0]
     role = document.source.document_role
     requestid = document.source.requestid
     docid = document.source.docid
