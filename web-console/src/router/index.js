@@ -13,6 +13,7 @@ import LoginPage from '@/views/LoginPage.vue'
 import HomePage from '@/views/HomePage.vue'
 import TobaccoReportList from '@/views/TobaccoReportList.vue'
 import TobaccoReportDetail from '@/views/TobaccoReportDetail.vue'
+import TobaccoSourcePreviewPage from '@/views/TobaccoSourcePreviewPage.vue'
 
 const routes = [
   {
@@ -80,6 +81,12 @@ const routes = [
     name: 'TobaccoReports',
     component: TobaccoReportList,
     meta: { title: '烟草证校验', topLevel: true },
+  },
+  {
+    path: '/tobacco/reports/:id/source-preview',
+    name: 'TobaccoSourcePreview',
+    component: TobaccoSourcePreviewPage,
+    meta: { noTabbar: true, noShell: true, title: '烟草附件预览' },
   },
   {
     path: '/tobacco/reports/:id',

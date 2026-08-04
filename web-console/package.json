@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node tests/login-sso-mode.test.mjs && node tests/api-errors.test.mjs && node tests/rpa-verification.test.mjs && node tests/workbench-model.test.mjs && node tests/dashboard-model.test.mjs && node tests/review-queue-model.test.mjs && node tests/review-queue-view.test.mjs && node tests/review-detail-model.test.mjs",
+    "test": "node tests/login-sso-mode.test.mjs && node tests/api-errors.test.mjs && node tests/rpa-verification.test.mjs && node tests/tobacco-attachment-preview.test.mjs && node tests/workbench-model.test.mjs && node tests/dashboard-model.test.mjs && node tests/review-queue-model.test.mjs && node tests/review-queue-view.test.mjs && node tests/review-detail-model.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

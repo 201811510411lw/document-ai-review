@@ -138,6 +138,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { tobaccoApi, rpaApi } from '@/api'
+import { openTobaccoAttachmentPreview } from '@/features/tobacco/attachmentPreview.js'
 import { resolveRpaAction, resolveRpaCertificateNo } from '@/features/tobacco/rpaVerification'
 
 const router = useRouter()
@@ -322,16 +323,19 @@ function ruleSolution(ruleCode) {
   return RULE_SUGGESTIONS[ruleCode] || '请核对证照信息后重新提交'
 }
 
-async function previewOaAttachment(attachment) {
-  const previewWindow = window.open('', '_blank')
-  try {
-    const blob = await tobaccoApi.fetchSourceFile(attachment.relative_path)
-    const url = URL.createObjectURL(blob)
-    if (previewWindow) { previewWindow.opener = null; previewWindow.location.href = url } else window.location.assign(url)
-    window.setTimeout(() => URL.revokeObjectURL(url), 60000)
-  } catch (error) {
-    previewWindow?.close()
-    showToast(error.message || '附件预览失败')
+function previewOaAttachment(attachment) {
+  const result = openTobaccoAttachmentPreview({
+    attachment,
+    reportId: route.params.id,
+    router,
+    openWindow: (url, target) => window.open(url, target),
+  })
+  if (result.reason === 'unavailable') {
+    showToast('附件尚未落盘，无法预览')
+    return
+  }
+  if (result.reason === 'blocked') {
+    showToast('浏览器阻止打开，请允许弹窗后重试')
   }
 }
 </script>
