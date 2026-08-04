@@ -42,36 +42,38 @@
         </div>
 
         <template v-else-if="overview.tasks.length">
-          <div class="task-table-head" role="row">
-            <span>审核对象</span>
-            <span>材料类型</span>
-            <span>核验情况</span>
-            <span>更新时间</span>
-            <span>操作</span>
-          </div>
-          <article
-            v-for="task in overview.tasks"
-            :key="task.id"
-            class="task-row"
-            tabindex="0"
-            @click="openTask(task.id)"
-            @keydown.enter="openTask(task.id)"
-          >
-            <div class="task-subject">
-              <span class="document-mark" aria-hidden="true"><van-icon name="description" /></span>
-              <div>
-                <strong>{{ task.title }}</strong>
-                <small>{{ task.identifier }}</small>
+          <div class="task-table-scroll" tabindex="0" aria-label="待处理审核队列，可滚动查看更多">
+            <div class="task-table-head" role="row">
+              <span>审核对象</span>
+              <span>材料类型</span>
+              <span>核验情况</span>
+              <span>更新时间</span>
+              <span>操作</span>
+            </div>
+            <article
+              v-for="task in overview.tasks"
+              :key="task.id"
+              class="task-row"
+              tabindex="0"
+              @click="openTask(task.id)"
+              @keydown.enter="openTask(task.id)"
+            >
+              <div class="task-subject">
+                <span class="document-mark" aria-hidden="true"><van-icon name="description" /></span>
+                <div>
+                  <strong>{{ task.title }}</strong>
+                  <small>{{ task.identifier }}</small>
+                </div>
               </div>
-            </div>
-            <span class="task-type">{{ formatDocumentType(task.documentType) }}</span>
-            <div class="task-result">
-              <span :class="['status-label', `status-${task.status}`]">{{ task.statusLabel }}</span>
-              <small v-if="task.matchRatio !== '-'">匹配率 {{ task.matchRatio }}</small>
-            </div>
-            <time>{{ formatTime(task.updatedAt) }}</time>
-            <button type="button" class="row-action" @click.stop="openTask(task.id)">查看</button>
-          </article>
+              <span class="task-type">{{ formatDocumentType(task.documentType) }}</span>
+              <div class="task-result">
+                <span :class="['status-label', `status-${task.status}`]">{{ task.statusLabel }}</span>
+                <small v-if="task.matchRatio !== '-'">匹配率 {{ task.matchRatio }}</small>
+              </div>
+              <time>{{ formatTime(task.updatedAt) }}</time>
+              <button type="button" class="row-action" @click.stop="openTask(task.id)">查看</button>
+            </article>
+          </div>
         </template>
 
         <div v-else class="task-empty">
@@ -183,7 +185,7 @@ async function loadOverview() {
   reviewError.value = false
   const [dashboardResult, reviewResult, tobaccoResult] = await Promise.allSettled([
     dashboardApi.stats(),
-    isAdmin.value ? reviewApi.list({ limit: 5 }) : Promise.resolve(null),
+    isAdmin.value ? reviewApi.pendingQueue() : Promise.resolve(null),
     tobaccoApi.list({ limit: 1 }),
   ])
   if (dashboardResult.status === 'fulfilled') {
@@ -301,8 +303,10 @@ function openTask(id) {
 .text-action, .row-action { border: 0; color: #315ee3; background: transparent; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
 .text-action { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
 
-.task-table-head, .task-row { display: grid; grid-template-columns: minmax(220px, 1.6fr) minmax(110px, .8fr) minmax(120px, .8fr) 118px 42px; gap: 16px; align-items: center; }
-.task-table-head { min-height: 42px; padding: 0 20px; color: #7c8799; background: #f7f8fa; font-size: 11px; }
+.task-table-scroll { max-height: 520px; overflow: auto; scrollbar-gutter: stable; }
+.task-table-scroll:focus-visible { outline: 2px solid #315ee3; outline-offset: -2px; }
+.task-table-head, .task-row { display: grid; min-width: 760px; grid-template-columns: minmax(220px, 1.6fr) minmax(110px, .8fr) minmax(120px, .8fr) 118px 42px; gap: 16px; align-items: center; }
+.task-table-head { position: sticky; z-index: 1; top: 0; min-height: 42px; padding: 0 20px; color: #7c8799; background: #f7f8fa; font-size: 11px; }
 .task-row { min-height: 74px; padding: 11px 20px; border-top: 1px solid #edf0f4; cursor: pointer; }
 .task-row:hover { background: #fafbfc; }
 .task-subject { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -353,7 +357,8 @@ function openTask(id) {
   .panel-heading h2 { font-size: 15px; }
   .panel-heading p { display: none; }
   .task-table-head { display: none; }
-  .task-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; min-height: 132px; margin-top: 10px; padding: 13px; border: 1px solid #e3e7ed; border-radius: 7px; }
+  .task-table-scroll { max-height: none; overflow: visible; }
+  .task-row { display: grid; min-width: 0; grid-template-columns: 1fr auto; gap: 10px; min-height: 132px; margin-top: 10px; padding: 13px; border: 1px solid #e3e7ed; border-radius: 7px; }
   .task-row:first-of-type { margin-top: 0; }
   .task-panel { overflow: visible; border: 0; background: transparent; }
   .task-panel > .panel-heading { padding-right: 2px; padding-left: 2px; border-bottom: 0; }

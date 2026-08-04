@@ -516,6 +516,7 @@ business_license capability 只负责营业执照单证审核。
 | `GET` | `/api/dashboard/daily` | 每日趋势 |
 | `GET` | `/api/dashboard/history` | 历史统计 |
 | `GET` | `/api/review/list` | 审核列表 |
+| `GET` | `/api/review/pending-queue` | 首页完整待人工复核队列 |
 | `GET` | `/api/review/{task_id}` | 审核详情 |
 | `POST` | `/api/review/{task_id}/confirm` | 确认审核通过 |
 | `POST` | `/api/review/{task_id}/flag` | 标记审核异常 |

@@ -6,7 +6,7 @@ from datetime import date
 from fastapi.testclient import TestClient
 
 from app.api.business_license_reviews import get_review_read_repository
-from app.api.wecom_frontend import review_list
+from app.api.wecom_frontend import review_list, review_pending_queue
 from app.main import app
 from app.models import ReviewDocumentInput, ReviewInput
 from app.repositories.review_result_repository import MySQLReviewResultRepository
@@ -220,6 +220,41 @@ def test_wecom_frontend_review_list_applies_offset_after_filtering():
     assert parameters["offset"]["in"] == "query"
     assert parameters["offset"]["schema"]["default"] == 0
     assert parameters["offset"]["schema"]["minimum"] == 0
+
+
+def test_wecom_frontend_pending_queue_returns_complete_frontend_pending_scope():
+    rows = [
+        {
+            "task_id": "pending-review",
+            "document_type": "business_license",
+            "review_status": "PENDING_MANUAL_REVIEW",
+            "risk_level": "HIGH",
+            "needs_manual_review": True,
+        },
+        {
+            "task_id": "confirmed-review",
+            "document_type": "business_license",
+            "review_status": "REVIEWED",
+            "risk_level": "NONE",
+            "needs_manual_review": False,
+        },
+    ]
+
+    class StubRepository:
+        calls = 0
+
+        def list_qc_reviews(self, **_kwargs):
+            self.calls += 1
+            return {"items": rows, "total_pages": 1}
+
+    repository = StubRepository()
+    payload = review_pending_queue(_current_user={}, repository=repository)
+
+    assert repository.calls == 1
+    assert payload["filtered_total"] == 1
+    assert [record["id"] for record in payload["records"]] == ["pending-review"]
+    assert payload["stats"]["total"] == 2
+    assert payload["stats"]["pending"] == 1
 
 
 def test_wecom_frontend_review_list_filters_business_license_records(tmp_path, monkeypatch):

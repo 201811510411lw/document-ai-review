@@ -194,6 +194,20 @@ def review_list(
     }
 
 
+@api_router.get("/review/pending-queue")
+def review_pending_queue(
+    _current_user: dict[str, Any] = Depends(get_wecom_frontend_user),
+    repository: FrontendRepository = Depends(get_review_read_repository),
+) -> dict[str, Any]:
+    records_scope = _all_qc_records(repository)
+    records = [record for record in records_scope if record.get("review_status") == "pending"]
+    return {
+        "records": records,
+        "stats": _frontend_workbench_stats(records_scope),
+        "filtered_total": len(records),
+    }
+
+
 @api_router.get("/review/{task_id}")
 def review_detail(
     task_id: str,

@@ -95,6 +95,9 @@ export const reviewApi = {
   list(params) {
     return http.get('/api/review/list', { params })
   },
+  pendingQueue() {
+    return http.get('/api/review/pending-queue')
+  },
   createFromSrm(documentType = 'business_license') {
     const endpoints = {
       business_license: '/api/v1/business-license/reviews/from-srm',
