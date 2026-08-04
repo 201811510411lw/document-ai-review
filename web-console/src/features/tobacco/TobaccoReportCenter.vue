@@ -11,7 +11,7 @@
         @click="filter = m.value"
       >
         <strong>{{ m.count }}</strong>
-        <span>{{ m.icon }} {{ m.label }}</span>
+        <span><van-icon v-if="m.icon" :name="m.icon" /> {{ m.label }}</span>
       </button>
     </div>
 
@@ -21,7 +21,6 @@
         v-model="keyword"
         placeholder="搜索主体名称或门店编号"
         clearable
-        shape="round"
         aria-label="搜索比对报告"
       />
     </div>
@@ -105,21 +104,21 @@ const metrics = computed(() => [
   { label: '全部', icon: '', value: '', count: props.records.length, tone: 'neutral' },
   {
     label: '自动通过',
-    icon: '✅',
+    icon: 'passed',
     value: '通过',
     count: props.records.filter((r) => r.overall_result === '通过').length,
     tone: 'success',
   },
   {
     label: '驳回',
-    icon: '❌',
+    icon: 'cross',
     value: '不通过',
     count: props.records.filter((r) => r.overall_result === '不通过').length,
     tone: 'danger',
   },
   {
     label: '异常待处理',
-    icon: '⚠️',
+    icon: 'warning-o',
     value: '待校验',
     count: props.records.filter((r) => r.overall_result === '待校验').length,
     tone: 'warning',

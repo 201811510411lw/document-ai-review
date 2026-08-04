@@ -2,12 +2,12 @@
  * 工具函数
  */
 
-// 效期状态图标和文字
+// 效期状态使用 Vant 图标名，避免在业务界面混用 emoji。
 export const EXPIRE_STATUS_MAP = {
-  valid: { icon: '✅', text: '未过期', color: '#07c160' },
-  expiring_soon: { icon: '⚠️', text: '即将过期', color: '#ff976a' },
-  expired: { icon: '❌', text: '已过期', color: '#ee0a24' },
-  unknown: { icon: '❓', text: '未知', color: '#969799' },
+  valid: { icon: 'passed', text: '未过期', color: '#07c160' },
+  expiring_soon: { icon: 'clock-o', text: '即将过期', color: '#ff976a' },
+  expired: { icon: 'warning-o', text: '已过期', color: '#ee0a24' },
+  unknown: { icon: 'question-o', text: '未知', color: '#969799' },
 }
 
 // 格式化日期

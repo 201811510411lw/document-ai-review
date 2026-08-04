@@ -35,7 +35,7 @@
         <!-- 关键问题 -->
         <div v-if="keyIssues.length" class="key-issues">
           <div class="issues-header" @click="showKeyIssues = !showKeyIssues">
-            <span>⚠️ {{ keyIssues.length }} 项需要关注</span>
+            <span><van-icon name="warning-o" /> {{ keyIssues.length }} 项需要关注</span>
             <van-icon :name="showKeyIssues ? 'arrow-up' : 'arrow-down'" size="14" />
           </div>
           <div v-if="showKeyIssues" class="issues-list">
@@ -158,7 +158,7 @@
               </div>
               <!-- LLM 匹配理由 -->
               <div v-if="field.match_reason" class="match-reason-row">
-                <span class="reason-icon">💡</span>
+                <van-icon class="reason-icon" name="info-o" />
                 <span class="reason-text">{{ field.match_reason }}</span>
               </div>
             </div>
@@ -224,11 +224,11 @@
           autosize
         />
         <div class="action-buttons">
-          <van-button type="primary" block round :loading="submitting" @click="handleConfirm">
-            ✅ 认可识别结果
+          <van-button type="primary" block icon="passed" :loading="submitting" @click="handleConfirm">
+            认可识别结果
           </van-button>
-          <van-button type="warning" block round plain :loading="submitting" @click="handleFlag">
-            ❌ 标记异常
+          <van-button type="warning" block plain icon="warning-o" :loading="submitting" @click="handleFlag">
+            标记异常
           </van-button>
         </div>
       </div>

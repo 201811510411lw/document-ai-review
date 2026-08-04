@@ -11,7 +11,6 @@ import ImportPage from '@/views/ImportPage.vue'
 import ProfilePage from '@/views/ProfilePage.vue'
 import LoginPage from '@/views/LoginPage.vue'
 import HomePage from '@/views/HomePage.vue'
-import Scene1Home from '@/views/Scene1Home.vue'
 import TobaccoReportList from '@/views/TobaccoReportList.vue'
 import TobaccoReportDetail from '@/views/TobaccoReportDetail.vue'
 
@@ -31,7 +30,7 @@ const routes = [
   {
     path: '/scene1',
     name: 'Scene1',
-    component: Scene1Home,
+    redirect: '/home',
     meta: { title: '证照审核', topLevel: true },
   },
   {

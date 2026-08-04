@@ -2,15 +2,16 @@
   <div class="cert-card" :style="{ borderLeftColor: statusInfo.color }">
     <div class="card-header">
       <span class="status-badge" :style="{ background: statusInfo.color }">
-        {{ statusInfo.icon }} {{ statusInfo.text }}
+        <van-icon :name="statusInfo.icon" />
+        {{ statusInfo.text }}
       </span>
       <van-icon name="ellipsis" @click="showActions = true" />
     </div>
 
     <div class="card-body">
       <h3 class="company-name" v-html="highlightText(record.company_name)"></h3>
-      <div v-if="keyword && record.company_name && record.company_name.toLowerCase().includes(keyword.toLowerCase())" class="match-hint">🔍 公司名称匹配</div>
-      <div v-else-if="keyword && record.credit_code && record.credit_code.toLowerCase().includes(keyword.toLowerCase())" class="match-hint">🔍 信用代码匹配</div>
+      <div v-if="keyword && record.company_name && record.company_name.toLowerCase().includes(keyword.toLowerCase())" class="match-hint"><van-icon name="search" /> 公司名称匹配</div>
+      <div v-else-if="keyword && record.credit_code && record.credit_code.toLowerCase().includes(keyword.toLowerCase())" class="match-hint"><van-icon name="search" /> 信用代码匹配</div>
       <div class="info-grid">
         <div class="info-item">
           <span class="label">证照类型</span>
@@ -72,11 +73,11 @@
     <!-- 时间信息 -->
     <div class="time-info">
       <div class="time-row">
-        <span class="time-label">📤 SRM上传</span>
+        <span class="time-label"><van-icon name="upgrade" /> SRM 上传</span>
         <span class="time-value">{{ record.source_created_at ? String(record.source_created_at).substring(0,10) : '未记录' }}</span>
       </div>
       <div class="time-row">
-        <span class="time-label">📋 审核时间</span>
+        <span class="time-label"><van-icon name="notes-o" /> 审核时间</span>
         <span class="time-value">{{ record.created_at ? String(record.created_at).substring(0,10) : '未记录' }}</span>
       </div>
     </div>
@@ -116,14 +117,14 @@ const downloadingCert = ref(false)
 const statusInfo = computed(() => {
   // 无证照文件 → 显示"无附件"
   if (!props.record.source_file_url) {
-    return { icon: '📄', text: '无附件', color: '#c8c9cc' }
+    return { icon: 'description', text: '无附件', color: '#c8c9cc' }
   }
   // 有文件但到期未知 → 显示"到期未知"
   if (props.record.expire_status === 'unknown') {
-    return { icon: '❓', text: '到期未知', color: '#969799' }
+    return { icon: 'question-o', text: '到期未知', color: '#969799' }
   }
   // 有文件且有效期明确 → 显示有效期状态
-  return EXPIRE_STATUS_MAP[props.record.expire_status] || { icon: '❓', text: '到期未知', color: '#969799' }
+  return EXPIRE_STATUS_MAP[props.record.expire_status] || { icon: 'question-o', text: '到期未知', color: '#969799' }
 })
 
 const hasFile = computed(() => !!props.record.source_file_url)

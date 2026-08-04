@@ -156,7 +156,7 @@ const taskLoadError = computed(() => isAdmin.value ? reviewError.value : dashboa
 const tobaccoSummary = computed(() => {
   const stats = tobaccoStats.value
   if (!Object.keys(stats).length) return '营业执照与烟草证'
-  return `通过 ${stats.passed || 0} · 异常 ${(stats.pending || 0) + (stats.failed || 0)}`
+  return `通过 ${stats.passed || 0} · 待处理 ${stats.pending || 0} · 不通过 ${stats.failed || 0}`
 })
 
 const quickEntries = computed(() => {
