@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
-from threading import Lock
+from threading import Event, Lock
 
 import pytest
 from fastapi import HTTPException
@@ -244,9 +244,20 @@ def test_concurrent_repeated_request_executes_source_chain_once(monkeypatch, tmp
     documents = [_stored(tmp_path, source) for source in source_files]
     repository = NewResultRepository()
     calls = {"source": 0}
+    source_lock = Lock()
+    first_fetch_started = Event()
+    duplicate_fetch_started = Event()
+    release_fetch = Event()
 
     def fetch_once(sql_client, requestid, workflow_id):
-        calls["source"] += 1
+        with source_lock:
+            calls["source"] += 1
+            call_number = calls["source"]
+        if call_number == 1:
+            first_fetch_started.set()
+        else:
+            duplicate_fetch_started.set()
+        assert release_fetch.wait(timeout=5)
         return source_files
 
     monkeypatch.setattr(
@@ -266,9 +277,17 @@ def test_concurrent_repeated_request_executes_source_chain_once(monkeypatch, tmp
         )
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        responses = list(pool.map(lambda _: invoke(), range(2)))
+        first = pool.submit(invoke)
+        assert first_fetch_started.wait(timeout=5)
+        second = pool.submit(invoke)
+        duplicate_source_fetch = duplicate_fetch_started.wait(timeout=1)
+        release_fetch.set()
+        responses = [first.result(), second.result()]
 
-    assert [item["data"]["decision"] for item in responses] == ["pass", "pass"]
+    assert duplicate_source_fetch is False
+    assert sorted(item["data"]["decision"] for item in responses) == ["exception", "pass"]
+    in_progress = next(item for item in responses if item["data"]["decision"] == "exception")
+    assert in_progress["data"]["error"]["code"] == "REVIEW_IN_PROGRESS"
     assert calls["source"] == 1
 
 

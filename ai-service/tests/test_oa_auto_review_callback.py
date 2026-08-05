@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 
 import httpx
@@ -14,6 +15,7 @@ from app.core.config import settings
 from app.models import ManualReview, ManualReviewStatus, ReviewResult, ReviewStatus, RiskLevel
 from app.services.oa_auto_review_callback import (
     HttpOaAutoReviewCallbackClient,
+    OaAutoReviewCallbackError,
     OaAutoReviewCallbackPayload,
 )
 from app.services.oa_tobacco_auto_review import (
@@ -131,7 +133,7 @@ def test_duplicate_background_review_does_not_callback_in_progress_as_final_resu
     assert callback_client.payloads == []
 
 
-def test_callback_client_posts_json_without_authentication(monkeypatch):
+def test_callback_client_posts_json_without_authentication(monkeypatch, caplog):
     calls = []
 
     def post(url, **kwargs):
@@ -150,16 +152,29 @@ def test_callback_client_posts_json_without_authentication(monkeypatch):
         result={"code": 0, "message": "success", "data": {"decision": "pass"}},
     )
 
-    client.send(payload)
+    with caplog.at_level(logging.INFO, logger="app.services.oa_auto_review_callback"):
+        client.send(payload)
 
     url, kwargs = calls[0]
     assert url == "http://47.109.76.94:8080/api/bicallback/result"
     assert kwargs["json"]["workflow_id"] == 123
     assert kwargs["headers"] == {"Content-Type": "application/json"}
     assert "auth" not in kwargs
+    assert (
+        "OA callback attempt started: workflow_id=123 requestid=584412 "
+        "store_code=0001 attempt=1/3 "
+        "target=http://47.109.76.94:8080/api/bicallback/result"
+    ) in caplog.messages
+    assert any(
+        message.startswith(
+            "OA callback delivery succeeded: workflow_id=123 requestid=584412 "
+            "store_code=0001 attempt=1/3 status_code=200 duration_ms="
+        )
+        for message in caplog.messages
+    )
 
 
-def test_callback_client_retries_network_and_server_errors(monkeypatch):
+def test_callback_client_retries_network_and_server_errors(monkeypatch, caplog):
     responses = [
         httpx.ConnectError("unreachable"),
         httpx.Response(
@@ -189,17 +204,117 @@ def test_callback_client_retries_network_and_server_errors(monkeypatch):
         sleep=sleeps.append,
     )
 
-    client.send(
-        OaAutoReviewCallbackPayload(
-            workflow_id=123,
-            requestid=584412,
-            store_code="0001",
-            result={"code": 0, "message": "success", "data": {}},
+    with caplog.at_level(logging.INFO, logger="app.services.oa_auto_review_callback"):
+        client.send(
+            OaAutoReviewCallbackPayload(
+                workflow_id=123,
+                requestid=584412,
+                store_code="0001",
+                result={"code": 0, "message": "success", "data": {}},
+            )
         )
-    )
 
     assert responses == []
     assert sleeps == [1.0, 5.0]
+    assert any(
+        "OA callback network error: workflow_id=123 requestid=584412 "
+        "store_code=0001 attempt=1/3 error_type=ConnectError duration_ms="
+        in message
+        for message in caplog.messages
+    )
+    assert any(
+        "OA callback retryable response: workflow_id=123 requestid=584412 "
+        "store_code=0001 attempt=2/3 status_code=503 duration_ms="
+        in message
+        for message in caplog.messages
+    )
+    assert not any("success" in message for message in caplog.messages)
+
+
+def test_callback_logs_omit_url_query_parameters(monkeypatch, caplog):
+    callback_url = (
+        "http://47.109.76.94:8080/api/bicallback/result?access_token=do-not-log"
+    )
+
+    def post(url, **kwargs):
+        return httpx.Response(200, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr("app.services.oa_auto_review_callback.httpx.post", post)
+    client = HttpOaAutoReviewCallbackClient(callback_url, sleep=lambda _: None)
+
+    with caplog.at_level(logging.INFO, logger="app.services.oa_auto_review_callback"):
+        client.send(
+            OaAutoReviewCallbackPayload(
+                workflow_id=123,
+                requestid=584412,
+                store_code="0001",
+                result={"code": 0, "message": "success", "data": {}},
+            )
+        )
+
+    assert "target=http://47.109.76.94:8080/api/bicallback/result" in caplog.text
+    assert "access_token" not in caplog.text
+    assert "do-not-log" not in caplog.text
+
+
+def test_callback_logs_non_retryable_rejection(monkeypatch, caplog):
+    callback_url = "http://47.109.76.94:8080/api/bicallback/result"
+
+    def post(url, **kwargs):
+        return httpx.Response(400, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr("app.services.oa_auto_review_callback.httpx.post", post)
+    client = HttpOaAutoReviewCallbackClient(callback_url, sleep=lambda _: None)
+
+    with caplog.at_level(logging.INFO, logger="app.services.oa_auto_review_callback"):
+        with pytest.raises(
+            OaAutoReviewCallbackError,
+            match="OA callback rejected payload with HTTP 400",
+        ):
+            client.send(
+                OaAutoReviewCallbackPayload(
+                    workflow_id=123,
+                    requestid=584412,
+                    store_code="0001",
+                    result={"code": 0, "message": "success", "data": {}},
+                )
+            )
+
+    assert any(
+        "OA callback rejected: workflow_id=123 requestid=584412 "
+        "store_code=0001 attempt=1/3 status_code=400 duration_ms=" in message
+        for message in caplog.messages
+    )
+
+
+def test_callback_logs_all_attempts_before_retry_exhaustion(monkeypatch, caplog):
+    callback_url = "http://47.109.76.94:8080/api/bicallback/result"
+
+    def post(url, **kwargs):
+        return httpx.Response(500, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr("app.services.oa_auto_review_callback.httpx.post", post)
+    client = HttpOaAutoReviewCallbackClient(callback_url, sleep=lambda _: None)
+    payload = OaAutoReviewCallbackPayload(
+        workflow_id=123,
+        requestid=584412,
+        store_code="0001",
+        result={"code": 0, "message": "success", "data": {}},
+    )
+
+    with caplog.at_level(logging.INFO, logger="app.services.oa_auto_review_callback"):
+        with pytest.raises(
+            OaAutoReviewCallbackError,
+            match="OA callback delivery failed after 3 attempts",
+        ):
+            client.send(payload)
+
+    assert sum("OA callback attempt started" in message for message in caplog.messages) == 3
+    assert (
+        sum("OA callback retryable response" in message for message in caplog.messages)
+        == 3
+    )
+    assert any("attempt=3/3 status_code=500" in message for message in caplog.messages)
 
 
 def test_callback_client_requires_server_side_url(monkeypatch):

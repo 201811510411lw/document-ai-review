@@ -101,37 +101,6 @@ class OaTobaccoAutoReviewService:
             if existing_outcome is not None:
                 return existing_outcome
 
-        try:
-            source_files = fetch_tobacco_license_source_files_by_request(
-                self._sql_client,
-                command.requestid,
-                workflow_id=command.workflow_id,
-            )
-        except Exception:
-            return _error(
-                task_id,
-                "SOURCE_QUERY_FAILED",
-                "OA 来源查询失败",
-                retryable=True,
-            )
-        if not source_files:
-            return _error(
-                task_id,
-                "SOURCE_RECORD_NOT_READY",
-                "未找到该 OA 请求的证照附件，请稍后重试",
-                retryable=True,
-            )
-        if any(
-            (source.store_code or "").strip() != command.store_code
-            for source in source_files
-        ):
-            return _error(
-                task_id,
-                "SOURCE_IDENTITY_MISMATCH",
-                "OA 请求中的门店编码与来源记录不一致",
-                retryable=False,
-            )
-
         claim = _claim_result(task_id, command)
         try:
             claimed = self._repository.claim(claim)
@@ -156,6 +125,40 @@ class OaTobaccoAutoReviewService:
                 "REVIEW_IN_PROGRESS",
                 "自动审核正在执行，请稍后轮询",
                 retryable=True,
+            )
+
+        try:
+            source_files = fetch_tobacco_license_source_files_by_request(
+                self._sql_client,
+                command.requestid,
+                workflow_id=command.workflow_id,
+            )
+        except Exception:
+            return self._error_after_release(
+                claim,
+                task_id,
+                "SOURCE_QUERY_FAILED",
+                "OA 来源查询失败",
+                retryable=True,
+            )
+        if not source_files:
+            return self._error_after_release(
+                claim,
+                task_id,
+                "SOURCE_RECORD_NOT_READY",
+                "未找到该 OA 请求的证照附件，请稍后重试",
+                retryable=True,
+            )
+        if any(
+            (source.store_code or "").strip() != command.store_code
+            for source in source_files
+        ):
+            return self._error_after_release(
+                claim,
+                task_id,
+                "SOURCE_IDENTITY_MISMATCH",
+                "OA 请求中的门店编码与来源记录不一致",
+                retryable=False,
             )
 
         try:
