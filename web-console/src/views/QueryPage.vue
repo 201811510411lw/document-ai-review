@@ -21,7 +21,7 @@
         :key="t.value"
         class="type-chip"
         :class="{ active: queryType === t.value }"
-        @click="queryType = t.value; if (keyword) handleSearch()"
+        @click="handleTypeChange(t.value)"
       >{{ t.label }}</span>
     </div>
 
@@ -32,20 +32,20 @@
     </van-cell-group>
 
     <!-- 搜索结果区域 -->
-    <div v-if="searchResult !== null" class="result-section">
+    <div v-if="displayedSearchResult !== null" class="result-section">
       <!-- 单条结果 -->
-      <div v-if="searchResult.type === 'single'" class="result-card">
-        <cert-result-card :record="searchResult.data" :keyword="keyword" />
+      <div v-if="displayedSearchResult.type === 'single'" class="result-card">
+        <cert-result-card :record="displayedSearchResult.data" :keyword="keyword" />
       </div>
 
       <!-- 批量结果 -->
       <div v-else class="batch-result">
         <van-sticky>
           <div class="batch-summary">
-            <span class="summary-item success">找到 {{ searchResult.stats.found }}</span>
-            <span class="summary-item warning">临期 {{ searchResult.stats.expiring }}</span>
-            <span class="summary-item danger">过期 {{ searchResult.stats.expired }}</span>
-            <span class="summary-item muted">未找到 {{ searchResult.stats.missing }}</span>
+            <span class="summary-item success">找到 {{ displayedSearchResult.stats.found }}</span>
+            <span class="summary-item warning">临期 {{ displayedSearchResult.stats.expiring }}</span>
+            <span class="summary-item danger">过期 {{ displayedSearchResult.stats.expired }}</span>
+            <span class="summary-item muted">未找到 {{ displayedSearchResult.stats.missing }}</span>
           </div>
           <div class="batch-actions">
             <van-button
@@ -73,9 +73,9 @@
           :finished="listFinished"
           finished-text="已全部展示"
         >
-          <template v-if="searchResult.records.length">
+          <template v-if="displayedSearchResult.records.length">
             <cert-result-card
-              v-for="item in searchResult.records"
+              v-for="item in displayedSearchResult.records"
               :key="item.id"
               :record="item"
               :keyword="keyword"
@@ -165,6 +165,10 @@
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { queryApi } from '@/api'
+import {
+  projectQueryResult,
+  shouldRefreshSingleQuery,
+} from '@/features/query/queryResultModel.js'
 import { addSearchHistory, getSearchHistory, downloadBlob } from '@/utils'
 import { showToast, showLoadingToast, closeToast, showConfirmDialog } from 'vant'
 import CertResultCard from '@/components/CertResultCard.vue'
@@ -173,6 +177,7 @@ const route = useRoute()
 const router = useRouter()
 const keyword = ref('')
 const queryType = ref('')
+const querySource = ref('')
 const searchResult = ref(null)
 const loading = ref(false)
 const listLoading = ref(false)
@@ -200,6 +205,8 @@ const excelColumns = ref([])
 const excelColumn = ref(0)
 const excelRawData = ref(null)
 
+const displayedSearchResult = computed(() => projectQueryResult(searchResult.value, queryType.value))
+
 const hasResults = computed(() => {
   return searchResult.value?.records?.length > 0
 })
@@ -214,6 +221,7 @@ watch(() => route.query.keyword, (kw) => {
 // 单个搜索
 async function handleSearch() {
   if (!keyword.value.trim()) return
+  querySource.value = 'single'
   loading.value = true
   listLoading.value = false
   listFinished.value = false
@@ -246,7 +254,13 @@ async function handleSearch() {
   }
 }
 
+function handleTypeChange(documentType) {
+  queryType.value = documentType
+  if (shouldRefreshSingleQuery(querySource.value, keyword.value)) handleSearch()
+}
+
 function handleClear() {
+  querySource.value = ''
   searchResult.value = null
 }
 
@@ -258,6 +272,7 @@ async function handleBatchQuery() {
     return
   }
 
+  querySource.value = 'batch'
   loading.value = true
   searchResult.value = null
   showBatchInput.value = false
@@ -291,6 +306,7 @@ async function handleExcelUpload() {
   showLoadingToast({ message: '正在解析 Excel...', forbidClick: true, duration: 0 })
   try {
     const res = await queryApi.uploadExcel(excelRawData.value)
+    querySource.value = 'excel'
     closeToast()
 
     excelPreview.value = res.preview || []
