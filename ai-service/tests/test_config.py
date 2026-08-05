@@ -38,6 +38,8 @@ starrocks:
   host: starrocks.example.test
   port: 9030
   database: work_temp
+oa_auto_review:
+  callback_url: http://oa.example.test/api/bicallback/result
 wecom:
   reviewer_user_ids:
     - zhangsan
@@ -65,6 +67,9 @@ wecom:
     assert os.environ["STARROCKS_HOST"] == "starrocks.example.test"
     assert os.environ["STARROCKS_PORT"] == "9030"
     assert os.environ["STARROCKS_DATABASE"] == "work_temp"
+    assert os.environ["OA_AUTO_REVIEW_CALLBACK_URL"] == (
+        "http://oa.example.test/api/bicallback/result"
+    )
     assert os.environ["STARROCKS_USER"] == "starrocks-user"
     assert os.environ["STARROCKS_PASSWORD"] == "starrocks-password"
     assert os.environ["OPENAI_API_KEY"] == "secret-key"

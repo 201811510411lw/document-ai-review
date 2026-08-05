@@ -14,11 +14,11 @@ OA 来源记录同步到 StarRocks
   -> 确定性一致性规则
   -> 可选的影刀官网验真
   -> 保存 ReviewResult 和烟草报告
-  -> Web Console 人工复核或读取 OA 结果载荷
+  -> 固定地址回调 OA，或由 OA 轮询结果载荷
 ```
 
 控制台接口使用 Web Console Bearer token 或企业微信 session cookie。OA 专用触发和轮询
-使用 `X-OA-Token`。系统不会向请求中提供的任意 URL 主动推送结果。
+使用 `X-OA-Token`。系统只向服务端配置的固定 URL 主动推送结果，不接受请求中提供的任意 URL。
 
 ## 2. 查询待处理门店
 
@@ -198,5 +198,5 @@ GET /api/tobacco/reports/{task_id}
 ## 8. 当前边界
 
 - 没有独立的烟草一致性详情 V1 路由；详情由 Web Console 报告接口提供。
-- 没有接收 `callback_url` 后异步主动推送 OA 的后台任务。
-- OA 专用入口返回 `pass`、`reject`、`manual_review`、`exception`，由 OA 自身执行流程流转。
+- OA 专用入口立即返回 `processing`；后台审核完成后向固定地址回调 `pass`、`reject`、`manual_review` 或 `exception`，由 OA 自身执行流程流转。
+- 后台任务为进程内任务，不是持久化队列；Pod 重启后的结果恢复依赖 `oa-result` 轮询。

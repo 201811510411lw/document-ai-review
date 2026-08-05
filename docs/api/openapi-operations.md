@@ -53,7 +53,7 @@ Current schema contains **59 paths** and **62 HTTP operations**.
 | `GET` | `/api/v1/qc/reviews` | `qc-reviews` | List Qc Reviews |
 | `GET` | `/api/v1/qc/reviews/{task_id}` | `qc-reviews` | Get Qc Review Detail |
 | `POST` | `/api/v1/qc/reviews/{task_id}/manual-review` | `qc-reviews` | Manual Review Qc Review |
-| `POST` | `/api/v1/tobacco-license-consistency/oa-auto-review` | `tobacco-license-consistency` | Create Oa Auto Review |
+| `POST` | `/api/v1/tobacco-license-consistency/oa-auto-review` | `tobacco-license-consistency` | Submit Oa Auto Review |
 | `GET` | `/api/v1/tobacco-license-consistency/pending-stores` | `tobacco-license-consistency` | List Pending Stores |
 | `POST` | `/api/v1/tobacco-license-consistency/reviews` | `tobacco-license-consistency` | Create Consistency Review |
 | `POST` | `/api/v1/tobacco-license-consistency/reviews/batch` | `tobacco-license-consistency` | Create Consistency Reviews Batch |

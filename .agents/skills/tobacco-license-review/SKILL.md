@@ -74,6 +74,7 @@ OCR/LLM 字段抽取只能依据烟草证图片、PDF 页面或 OCR 文本中的
 - 自动通过要求两类证照子审核均完成，主体名称、地址、负责人、许可证号和有效期均有可追溯证据。
 - 明确不一致、证照类型错误、已过期可返回 `reject`；证据缺失、候选冲突、临近到期返回 `manual_review`；数据库、NAS、OCR、LLM、RPA 故障返回 `exception`。
 - OA 重复调用必须按 `workflow_id + requestid` 幂等返回，不重复执行文件下载、OCR 或 RPA。
+- OA 触发接口受理后在后台执行审核，最终四态结果回调必须携带原始 `workflow_id`、`requestid` 和 `store_code`；回调投递失败不得改变已经形成的业务审核结论。
 
 一致性审核支持两种互斥模式：
 

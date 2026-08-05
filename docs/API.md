@@ -211,7 +211,7 @@ GET /api/v1/tobacco-license/source-files/local/{relative_path}
 | Method | Path | 说明 |
 | --- | --- | --- |
 | `GET` | `/api/v1/tobacco-license-consistency/pending-stores` | 分页查询有待处理 OA 流程的门店 |
-| `POST` | `/api/v1/tobacco-license-consistency/oa-auto-review` | 按 `workflow_id + requestid` 同步触发 OA 自动审核 |
+| `POST` | `/api/v1/tobacco-license-consistency/oa-auto-review` | 受理 `workflow_id + requestid` OA 自动审核并后台回调结果 |
 | `POST` | `/api/v1/tobacco-license-consistency/reviews` | 获取来源文件并执行单门店一致性审核 |
 | `POST` | `/api/v1/tobacco-license-consistency/reviews/batch` | 批量执行最多 20 个门店审核 |
 | `POST` | `/api/v1/tobacco-license-consistency/reviews/{task_id}/manual-review` | 对报告提交人工复核 |
@@ -220,7 +220,8 @@ GET /api/v1/tobacco-license/source-files/local/{relative_path}
 OA 两个接口使用独立请求头 `X-OA-Token`，密钥由 `OA_AUTO_REVIEW_TOKEN` 配置。
 自动审核要求显式传入正整数 `workflow_id`，当前“烟草商品建档申请”流程传 `614`；系统以 `workflow_id + requestid` 生成稳定任务 ID；
 `store_code` 只做来源记录交叉校验。外部决策为 `pass`、`reject`、
-`manual_review`、`exception`。完整请求和响应见
+`manual_review`、`exception`。最终结果以无认证 JSON POST 到服务端配置的固定回调地址，
+并携带原始 `workflow_id`、`requestid` 和 `store_code`。完整请求和响应见
 [`docs/api/oa-tobacco-license-consistency.md`](api/oa-tobacco-license-consistency.md)。
 
 单门店请求：
@@ -242,8 +243,8 @@ OA 两个接口使用独立请求头 `X-OA-Token`，密钥由 `OA_AUTO_REVIEW_TO
 批量请求使用 `store_identifiers` 数组；返回每个门店的 `completed` 或 `failed` 结果，单项
 失败不会中止其余项目。
 
-当前这些接口使用 Web Console 会话认证。仓库没有另一个专用 OA token 入口，也没有向
-任意 callback URL 主动推送结果的后台流程。更完整的对接说明见
+控制台审核接口使用 Web Console 会话认证；OA 专用入口使用 `X-OA-Token`。系统只向
+服务端配置的固定 OA 回调地址推送最终结果，不接受请求方指定任意 callback URL。更完整的对接说明见
 [api/oa-tobacco-consistency-auto-review.md](api/oa-tobacco-consistency-auto-review.md)。
 
 ## 9. 影刀 RPA 官网验真

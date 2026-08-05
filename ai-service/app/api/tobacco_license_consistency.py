@@ -1,10 +1,12 @@
+import logging
 from datetime import datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.api.auth import require_oa_token, require_web_console_user
+from app.core.config import settings
 from app.integrations.mysql_client import MySqlFetchClient, mysql_settings_from_env
 from app.integrations.starrocks.tobacco_license_sources import (
     SqlFetchClient,
@@ -21,11 +23,17 @@ from app.models import (
 )
 from app.repositories import build_review_result_repository_from_env
 from app.services.review_service import ReviewService
+from app.services.oa_auto_review_callback import (
+    HttpOaAutoReviewCallbackClient,
+    OaAutoReviewCallbackClient,
+    OaAutoReviewCallbackPayload,
+)
 from app.services.oa_tobacco_auto_review import (
     OaAutoReviewCommand,
     OaAutoReviewOutcome,
     OaTobaccoAutoReviewService,
     _oa_source_snapshot,
+    oa_auto_review_task_id,
 )
 from app.services.tobacco_consistency_extraction import (
     extract_consistency_document_results,
@@ -49,6 +57,7 @@ router = APIRouter(
     prefix="/api/v1/tobacco-license-consistency",
     tags=["tobacco-license-consistency"],
 )
+logger = logging.getLogger(__name__)
 
 
 class CreateConsistencyReviewRequest(BaseModel):
@@ -109,6 +118,19 @@ def get_document_review_service(
     repository=Depends(get_review_repository),
 ) -> ReviewService:
     return ReviewService(repository=repository)
+
+
+def get_oa_auto_review_callback_client() -> OaAutoReviewCallbackClient:
+    try:
+        return HttpOaAutoReviewCallbackClient(settings.oa_auto_review_callback_url)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "OA_CALLBACK_NOT_CONFIGURED",
+                "message": "OA 审核结果回调地址未配置",
+            },
+        ) from error
 
 
 @router.get("/pending-stores")
@@ -341,7 +363,6 @@ def create_consistency_review(
     }
 
 
-@router.post("/oa-auto-review")
 def create_oa_auto_review(
     request: OaAutoReviewRequest,
     _oa_client: dict[str, str] = Depends(require_oa_token),
@@ -365,6 +386,83 @@ def create_oa_auto_review(
         )
     )
     return _oa_outcome_response(outcome)
+
+
+@router.post("/oa-auto-review")
+def submit_oa_auto_review(
+    request: OaAutoReviewRequest,
+    background_tasks: BackgroundTasks,
+    _oa_client: dict[str, str] = Depends(require_oa_token),
+    sql_client: SqlFetchClient = Depends(get_starrocks_sql_client),
+    file_store: TobaccoLicenseFileStore = Depends(get_file_store),
+    repository=Depends(get_review_repository),
+    document_review_service: ReviewService = Depends(get_document_review_service),
+    callback_client: OaAutoReviewCallbackClient = Depends(
+        get_oa_auto_review_callback_client
+    ),
+) -> dict[str, Any]:
+    """受理 OA 烟草证审核，并在后台完成后推送结果。"""
+    command = OaAutoReviewCommand(
+        requestid=request.requestid,
+        store_code=request.store_code,
+        store_name=request.store_name,
+        workflow_id=request.workflow_id,
+    )
+    task_id = oa_auto_review_task_id(command.workflow_id, command.requestid)
+    background_tasks.add_task(
+        _run_oa_auto_review_and_callback,
+        command=command,
+        review_service=OaTobaccoAutoReviewService(
+            sql_client=sql_client,
+            file_store=file_store,
+            repository=repository,
+            document_review_service=document_review_service,
+        ),
+        callback_client=callback_client,
+    )
+    return {
+        "code": 0,
+        "message": "accepted",
+        "data": {
+            "status": "processing",
+            "task_id": task_id,
+            "workflow_id": command.workflow_id,
+        },
+    }
+
+
+def _run_oa_auto_review_and_callback(
+    *,
+    command: OaAutoReviewCommand,
+    review_service: OaTobaccoAutoReviewService,
+    callback_client: OaAutoReviewCallbackClient,
+) -> None:
+    task_id = oa_auto_review_task_id(command.workflow_id, command.requestid)
+    try:
+        outcome = review_service.review(command)
+        if outcome.error is not None and outcome.error.code == "REVIEW_IN_PROGRESS":
+            logger.info("OA 自动审核任务已由其他执行者处理: task_id=%s", task_id)
+            return
+        result = _oa_outcome_response(outcome)
+    except Exception:
+        logger.exception("OA 自动审核后台执行失败: task_id=%s", task_id)
+        result = _oa_exception_response(
+            task_id,
+            "AUTO_REVIEW_FAILED",
+            "自动审核执行失败",
+            retryable=True,
+        )
+
+    payload = OaAutoReviewCallbackPayload(
+        workflow_id=command.workflow_id,
+        requestid=command.requestid,
+        store_code=command.store_code,
+        result=result,
+    )
+    try:
+        callback_client.send(payload)
+    except Exception:
+        logger.exception("OA 审核结果回调失败: task_id=%s", task_id)
 
 
 @router.post("/reviews/batch")

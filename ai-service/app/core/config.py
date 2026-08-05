@@ -186,6 +186,7 @@ CONFIG_KEY_PATHS = {
         "token_ttl_seconds",
     ),
     "OA_AUTO_REVIEW_TOKEN": ("oa_auto_review", "token"),
+    "OA_AUTO_REVIEW_CALLBACK_URL": ("oa_auto_review", "callback_url"),
     "WECOM_CORP_ID": ("wecom", "corp_id"),
     "WECOM_AGENT_ID": ("wecom", "agent_id"),
     "WECOM_REDIRECT_URI": ("wecom", "redirect_uri"),
@@ -323,6 +324,9 @@ class Settings(BaseModel):
         os.environ.get("WEB_CONSOLE_AUTH_TOKEN_TTL_SECONDS", "28800")
     )
     oa_auto_review_token: str = os.environ.get("OA_AUTO_REVIEW_TOKEN", "")
+    oa_auto_review_callback_url: str = os.environ.get(
+        "OA_AUTO_REVIEW_CALLBACK_URL", ""
+    )
     wecom_corp_id: str = os.environ.get("WECOM_CORP_ID", "")
     wecom_agent_id: str = os.environ.get("WECOM_AGENT_ID", "")
     wecom_secret: str = os.environ.get("WECOM_SECRET", "")

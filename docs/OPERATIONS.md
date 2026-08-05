@@ -15,6 +15,8 @@
 
 OA 自动审核必须配置独立的 `OA_AUTO_REVIEW_TOKEN`。未配置或请求头
 `X-OA-Token` 不匹配时，触发和轮询接口均返回 HTTP 401。
+OA 结果回调地址通过 YAML 的 `oa_auto_review.callback_url` 配置。未配置时触发接口返回
+HTTP 503 `OA_CALLBACK_NOT_CONFIGURED`；回调当前使用无认证 HTTP POST。
 
 ## 数据库准备
 
@@ -84,6 +86,7 @@ npm run build
 | OA 调用连接超时 | 从 OA 服务器检查域名解析、443/目标端口、防火墙、反向代理和服务监听；连接超时发生在 HTTP 建连阶段，与 JSON 参数无关 |
 | OA 返回 `SOURCE_RECORD_NOT_READY` | 检查调用方传入的 `workflow_id`、精确 `requestid` 及 StarRocks 同步延迟；当前“烟草商品建档申请”流程应传 `614`，禁止改为门店模糊查询 |
 | OA 长时间返回 `REVIEW_IN_PROGRESS` | 检查对应 `review_results` 是否为 `RUNNING` 以及执行实例日志；系统不会自动抢占运行态任务，只有确认原执行者已停止后才能人工清理占位并重试 |
+| OA 没有收到结果回调 | 检查 Pod 到 `oa_auto_review.callback_url` 的网络、OA HTTP 2xx 响应和应用日志；Pod 中途重启时使用 `oa-result` 轮询恢复 |
 | OCR / LLM 失败 | 检查文件类型与内容、模型配置、API Secret、超时和 provider 日志 |
 | 通知持续失败 | 检查 `WECOM_WORKER_TOKEN`、企业微信应用配置、队列 `attempts` 和最后错误 |
 | RPA 返回 `ERROR` | 检查影刀鉴权、精确账号/机器人配置、超时和响应完整性；不要解释为业务不通过 |

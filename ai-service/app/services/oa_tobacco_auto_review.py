@@ -79,7 +79,7 @@ class OaTobaccoAutoReviewService:
         self._document_review_service = document_review_service
 
     def review(self, command: OaAutoReviewCommand) -> OaAutoReviewOutcome:
-        task_id = f"tc-oa-{command.workflow_id}-{command.requestid}"
+        task_id = oa_auto_review_task_id(command.workflow_id, command.requestid)
         return self._review_once(task_id, command)
 
     def _review_once(
@@ -324,6 +324,10 @@ class OaTobaccoAutoReviewService:
             retryable=retryable,
             details=details,
         )
+
+
+def oa_auto_review_task_id(workflow_id: int, requestid: int) -> str:
+    return f"tc-oa-{workflow_id}-{requestid}"
 
 
 def _claim_result(task_id: str, command: OaAutoReviewCommand) -> ReviewResult:

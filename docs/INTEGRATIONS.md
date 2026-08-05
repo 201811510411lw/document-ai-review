@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | SRM | 提供供应商证照和 SKU 产品报告元数据 | 来源记录缺失、附件缺失或字段不满足筛选条件 |
 | StarRocks | 承载同步后的 SRM、批次报告和 OA 来源表 | 连接或查询失败时返回明确错误，不伪造 demo 来源 |
-| OA | 提供烟草证一致性审核的流程、门店和附件证据 | 提供专用 token 的同步触发与轮询，不主动调用任意 callback URL |
+| OA | 提供烟草证一致性审核的流程、门店和附件证据 | 提供专用 token 的异步受理与轮询，并向服务端固定地址回调最终结果 |
 | 企业微信 | OAuth 登录、用户角色映射和审核通知 | 登录配置不完整或通知发送失败 |
 | OCR / LLM | 文本获取、视觉识别、字段抽取和解释 | 只辅助抽取和结构化，不能替代 Domain Rule 作最终裁判 |
 | 远程文件 | 下载 PDF/JPEG/PNG 并交给文本层、OCR 或视觉 adapter | 超时、HTTP 非 200、空文件、类型不支持或类型冲突 |
@@ -22,7 +22,7 @@
 | --- | --- | --- |
 | SRM / StarRocks 来源 | `starrocks.host/port/database`，对应 `STARROCKS_HOST/PORT/DATABASE` | `STARROCKS_USER`、`STARROCKS_PASSWORD` |
 | Review Result MySQL | `review_result_mysql.host/port/database`，对应 `REVIEW_RESULT_MYSQL_HOST/PORT/DATABASE` | `REVIEW_RESULT_MYSQL_USER`、`REVIEW_RESULT_MYSQL_PASSWORD` |
-| OA 自动审核 | `tobacco_consistency.oa_*` 配置来源字段 | `OA_AUTO_REVIEW_TOKEN` 用于 `X-OA-Token`；来源库另使用 StarRocks 账号 |
+| OA 自动审核 | `TOBACCO_CONSISTENCY_OA_BUSINESS_LICENSE_FIELD` 等 `tobacco_consistency.oa_*` 配置来源字段；`OA_AUTO_REVIEW_CALLBACK_URL` / `oa_auto_review.callback_url` 配置结果接收地址 | `OA_AUTO_REVIEW_TOKEN` 用于触发和轮询的 `X-OA-Token`；结果回调当前无认证 |
 | 企业微信 | `wecom.corp_id/agent_id/notification_base_url` 及角色配置，对应 `WECOM_CORP_ID`、`WECOM_AGENT_ID` 等 | `WECOM_SECRET`；通知 worker 另用 `WECOM_WORKER_TOKEN` |
 | OCR / LLM | provider、模型、超时等；例如 `BUSINESS_LICENSE_VISION_PROVIDER`、`ALIYUN_OCR_API_URL`、`OPENAI_BASE_URL` | `ALIYUN_OCR_APPCODE`、`OPENAI_API_KEY` |
 | 影刀 RPA | `rpa_verification.tobacco_license.*`，对应启用开关、base URL、access key ID、`RPA_VERIFICATION_YINDAO_ROBOT_UUID`、精确账号和超时参数 | `RPA_YINDAO_ACCESS_KEY_SECRET` |
@@ -53,8 +53,8 @@ OA 流程和附件元数据先同步到 StarRocks。应用查询待处理门店�
 
 证照字段必须来自附件识别结果或人工确认，不能使用 OA 门店名称补造主体字段。
 OA 自动审核按调用方显式提供的正整数 `workflow_id` 和精确 `requestid` 获取 StarRocks/NAS 附件；当前“烟草商品建档申请”流程传 `614`，
-用 `X-OA-Token` 鉴权，并提供同步触发与结果轮询。系统不会主动推进 OA 流程，
-也不会调用请求方传入的任意 callback URL。
+用 `X-OA-Token` 鉴权并受理后台审核，完成后向服务端配置的固定地址 POST 最终结果；
+系统不会主动推进 OA 流程，也不会调用请求方传入的任意 callback URL。
 
 ## 企业微信
 
