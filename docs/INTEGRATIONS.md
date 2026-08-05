@@ -52,7 +52,7 @@ Shell 环境变量可覆盖 YAML；dotenv 文件只加载 Secret 白名单。精
 OA 流程和附件元数据先同步到 StarRocks。应用查询待处理门店，从允许的 NAS 根目录准备附件，并将文件复制或安全解压到受控数据目录。路径必须位于允许目录内；加密附件、损坏压缩包、缺失文件和越界路径都会产生明确错误。
 
 证照字段必须来自附件识别结果或人工确认，不能使用 OA 门店名称补造主体字段。
-OA 自动审核按 `workflow_id=614` 和精确 `requestid` 获取 StarRocks/NAS 附件，
+OA 自动审核按调用方显式提供的正整数 `workflow_id` 和精确 `requestid` 获取 StarRocks/NAS 附件；当前“烟草商品建档申请”流程传 `614`，
 用 `X-OA-Token` 鉴权，并提供同步触发与结果轮询。系统不会主动推进 OA 流程，
 也不会调用请求方传入的任意 callback URL。
 

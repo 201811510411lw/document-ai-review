@@ -4,6 +4,7 @@ from threading import Lock
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from app.api.auth import require_oa_token
 from app.api.tobacco_license_consistency import (
@@ -155,6 +156,7 @@ def test_empty_legacy_callback_url_is_ignored_but_non_empty_url_is_rejected():
     request = OaAutoReviewRequest(
         requestid=584412,
         store_code="00001",
+        workflow_id=614,
         callback_url="",
     )
 
@@ -163,7 +165,27 @@ def test_empty_legacy_callback_url_is_ignored_but_non_empty_url_is_rejected():
         OaAutoReviewRequest(
             requestid=584412,
             store_code="00001",
+            workflow_id=614,
             callback_url="https://oa.example/callback",
+        )
+
+
+def test_workflow_id_is_required_and_accepts_positive_custom_value():
+    with pytest.raises(ValidationError):
+        OaAutoReviewRequest(requestid=584412, store_code="00001")
+
+    request = OaAutoReviewRequest(
+        requestid=584412,
+        store_code="00001",
+        workflow_id=123,
+    )
+    assert request.workflow_id == 123
+
+    with pytest.raises(ValidationError):
+        OaAutoReviewRequest(
+            requestid=584412,
+            store_code="00001",
+            workflow_id=0,
         )
 
 
@@ -171,7 +193,7 @@ def test_repeated_oa_request_returns_saved_result_without_reprocessing():
     repository = ExistingResultRepository(_result())
 
     response = create_oa_auto_review(
-        OaAutoReviewRequest(requestid=584412, store_code="00001"),
+        OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=614),
         _oa_client={"client": "oa"},
         sql_client=MustNotRun(),
         file_store=MustNotRun(),
@@ -191,14 +213,20 @@ def test_oa_auto_review_executes_current_project_review_chain(monkeypatch, tmp_p
     ]
     documents = [_stored(tmp_path, source) for source in source_files]
     repository = NewResultRepository()
+
+    def fetch_source_files(sql_client, requestid, workflow_id):
+        assert requestid == 584412
+        assert workflow_id == 123
+        return source_files
+
     monkeypatch.setattr(
         "app.services.oa_tobacco_auto_review.fetch_tobacco_license_source_files_by_request",
-        lambda sql_client, requestid, workflow_id: source_files,
+        fetch_source_files,
     )
     monkeypatch.setattr(settings, "rpa_verification_tobacco_enabled", False)
 
     response = create_oa_auto_review(
-        OaAutoReviewRequest(requestid=584412, store_code="00001"),
+        OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=123),
         _oa_client={"client": "oa"},
         sql_client=object(),
         file_store=StoredDocumentsFileStore(documents),
@@ -207,8 +235,8 @@ def test_oa_auto_review_executes_current_project_review_chain(monkeypatch, tmp_p
     )
 
     assert response["data"]["decision"] == "pass"
-    assert response["data"]["task_id"] == "tc-oa-614-584412"
-    assert repository.saved[-1].task_id == "tc-oa-614-584412"
+    assert response["data"]["task_id"] == "tc-oa-123-584412"
+    assert repository.saved[-1].task_id == "tc-oa-123-584412"
 
 
 def test_concurrent_repeated_request_executes_source_chain_once(monkeypatch, tmp_path):
@@ -229,7 +257,7 @@ def test_concurrent_repeated_request_executes_source_chain_once(monkeypatch, tmp
 
     def invoke():
         return create_oa_auto_review(
-            OaAutoReviewRequest(requestid=584412, store_code="00001"),
+            OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=614),
             _oa_client={"client": "oa"},
             sql_client=object(),
             file_store=StoredDocumentsFileStore(documents),
@@ -259,7 +287,7 @@ def test_conflicting_candidates_are_persisted_for_manual_review(monkeypatch, tmp
     monkeypatch.setattr(settings, "rpa_verification_tobacco_enabled", False)
 
     response = create_oa_auto_review(
-        OaAutoReviewRequest(requestid=584412, store_code="00001"),
+        OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=614),
         _oa_client={"client": "oa"},
         sql_client=object(),
         file_store=StoredDocumentsFileStore(documents),
@@ -281,7 +309,7 @@ def test_result_save_failure_returns_exception_not_in_memory_pass(monkeypatch, t
     monkeypatch.setattr(settings, "rpa_verification_tobacco_enabled", False)
 
     response = create_oa_auto_review(
-        OaAutoReviewRequest(requestid=584412, store_code="00001"),
+        OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=614),
         _oa_client={"client": "oa"},
         sql_client=object(),
         file_store=StoredDocumentsFileStore(documents),
@@ -312,7 +340,7 @@ def test_deterministic_reject_still_runs_one_rpa_verification(monkeypatch, tmp_p
     )
 
     response = create_oa_auto_review(
-        OaAutoReviewRequest(requestid=584412, store_code="00001"),
+        OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=614),
         _oa_client={"client": "oa"},
         sql_client=object(),
         file_store=StoredDocumentsFileStore(documents),
@@ -340,7 +368,7 @@ def test_rpa_is_not_repeated_when_final_persistence_fails(monkeypatch, tmp_path)
 
     def invoke():
         return create_oa_auto_review(
-            OaAutoReviewRequest(requestid=584412, store_code="00001"),
+            OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=614),
             _oa_client={"client": "oa"},
             sql_client=object(),
             file_store=StoredDocumentsFileStore(documents),

@@ -75,7 +75,7 @@ class OaAutoReviewRequest(BaseModel):
     requestid: int = Field(gt=0)
     store_code: str = Field(min_length=1, max_length=128)
     store_name: str | None = Field(default=None, max_length=256)
-    workflow_id: Literal[614] = 614
+    workflow_id: int = Field(gt=0)
     callback_url: str | None = None
 
     @field_validator("store_code")

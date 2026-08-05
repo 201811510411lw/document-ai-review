@@ -48,7 +48,7 @@ class OaAutoReviewCommand(BaseModel):
     requestid: int = Field(gt=0)
     store_code: str
     store_name: str | None = None
-    workflow_id: int = 614
+    workflow_id: int = Field(gt=0)
 
 
 class OaAutoReviewError(BaseModel):

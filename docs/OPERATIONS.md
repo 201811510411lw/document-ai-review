@@ -82,7 +82,7 @@ npm run build
 | Review Result 保存失败 | 检查数据库是否存在、账号 DDL/DML 权限及兼容列创建日志 |
 | OA 附件无法准备 | 检查 NAS 挂载、允许根目录、文件是否加密、zip 是否有效及路径是否越界 |
 | OA 调用连接超时 | 从 OA 服务器检查域名解析、443/目标端口、防火墙、反向代理和服务监听；连接超时发生在 HTTP 建连阶段，与 JSON 参数无关 |
-| OA 返回 `SOURCE_RECORD_NOT_READY` | 检查 `workflow_id=614`、精确 `requestid` 的 StarRocks 同步延迟；禁止改为门店模糊查询 |
+| OA 返回 `SOURCE_RECORD_NOT_READY` | 检查调用方传入的 `workflow_id`、精确 `requestid` 及 StarRocks 同步延迟；当前“烟草商品建档申请”流程应传 `614`，禁止改为门店模糊查询 |
 | OA 长时间返回 `REVIEW_IN_PROGRESS` | 检查对应 `review_results` 是否为 `RUNNING` 以及执行实例日志；系统不会自动抢占运行态任务，只有确认原执行者已停止后才能人工清理占位并重试 |
 | OCR / LLM 失败 | 检查文件类型与内容、模型配置、API Secret、超时和 provider 日志 |
 | 通知持续失败 | 检查 `WECOM_WORKER_TOKEN`、企业微信应用配置、队列 `attempts` 和最后错误 |

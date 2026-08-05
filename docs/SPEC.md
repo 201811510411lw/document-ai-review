@@ -410,7 +410,7 @@ business_license capability 只负责营业执照单证审核。
 状态：`implemented`。
 
 - 获取 OA/StarRocks 来源附件，分别执行营业执照和烟草证识别，再执行双证一致性规则。
-- OA 自动审核按 `workflow_id=614 + requestid` 精确定位来源，使用稳定任务 ID 幂等执行；外部决策区分 `pass`、`reject`、`manual_review` 和 `exception`。
+- OA 自动审核要求显式传入正整数 `workflow_id`，并按 `workflow_id + requestid` 精确定位来源，使用稳定任务 ID 幂等执行；当前“烟草商品建档申请”流程传 `614`，外部决策区分 `pass`、`reject`、`manual_review` 和 `exception`。
 - 支持标准和店中店模式、单条和批量审核、人工复核、报告详情和 OA 结果投影。
 - 影刀 RPA 是可配置 integration；业务负面结果与技术执行异常必须分开表达。
 - 当前提供 OA 专用 token 的同步触发与轮询入口；不主动回写 OA，也不提供 callback。
