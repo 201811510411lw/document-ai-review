@@ -61,23 +61,54 @@ def extract_batch_report_fields(
 ) -> tuple[BatchReportExtractedFields, dict[str, Any]]:
     text = _normalize_text(document_text)
     metadata = {"has_text": bool(text)}
+    text_production_date = _extract_direct_production_date(text)
+    text_batch_no = _extract_composite_batch_no(text)
+    has_composite_expiry_field = _has_composite_expiry_batch_field(text)
 
     # 优先使用 LLM 提取（更灵活），失败时自动回退正则
     llm_fields = _extract_with_llm(text)
     if llm_fields is not None:
         producer_name = llm_fields.get("producer_name") or llm_fields.get("company_name")
         product_name = llm_fields.get("product_name")
-        production_date = llm_fields.get("production_date")
-        batch_no = llm_fields.get("batch_no")
+        llm_production_date = llm_fields.get("production_date")
+        production_date = (
+            text_production_date
+            or (None if has_composite_expiry_field else llm_production_date)
+        )
+        batch_no = text_batch_no or llm_fields.get("batch_no")
         company_name = llm_fields.get("company_name") or producer_name
         metadata["extraction_source"] = "llm"
+        if (
+            text_production_date
+            and llm_production_date
+            and text_production_date != llm_production_date
+        ):
+            metadata["field_reconciliation"] = {
+                "production_date": {
+                    "llm": llm_production_date,
+                    "text_evidence": text_production_date,
+                    "selected": "text_evidence",
+                }
+            }
+        elif has_composite_expiry_field and llm_production_date:
+            metadata["field_reconciliation"] = {
+                "production_date": {
+                    "llm": llm_production_date,
+                    "text_evidence": None,
+                    "selected": "none",
+                    "reason": "composite_expiry_field_is_not_production_date",
+                }
+            }
     else:
         producer_name = _extract_line_value(text, ["厂名", "公司名", "生产商", "生产单位", "生产企业"])
         if not producer_name:
             producer_name = _extract_report_title_producer(text)
         product_name = _extract_line_value(text, ["产品名称", "商品名称", "品名", "样品名称"])
-        batch_no = _extract_line_value(text, ["生产批号", "批号", "批次号", "批次"])
-        production_date = _extract_date_value(text, ["生产日期", "生产时间", "制造日期"])
+        batch_no = text_batch_no or _extract_line_value(
+            text,
+            ["生产批号", "批号", "批次号", "批次"],
+        )
+        production_date = text_production_date
         company_name = producer_name
         metadata["extraction_source"] = "regex"
 
@@ -132,6 +163,9 @@ def _extract_with_llm(document_text: str) -> dict[str, str | None] | None:
         "- 字段不存在或无法确定时输出 null\n"
         "- 不要编造数据\n"
         "- 日期统一为 YYYY-MM-DD 格式\n"
+        "- 若同时存在直接的‘生产日期/生产日期或批号’字段和包含保质期、限期使用日期的复合字段，"
+        "production_date 只能取直接生产日期；复合字段中的未来日期不是生产日期\n"
+        "- 只有复合保质期/限期使用日期字段、没有直接生产日期证据时，production_date 输出 null\n"
         "\n"
         f"OCR 文本：\n{document_text[:4000]}"
     )
@@ -313,10 +347,45 @@ def _extract_report_title_producer(document_text: str) -> str | None:
     return None
 
 
-def _extract_date_value(document_text: str, labels: list[str]) -> str | None:
-    value = _extract_line_value(document_text, labels)
-    if not value:
-        return None
+def _extract_direct_production_date(document_text: str) -> str | None:
+    date_pattern = (
+        r"\d{4}\s*(?:年|-|\.|/)?\s*\d{1,2}\s*"
+        r"(?:月|-|\.|/)?\s*\d{1,2}"
+    )
+    for label in ("生产日期", "生产时间", "制造日期"):
+        match = re.search(
+            rf"{re.escape(label)}(?:\s*[/／]?\s*或\s*批号)?\s*[:：]?\s*({date_pattern})",
+            document_text,
+        )
+        if match:
+            normalized = _normalized_date_from_value(match.group(1))
+            if normalized:
+                return normalized
+    return None
+
+
+def _extract_composite_batch_no(document_text: str) -> str | None:
+    label_pattern = (
+        r"生产日期\s*和\s*保质期\s*或\s*生产批号\s*和\s*限期使用日期"
+    )
+    date_pattern = (
+        r"(?:\d{8}|\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日?"
+        r"|\d{4}\s*[-./]\s*\d{1,2}\s*[-./]\s*\d{1,2})"
+    )
+    match = re.search(
+        rf"{label_pattern}\s*[:：]?\s*(?>{date_pattern})\s*"
+        r"([A-Za-z0-9][A-Za-z0-9._/-]*)",
+        document_text,
+    )
+    return _clean_value(match.group(1)) if match else None
+
+
+def _has_composite_expiry_batch_field(document_text: str) -> bool:
+    compact = re.sub(r"\s", "", document_text)
+    return "生产日期和保质期或生产批号和限期使用日期" in compact
+
+
+def _normalized_date_from_value(value: str) -> str | None:
     match = re.search(
         r"(\d{4})\s*(?:年|-|\.|/)?\s*(\d{1,2})\s*(?:月|-|\.|/)?\s*(\d{1,2})",
         value,

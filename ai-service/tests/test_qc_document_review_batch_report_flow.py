@@ -1,5 +1,8 @@
+import pytest
+
 from app.models import ReviewInput
 from app.services.review_service import ReviewService
+from app.workflows.qc_document import batch_report_extraction
 from app.workflows.qc_document.batch_report_extraction import extract_batch_report_fields
 
 
@@ -98,3 +101,137 @@ def test_batch_report_does_not_treat_following_headers_as_values():
     assert extracted.production_date is None
     assert extracted.batch_no is None
     assert "product_name" in metadata["missing_required_fields"]
+
+
+def test_batch_report_prefers_direct_production_date_over_later_expiry_batch_field(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        batch_report_extraction,
+        "_extract_with_llm",
+        lambda _text: {
+            "product_name": "超能白桃苏打洗洁精",
+            "producer_name": "纳爱斯集团有限公司",
+            "company_name": "纳爱斯集团有限公司",
+            "production_date": "2028-09-21",
+            "batch_no": None,
+        },
+    )
+
+    extracted, metadata = extract_batch_report_fields(
+        """
+        产品名称 超能白桃苏打洗洁精
+        生产日期
+        或 批号
+        20250921
+        生产日期和保质期或生产批号和限期使用日期 20280921A1353
+        """
+    )
+
+    assert extracted.production_date == "2025-09-21"
+    assert extracted.batch_no == "A1353"
+    assert metadata["field_reconciliation"]["production_date"] == {
+        "llm": "2028-09-21",
+        "text_evidence": "2025-09-21",
+        "selected": "text_evidence",
+    }
+
+
+def test_batch_report_extracts_direct_production_date_from_flattened_table_text(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        batch_report_extraction,
+        "_extract_with_llm",
+        lambda _text: {
+            "production_date": "2028-09-21",
+            "batch_no": None,
+            "product_name": "超能白桃苏打洗洁精",
+            "producer_name": "纳爱斯集团有限公司",
+        },
+    )
+
+    extracted, _metadata = extract_batch_report_fields(
+        "产品名称 超能白桃苏打洗洁精 生产日期 20250921 "
+        "生产日期和保质期或生产批号和限期使用日期 20280921A1353"
+    )
+
+    assert extracted.production_date == "2025-09-21"
+    assert extracted.batch_no == "A1353"
+
+
+def test_batch_report_extracts_direct_production_date_from_slash_or_batch_label(
+    monkeypatch,
+):
+    monkeypatch.setattr(batch_report_extraction, "_extract_with_llm", lambda _text: None)
+
+    extracted, _metadata = extract_batch_report_fields(
+        "生产日期/或批号 20250921 "
+        "生产日期和保质期或生产批号和限期使用日期 20280921A1353"
+    )
+
+    assert extracted.production_date == "2025-09-21"
+    assert extracted.batch_no == "A1353"
+
+
+def test_batch_report_does_not_promote_composite_expiry_to_production_date(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        batch_report_extraction,
+        "_extract_with_llm",
+        lambda _text: {
+            "production_date": "2028-09-21",
+            "batch_no": None,
+            "product_name": "超能白桃苏打洗洁精",
+            "producer_name": "纳爱斯集团有限公司",
+        },
+    )
+
+    extracted, metadata = extract_batch_report_fields(
+        "生产日期和保质期或生产批号和限期使用日期 20280921A1353"
+    )
+
+    assert extracted.production_date is None
+    assert extracted.batch_no == "A1353"
+    assert metadata["field_reconciliation"]["production_date"]["selected"] == "none"
+
+
+def test_batch_report_does_not_extract_batch_number_from_composite_date_only(monkeypatch):
+    monkeypatch.setattr(batch_report_extraction, "_extract_with_llm", lambda _text: None)
+
+    extracted, _metadata = extract_batch_report_fields(
+        "生产日期和保质期或生产批号和限期使用日期 20280921"
+    )
+
+    assert extracted.production_date is None
+    assert extracted.batch_no is None
+
+
+@pytest.mark.parametrize(
+    "expiry_date",
+    ["2028-09-21", "2028/09/21", "2028年09月21", "2028年09月21日"],
+)
+def test_batch_report_does_not_backtrack_composite_date_into_batch_number(
+    monkeypatch,
+    expiry_date,
+):
+    monkeypatch.setattr(batch_report_extraction, "_extract_with_llm", lambda _text: None)
+
+    extracted, _metadata = extract_batch_report_fields(
+        "生产日期和保质期或生产批号和限期使用日期 " + expiry_date
+    )
+
+    assert extracted.batch_no is None
+
+
+def test_batch_report_does_not_read_use_by_field_after_empty_production_date(monkeypatch):
+    monkeypatch.setattr(batch_report_extraction, "_extract_with_llm", lambda _text: None)
+    extracted, _metadata = extract_batch_report_fields(
+        """
+        生产日期
+        限期使用日期 20280921
+        """
+    )
+
+    assert extracted.production_date is None
