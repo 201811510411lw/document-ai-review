@@ -22,7 +22,7 @@ const vite = await createServer({
 try {
   const { default: ReviewQueueView } = await vite.ssrLoadModule('/src/features/review/ReviewQueueView.vue')
 
-  async function renderQueue(filterStatus, { records = [], totalPages = 1 } = {}) {
+  async function renderQueue(filterStatus, { records = [], totalPages = 1, creating = false } = {}) {
     const app = createSSRApp({
       render: () => h(ReviewQueueView, {
         currentDocument: { label: '营业执照', subjectLabel: '公司名' },
@@ -34,7 +34,7 @@ try {
         filteredTotal: 0,
         records,
         loading: false,
-        creating: false,
+        creating,
         currentPage: 1,
         totalPages,
         createButtonText: '发起营业执照审核',
@@ -67,6 +67,9 @@ try {
   const sampleRecord = { id: 'record-1', review_status: 'pending' }
   assert.match(await renderQueue('', { records: [sampleRecord], totalPages: 3 }), /<van-pagination/)
   assert.doesNotMatch(await renderQueue('', { records: [sampleRecord], totalPages: 1 }), /<van-pagination/)
+  const creatingHtml = await renderQueue('', { creating: true })
+  assert.match(creatingHtml, /<button[^>]*class="create-button"[^>]*disabled/)
+  assert.match(creatingHtml, /正在发起/)
 } finally {
   await vite.close()
 }

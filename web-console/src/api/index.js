@@ -107,6 +107,9 @@ export const reviewApi = {
       batch_report: '/api/v1/qc/batch-report/reviews/from-starrocks',
     }
     const endpoint = endpoints[documentType] || endpoints.business_license
+    if (documentType === 'product_report') {
+      return http.post(endpoint, undefined, { timeout: 0 })
+    }
     return http.post(endpoint)
   },
   detail(id) {
