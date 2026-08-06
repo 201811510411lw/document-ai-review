@@ -2,6 +2,8 @@ from app.tools.food_license_ocr_adapter import (
     FoodLicenseOcrTextParser,
     QwenOcrFoodLicenseAdapter,
     QwenOcrWithAliyunFallbackFoodLicenseAdapter,
+    _is_food_license_page,
+    _sanitize_food_license_fields,
     food_license_qwen_ocr_prompt,
     validate_food_license_ocr_result,
 )
@@ -18,6 +20,25 @@ class StubAdapter:
     def extract_text(self, source):
         self.calls.append(source)
         return self.result
+
+
+def test_food_license_adapter_accepts_prepackaged_food_filing_voucher_pdf_text():
+    source_text = (
+        "深圳市仅销售预包装食品单位备案凭证\n"
+        "凭证号：YB24403110123756\n"
+        "法定代表人\n（负责人）\n姓名：陈让准\n"
+        "备案日期：2022 年 4 月 24 日"
+    )
+    fields = _sanitize_food_license_fields(
+        {"document_type": "food-license-review"},
+        source_text=source_text,
+    )
+
+    assert _is_food_license_page({"document_type": "food-license-review"}, source_text)
+    assert fields["document_type"] == "food_license"
+    assert fields["document_type_raw"] == "仅销售预包装食品单位备案凭证"
+    assert fields["legal_person"] == "陈让准"
+    assert fields["valid_from"] == "2022年4月24日"
 
 
 def test_validate_food_license_ocr_result_accepts_key_fields():

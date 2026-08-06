@@ -58,6 +58,17 @@ class QwenOcrFoodLicenseAdapter:
         if not content:
             return self._error("failed", "QWEN_OCR_EMPTY_CONTENT")
 
+        pdf_page_texts: list[str] = []
+        if mime_type == "application/pdf":
+            try:
+                import fitz
+
+                document = fitz.open(stream=content, filetype="pdf")
+                pdf_page_texts = [page.get_text() or "" for page in document]
+                document.close()
+            except Exception:
+                pdf_page_texts = []
+
         try:
             page_data_urls = _source_page_data_urls(content, mime_type)
         except Exception as error:
@@ -90,13 +101,22 @@ class QwenOcrFoodLicenseAdapter:
                 attempts += page_attempts
                 fields = parse_business_license_vision_json(content_text)
                 text = _ocr_response_to_plain_text(content_text)
+                source_text = "\n".join(
+                    value
+                    for value in (text, _page_text(pdf_page_texts, page_number))
+                    if value
+                )
                 page_results.append(
                     {
                         "page": page_number,
                         "raw_text": content_text,
-                        "text": text,
-                        "fields": _sanitize_food_license_fields(fields or {}, source_text=text),
-                        "is_food_license": _is_food_license_page(fields or {}, text),
+                        "text": source_text,
+                        "fields": _sanitize_food_license_fields(
+                            fields or {}, source_text=source_text
+                        ),
+                        "is_food_license": _is_food_license_page(
+                            fields or {}, source_text
+                        ),
                     }
                 )
                 if page_results[-1]["is_food_license"]:
@@ -486,6 +506,13 @@ def _sanitize_food_license_fields(
         raw = _extract_food_license_title_from_text(source_text)
         if raw:
             sanitized["document_type_raw"] = raw
+            if str(sanitized.get("document_type") or "").strip().lower() not in {
+                "food_license",
+                "食品经营许可证",
+            }:
+                sanitized["document_type"] = "food_license"
+    if not _optional_text(sanitized.get("legal_person")):
+        sanitized["legal_person"] = _extract_food_license_legal_person(source_text)
     if not _optional_text(sanitized.get("issue_date")):
         sanitized["issue_date"] = _first_optional_text(
             sanitized,
@@ -508,6 +535,11 @@ def _sanitize_food_license_fields(
                 "registration_date",
                 "record_time",
             ),
+        )
+    if not _optional_text(sanitized.get("valid_from")):
+        sanitized["valid_from"] = _extract_labeled_date_from_text(
+            source_text,
+            ("备案日期", "备案时间", "有效期自", "有效期起"),
         )
     if not _optional_text(sanitized.get("valid_to")):
         sanitized["valid_to"] = _first_optional_text(
@@ -637,6 +669,8 @@ def _is_food_license_page(fields: dict[str, Any], text: str) -> bool:
         return False
     if document_type in {"food_license", "食品经营许可证"}:
         return True
+    if _extract_food_license_title_from_text(text):
+        return True
     if "食品经营许可证" in compact:
         return True
     return bool(fields.get("license_no") and str(fields.get("license_no")).upper().startswith("JY"))
@@ -646,6 +680,8 @@ def _food_license_score(fields: dict[str, Any], text: str) -> int:
     compact = "".join((text or "").split())
     score = 0
     if "食品经营许可证" in compact:
+        score += 5
+    elif _extract_food_license_title_from_text(text):
         score += 5
     if fields.get("document_type") in {"food_license", "食品经营许可证"}:
         score += 4
@@ -673,6 +709,7 @@ def _extract_food_license_title_from_text(text: str) -> str | None:
         return None
     compact = "".join(text.split())
     titles = [
+        "仅销售预包装食品单位备案凭证",
         "仅销售预包装食品备案凭证",
         "仅销售预包装食品备案",
         "网络食品交易第三方平台备案",
@@ -687,6 +724,45 @@ def _extract_food_license_title_from_text(text: str) -> str | None:
         if title in compact:
             return title
     return None
+
+
+def _extract_food_license_legal_person(text: str) -> str | None:
+    if not text:
+        return None
+    normalized = unicodedata.normalize("NFKC", text)
+    patterns = (
+        r"(?:法定代表人|负责人|经营者)\s*(?:[（(]\s*负责人\s*[）)])?\s*(?:姓名)?\s*[:：]\s*([^\s，,；;]+)",
+        r"法定代表人\s*[（(]\s*负责人\s*[）)]\s*姓名\s*[:：]\s*([^\s，,；;]+)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, normalized, re.DOTALL)
+        if match:
+            value = match.group(1).strip()
+            if value:
+                return value
+    return None
+
+
+def _extract_labeled_date_from_text(
+    text: str,
+    labels: tuple[str, ...],
+) -> str | None:
+    if not text:
+        return None
+    normalized = unicodedata.normalize("NFKC", text)
+    for label in labels:
+        match = re.search(
+            rf"{re.escape(label)}\s*[:：]?\s*(\d{{4}}\s*年\s*\d{{1,2}}\s*月\s*\d{{1,2}}\s*日)",
+            normalized,
+        )
+        if match:
+            return re.sub(r"\s+", "", match.group(1))
+    return None
+
+
+def _page_text(page_texts: list[str], page_number: int) -> str:
+    index = page_number - 1
+    return page_texts[index] if 0 <= index < len(page_texts) else ""
 
 
 def _get_value(source: Any, key: str) -> Any:

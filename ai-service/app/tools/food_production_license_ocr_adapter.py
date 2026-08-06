@@ -1,6 +1,9 @@
+import base64
 import os
 import re
 import unicodedata
+from datetime import date
+from io import BytesIO
 from typing import Any
 
 from app.tools.aliyun_ocr_text_adapter import AliyunOcrTextAdapter
@@ -111,6 +114,7 @@ class QwenOcrFoodProductionLicenseAdapter:
                 page_results.append(
                     {
                         "page": page_number,
+                        "data_url": data_url,
                         "raw_text": content_text,
                         "text": text,
                         "fields": _sanitize_food_production_license_fields(
@@ -164,12 +168,58 @@ class QwenOcrFoodProductionLicenseAdapter:
             source_text=selected["text"],
             pdf_raw_text=pdf_page_text,
         )
+        recovered_valid_to = self._recover_valid_to_from_seal_overlay(
+            client=client,
+            page_data_url=str(selected["data_url"]),
+            current_valid_to=structured_fields.get("valid_to"),
+        )
+        if recovered_valid_to:
+            structured_fields["valid_to"] = recovered_valid_to
+            metadata["valid_to_recovery"] = {
+                "method": "red_seal_date_region_ocr",
+                "recovered": True,
+            }
         structured_fields["source_page"] = selected["page"]
         return {
             "text": selected["text"],
             "structured_fields": structured_fields,
             "metadata": metadata,
         }
+
+    def _recover_valid_to_from_seal_overlay(
+        self,
+        *,
+        client: Any,
+        page_data_url: str,
+        current_valid_to: Any,
+    ) -> str | None:
+        if _valid_iso_date(current_valid_to):
+            return None
+        retry_image = _build_red_seal_date_region_data_url(page_data_url)
+        if not retry_image:
+            return None
+        try:
+            content_text, _ = _create_chat_completion_content(
+                client=client,
+                model=self.model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": food_production_license_valid_to_recovery_prompt(),
+                            },
+                            {"type": "image_url", "image_url": {"url": retry_image}},
+                        ],
+                    }
+                ],
+                max_attempts=self.max_attempts,
+            )
+        except Exception:
+            return None
+        fields = parse_business_license_vision_json(content_text) or {}
+        return _valid_iso_date(fields.get("valid_to"))
 
     def _error(
         self,
@@ -450,6 +500,58 @@ def food_production_license_ocr_text_parse_prompt(document_text: str) -> str:
         "OCR 文本：\n"
         f"{document_text}"
     )
+
+
+def food_production_license_valid_to_recovery_prompt() -> str:
+    return (
+        "这是一张食品生产许可证右下角的有效期局部增强图，可能有红色公章覆盖。"
+        "只识别标签“有效期至”或“有效日期至”对应的截止日期。"
+        "不要根据发证日期、常见五年有效期或任何外部信息推断日期。"
+        "看不清时返回 null。只输出 JSON：{\"valid_to\": \"YYYY-MM-DD 或 null\"}。"
+    )
+
+
+def _build_red_seal_date_region_data_url(page_data_url: str) -> str | None:
+    """Create an enlarged, red-suppressed crop around the certificate date block."""
+    if not page_data_url.startswith("data:image/") or "," not in page_data_url:
+        return None
+    try:
+        from PIL import Image, ImageEnhance
+
+        _header, encoded = page_data_url.split(",", 1)
+        image = Image.open(BytesIO(base64.b64decode(encoded))).convert("RGB")
+        width, height = image.size
+        # National food-production licenses place the issue/expiry dates in this block.
+        crop = image.crop(
+            (
+                int(width * 0.60),
+                int(height * 0.64),
+                int(width * 0.96),
+                int(height * 0.91),
+            )
+        )
+        crop = crop.resize((crop.width * 3, crop.height * 3), Image.Resampling.LANCZOS)
+        pixels = crop.load()
+        for y in range(crop.height):
+            for x in range(crop.width):
+                red, green, blue = pixels[x, y]
+                # Suppress stamp ink while retaining neutral/black printed text.
+                if red > 110 and red > green * 1.35 and red > blue * 1.35:
+                    pixels[x, y] = (255, 255, 255)
+        crop = ImageEnhance.Contrast(crop).enhance(1.8)
+        buffer = BytesIO()
+        crop.save(buffer, format="PNG")
+        return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+    except Exception:
+        return None
+
+
+def _valid_iso_date(value: Any) -> str | None:
+    normalized = _normalize_date_value(value)
+    try:
+        return date.fromisoformat(normalized).isoformat()
+    except (TypeError, ValueError):
+        return None
 
 
 def _load_skill_text(skill_name: str) -> str:

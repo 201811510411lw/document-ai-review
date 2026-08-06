@@ -2,6 +2,8 @@ from app.tools.food_production_license_ocr_adapter import (
     FoodProductionLicenseOcrTextParser,
     QwenOcrFoodProductionLicenseAdapter,
     QwenOcrWithAliyunFallbackFoodProductionLicenseAdapter,
+    _valid_iso_date,
+    food_production_license_valid_to_recovery_prompt,
     validate_food_production_license_ocr_result,
 )
 from app.tools.vision_adapter import VisionInput
@@ -17,6 +19,64 @@ class StubAdapter:
     def extract_text(self, source):
         self.calls.append(source)
         return self.result
+
+
+def test_valid_to_recovery_normalizes_a_visible_chinese_date():
+    assert _valid_iso_date("2026年08月17日") == "2026-08-17"
+    assert _valid_iso_date("长期") is None
+    assert _valid_iso_date("2026年13月17日") is None
+
+
+def test_food_production_valid_to_recovery_prompt_does_not_allow_date_inference():
+    prompt = food_production_license_valid_to_recovery_prompt()
+
+    assert "有效期至" in prompt
+    assert "不要根据发证日期" in prompt
+    assert '"valid_to"' in prompt
+
+
+def test_food_production_valid_to_recovery_accepts_only_a_parseable_date(monkeypatch):
+    calls = {}
+
+    class StubMessage:
+        content = '{"valid_to":"2026年08月17日"}'
+
+    class StubChoice:
+        message = StubMessage()
+
+    class StubResponse:
+        choices = [StubChoice()]
+
+    class StubCompletions:
+        def create(self, **kwargs):
+            calls.update(kwargs)
+            return StubResponse()
+
+    class StubChat:
+        completions = StubCompletions()
+
+    class StubClient:
+        chat = StubChat()
+
+    import app.tools.food_production_license_ocr_adapter as adapter_module
+
+    monkeypatch.setattr(
+        adapter_module,
+        "_build_red_seal_date_region_data_url",
+        lambda _page_data_url: "data:image/png;base64,enhanced-date-region",
+    )
+    adapter = QwenOcrFoodProductionLicenseAdapter(model="qwen3.5-ocr")
+
+    recovered = adapter._recover_valid_to_from_seal_overlay(
+        client=StubClient(),
+        page_data_url="data:image/jpeg;base64,original-page",
+        current_valid_to=None,
+    )
+
+    assert recovered == "2026-08-17"
+    assert calls["messages"][0]["content"][1]["image_url"]["url"].endswith(
+        "enhanced-date-region"
+    )
 
 
 def test_validate_food_production_license_ocr_result_accepts_key_fields():
