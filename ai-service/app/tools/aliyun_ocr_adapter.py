@@ -30,13 +30,18 @@ class AliyunCloudMarketOcrAdapter:
         image_field: str | None = None,
         timeout: float | None = None,
         body_options: dict[str, Any] | None = None,
+        llm_model: str | None = None,
     ) -> None:
         self.api_url = api_url or os.environ.get("ALIYUN_OCR_API_URL", "")
         self.appcode = appcode or os.environ.get("ALIYUN_OCR_APPCODE", "")
         self.image_field = image_field or os.environ.get("ALIYUN_OCR_IMAGE_FIELD", "img")
         self.timeout = timeout or float(os.environ.get("ALIYUN_OCR_TIMEOUT_SECONDS", "60"))
         self.body_options = body_options or _body_options_from_env()
-        self.llm_model = os.environ.get("ALIYUN_OCR_LLM_PARSE_MODEL", "")
+        self.llm_model = (
+            os.environ.get("ALIYUN_OCR_LLM_PARSE_MODEL", "")
+            if llm_model is None
+            else llm_model
+        )
         self.llm_base_url = os.environ.get("OPENAI_BASE_URL")
         self.llm_max_attempts = int(os.environ.get("OPENAI_MAX_ATTEMPTS", "3"))
         self.try_rotations = _env_bool("ALIYUN_OCR_TRY_ROTATIONS", default=True)

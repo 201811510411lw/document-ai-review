@@ -17,6 +17,7 @@ description: QC 证照、产品报告、批次报告和第三方检验报告审�
 - `extracted_fields`：产品报告字段抽取结果。
 - 来源系统字段：供应商名称、商品名、批次或生产日期。
 - OCR 文本证据和抽取 metadata。
+- `batch_report` 远程文件输入优先使用 PDF 文本层；文本层为空或输入为 JPG/JPEG/PNG 时，必须先通过 OCR/视觉 adapter 获取文本证据。adapter 未返回文本时保留失败 metadata 并进入人工复核。
 
 ## batch_report 字段抽取要求
 
@@ -32,7 +33,7 @@ description: QC 证照、产品报告、批次报告和第三方检验报告审�
 ### 0. 文档文本完整性
 
 - 规则编码: `BATCH_REPORT_TEXT_PRESENT`
-- 核对项: 是否成功获取到 PDF 文本内容（`has_document_text`）。
+- 核对项: 是否成功从 PDF 文本层或图片/PDF OCR fallback 获取到文档文本（`has_document_text`）。
 - 文本为空时进入人工复核，风险等级 `MEDIUM`。
 
 ### 1. 文档类型匹配

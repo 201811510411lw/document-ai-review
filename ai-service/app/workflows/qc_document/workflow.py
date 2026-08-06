@@ -2,6 +2,7 @@ import os
 from typing import Any
 
 from app.models import ManualReview, ManualReviewStatus, ReviewInputContext
+from app.tools.aliyun_ocr_text_adapter import AliyunOcrTextAdapter
 from app.tools.document_text_acquisition import acquire_document_text
 from app.tools.remote_document import RemoteDocumentDownloader
 from app.tools.skill_rule_review import (
@@ -25,6 +26,7 @@ from app.workflows.qc_document.product_report_rules import (
 
 qc_document_skill_rule_review_adapter = build_qc_document_skill_rule_review_adapter()
 qc_document_remote_downloader = RemoteDocumentDownloader()
+qc_batch_report_file_adapter = AliyunOcrTextAdapter()
 
 
 def _product_report_vision_fallback(
@@ -175,6 +177,11 @@ def run_qc_document_workflow(input_context: ReviewInputContext) -> dict[str, Any
     acquisition_result = acquire_document_text(
         review_input,
         downloader=qc_document_remote_downloader,
+        fallback_adapter=(
+            qc_batch_report_file_adapter
+            if review_input.declared_document_type == "batch_report"
+            else None
+        ),
     )
     document_text = acquisition_result.document_text
 

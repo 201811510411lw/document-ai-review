@@ -53,6 +53,10 @@ def test_acquire_document_text_extracts_text_layer_from_remote_pdf(tmp_path):
         )
     )
 
+    class UnexpectedFallbackAdapter:
+        def extract_text(self, _source):
+            raise AssertionError("PDF 文本层存在时不应调用 OCR fallback")
+
     result = acquire_document_text(
         ReviewInput(
             file=ReviewDocumentInput(
@@ -64,6 +68,7 @@ def test_acquire_document_text_extracts_text_layer_from_remote_pdf(tmp_path):
             declared_document_type="product_report",
         ),
         downloader=downloader,
+        fallback_adapter=UnexpectedFallbackAdapter(),
     )
 
     assert "报告编号：A2260511467101001C" in result.document_text
@@ -116,6 +121,54 @@ def test_acquire_document_text_marks_blank_remote_pdf_for_ocr_fallback(tmp_path)
     assert result.document_input["input_type"] == "remote_pdf_empty_text"
     assert result.extraction_metadata["pdf_text_extractor"]["status"] == "empty_text_layer"
     assert result.extraction_metadata["pdf_text_extractor"]["needs_ocr_fallback"] is True
+
+
+def test_acquire_document_text_uses_ocr_fallback_for_blank_remote_pdf(tmp_path):
+    pdf_path = tmp_path / "blank-batch-report.pdf"
+    write_blank_pdf(pdf_path)
+    downloader = StubDownloader(
+        RemoteDocument(
+            source_url="https://files.example.test/blank-batch-report.pdf",
+            content=pdf_path.read_bytes(),
+            file_type="pdf",
+            mime_type="application/pdf",
+            status_code=200,
+            headers={"content-type": "application/pdf"},
+        )
+    )
+
+    class StubFallbackAdapter:
+        def extract_text(self, source):
+            assert source.mime_type == "application/pdf"
+            return {
+                "text": "商品批次报告\n产品名称：超能白桃苏打洗洁精",
+                "metadata": {"provider": "stub_ocr"},
+            }
+
+    result = acquire_document_text(
+        ReviewInput(
+            file=ReviewDocumentInput(
+                file_uri="https://files.example.test/blank-batch-report.pdf",
+                file_name="blank-batch-report.pdf",
+            ),
+            supplier_name="纳爱斯集团有限公司",
+            supplier_credit_code="",
+            declared_document_type="batch_report",
+        ),
+        downloader=downloader,
+        fallback_adapter=StubFallbackAdapter(),
+    )
+
+    assert result.document_text == "商品批次报告\n产品名称：超能白桃苏打洗洁精"
+    assert result.document_input["input_type"] == "remote_pdf_ocr"
+    assert result.extraction_metadata["pdf_text_extractor"]["status"] == (
+        "empty_text_layer"
+    )
+    assert result.extraction_metadata["ocr_fallback"] == {
+        "provider": "stub_ocr",
+        "status": "extracted",
+    }
+    assert downloader.urls == ["https://files.example.test/blank-batch-report.pdf"]
 
 
 def test_acquire_document_text_returns_remote_error_metadata():

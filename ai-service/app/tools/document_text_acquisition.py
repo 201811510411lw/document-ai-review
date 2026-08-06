@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from io import BytesIO
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
@@ -10,8 +10,15 @@ from pypdf.errors import PdfReadError
 from app.tools.document_constraints import (
     DocumentInputLimitError,
     enforce_file_size_limit,
+    enforce_image_dimension_limit,
 )
 from app.tools.remote_document import RemoteDocumentDownloadError, RemoteDocumentDownloader
+from app.tools.vision_adapter import VisionInput
+
+
+class DocumentTextFallbackAdapter(Protocol):
+    def extract_text(self, source: Any) -> dict[str, Any]:
+        ...
 
 
 @dataclass(frozen=True)
@@ -25,6 +32,7 @@ def acquire_document_text(
     review_input: Any,
     *,
     downloader: Any | None = None,
+    fallback_adapter: DocumentTextFallbackAdapter | None = None,
 ) -> DocumentTextAcquisitionResult:
     ocr_text = (getattr(review_input, "ocr_text", None) or "").strip()
     if ocr_text:
@@ -60,6 +68,7 @@ def acquire_document_text(
         return _acquire_remote_file_text(
             file_input,
             downloader=downloader or RemoteDocumentDownloader(),
+            fallback_adapter=fallback_adapter,
         )
     return DocumentTextAcquisitionResult(
         document_text="",
@@ -77,6 +86,7 @@ def _acquire_remote_file_text(
     file_input: Any,
     *,
     downloader: Any,
+    fallback_adapter: DocumentTextFallbackAdapter | None,
 ) -> DocumentTextAcquisitionResult:
     file_uri = getattr(file_input, "file_uri", None)
     try:
@@ -98,8 +108,23 @@ def _acquire_remote_file_text(
             },
         )
 
-    enforce_file_size_limit(len(remote_document.content))
+    try:
+        enforce_file_size_limit(len(remote_document.content))
+    except DocumentInputLimitError as error:
+        if fallback_adapter is None:
+            raise
+        return _remote_input_limit_result(file_input, remote_document, error)
     if remote_document.file_type != "pdf":
+        if fallback_adapter is not None:
+            try:
+                enforce_image_dimension_limit(remote_document.content)
+            except DocumentInputLimitError as error:
+                return _remote_input_limit_result(file_input, remote_document, error)
+            return _acquire_remote_ocr_text(
+                file_input,
+                remote_document=remote_document,
+                fallback_adapter=fallback_adapter,
+            )
         return DocumentTextAcquisitionResult(
             document_text="",
             document_input={
@@ -121,6 +146,17 @@ def _acquire_remote_file_text(
 
     pdf_result = _extract_pdf_text(remote_document.content)
     has_text = bool(pdf_result["text"])
+    if (
+        not has_text
+        and pdf_result["metadata"].get("needs_ocr_fallback")
+        and fallback_adapter is not None
+    ):
+        return _acquire_remote_ocr_text(
+            file_input,
+            remote_document=remote_document,
+            fallback_adapter=fallback_adapter,
+            pdf_text_metadata=pdf_result["metadata"],
+        )
     return DocumentTextAcquisitionResult(
         document_text=pdf_result["text"],
         document_input={
@@ -137,6 +173,96 @@ def _acquire_remote_file_text(
                 "mime_type": remote_document.mime_type,
             },
             "pdf_text_extractor": pdf_result["metadata"],
+        },
+    )
+
+
+def _acquire_remote_ocr_text(
+    file_input: Any,
+    *,
+    remote_document: Any,
+    fallback_adapter: DocumentTextFallbackAdapter,
+    pdf_text_metadata: dict[str, Any] | None = None,
+) -> DocumentTextAcquisitionResult:
+    try:
+        fallback_result = fallback_adapter.extract_text(
+            VisionInput(
+                content=remote_document.content,
+                mime_type=remote_document.mime_type,
+                file_name=getattr(file_input, "file_name", None),
+                source_url=remote_document.source_url,
+            )
+        )
+    except Exception as error:
+        fallback_result = {
+            "text": "",
+            "metadata": {
+                "status": "failed",
+                "error_code": "DOCUMENT_TEXT_OCR_FALLBACK_FAILED",
+                "error_type": type(error).__name__,
+            },
+        }
+
+    document_text = (fallback_result.get("text") or "").strip()
+    fallback_metadata = dict(fallback_result.get("metadata") or {})
+    fallback_metadata.setdefault("status", "extracted" if document_text else "empty")
+    is_pdf = remote_document.file_type == "pdf"
+    if document_text:
+        input_type = "remote_pdf_ocr" if is_pdf else "remote_image_ocr"
+    else:
+        input_type = "remote_pdf_ocr_failed" if is_pdf else "remote_image_ocr_failed"
+
+    extraction_metadata = {
+        "remote_document": {
+            "status_code": remote_document.status_code,
+            "file_type": remote_document.file_type,
+            "mime_type": remote_document.mime_type,
+            "needs_ocr_fallback": True,
+        },
+        "ocr_fallback": fallback_metadata,
+    }
+    if pdf_text_metadata is not None:
+        extraction_metadata["pdf_text_extractor"] = pdf_text_metadata
+
+    return DocumentTextAcquisitionResult(
+        document_text=document_text,
+        document_input={
+            "input_type": input_type,
+            "file_name": getattr(file_input, "file_name", None),
+            "mime_type": remote_document.mime_type,
+            "document_format": remote_document.file_type,
+            "source_url": remote_document.source_url,
+        },
+        extraction_metadata=extraction_metadata,
+    )
+
+
+def _remote_input_limit_result(
+    file_input: Any,
+    remote_document: Any,
+    error: DocumentInputLimitError,
+) -> DocumentTextAcquisitionResult:
+    return DocumentTextAcquisitionResult(
+        document_text="",
+        document_input={
+            "input_type": "remote_input_limit",
+            "file_name": getattr(file_input, "file_name", None),
+            "mime_type": remote_document.mime_type,
+            "document_format": remote_document.file_type,
+            "source_url": remote_document.source_url,
+        },
+        extraction_metadata={
+            "remote_document": {
+                "status_code": remote_document.status_code,
+                "file_type": remote_document.file_type,
+                "mime_type": remote_document.mime_type,
+                "needs_ocr_fallback": False,
+            },
+            "ocr_fallback": {
+                "status": "limit_error",
+                "error_code": error.code,
+                "error_message": error.message,
+            },
         },
     )
 

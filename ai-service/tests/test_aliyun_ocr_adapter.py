@@ -1,4 +1,5 @@
 import base64
+import os
 
 from app.tools.aliyun_ocr_adapter import (
     AliyunCloudMarketOcrAdapter,
@@ -9,6 +10,7 @@ from app.tools.aliyun_ocr_adapter import (
     aliyun_ocr_json_to_text,
     extract_business_license_fields,
 )
+from app.tools.aliyun_ocr_text_adapter import AliyunOcrTextAdapter
 from app.tools.vision_adapter import build_business_license_vision_adapter
 
 
@@ -90,6 +92,18 @@ def test_aliyun_ocr_llm_parse_requires_model(monkeypatch):
         result["metadata"]["error_code"]
         == "ALIYUN_OCR_LLM_PARSE_MODEL_NOT_CONFIGURED"
     )
+
+
+def test_aliyun_text_adapter_disables_llm_without_mutating_environment(monkeypatch):
+    monkeypatch.setenv("ALIYUN_OCR_LLM_PARSE_MODEL", "configured-model")
+
+    adapter = AliyunOcrTextAdapter()
+
+    assert adapter.ocr_adapter.llm_model == ""
+    assert adapter.ocr_adapter._parse_ocr_text_with_llm("商品批次报告")["metadata"][
+        "error_code"
+    ] == "ALIYUN_OCR_LLM_PARSE_MODEL_NOT_CONFIGURED"
+    assert os.environ["ALIYUN_OCR_LLM_PARSE_MODEL"] == "configured-model"
 
 
 def test_aliyun_adapter_selects_rotated_pdf_page_orientation(monkeypatch):

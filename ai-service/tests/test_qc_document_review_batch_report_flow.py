@@ -1,7 +1,12 @@
+from io import BytesIO
+
 import pytest
+from PIL import Image
 
 from app.models import ReviewInput
 from app.services.review_service import ReviewService
+from app.tools.remote_document import RemoteDocument
+from app.workflows.qc_document import workflow as qc_document_workflow
 from app.workflows.qc_document import batch_report_extraction
 from app.workflows.qc_document.batch_report_extraction import extract_batch_report_fields
 
@@ -235,3 +240,179 @@ def test_batch_report_does_not_read_use_by_field_after_empty_production_date(mon
     )
 
     assert extracted.production_date is None
+
+
+def test_qc_document_review_extracts_batch_report_from_remote_image_ocr(monkeypatch):
+    image_buffer = BytesIO()
+    Image.new("RGB", (80, 120), "white").save(image_buffer, format="PNG")
+
+    class StubDownloader:
+        calls = 0
+
+        def download(self, file_url):
+            self.calls += 1
+            return RemoteDocument(
+                source_url=file_url,
+                content=image_buffer.getvalue(),
+                file_type="png",
+                mime_type="image/png",
+                status_code=200,
+                headers={"content-type": "image/png"},
+            )
+
+    class StubOcrAdapter:
+        def extract_text(self, source):
+            assert source.mime_type == "image/png"
+            return {
+                "text": (
+                    "商品批次报告\n"
+                    "厂名：纳爱斯集团有限公司\n"
+                    "产品名称：超能白桃苏打洗洁精\n"
+                    "生产日期/或批号 20250921\n"
+                    "生产日期和保质期或生产批号和限期使用日期 20280921A1353"
+                ),
+                "metadata": {"provider": "stub_ocr", "status": "extracted"},
+            }
+
+    downloader = StubDownloader()
+    monkeypatch.setattr(qc_document_workflow, "qc_document_remote_downloader", downloader)
+    monkeypatch.setattr(qc_document_workflow, "qc_batch_report_file_adapter", StubOcrAdapter())
+
+    result = ReviewService().review(
+        ReviewInput(
+            file={
+                "file_uri": "https://files.example.test/batch-report.png",
+                "file_name": "batch-report.png",
+            },
+            supplier_name="纳爱斯集团有限公司",
+            supplier_credit_code="",
+            declared_document_type="batch_report",
+            source={
+                "vendor_name": "纳爱斯集团有限公司",
+                "sku_name": "超能白桃苏打洗洁精",
+                "production_date": "2025-09-21",
+            },
+        ),
+        use_case_name="qc_document_review",
+    )
+
+    fields = result.skill_result["extracted_fields"]
+    assert fields["product_name"] == "超能白桃苏打洗洁精"
+    assert fields["production_date"] == "2025-09-21"
+    assert fields["batch_no"] == "A1353"
+    assert result.skill_result["document_input"]["input_type"] == "remote_image_ocr"
+    assert result.skill_result["extraction_metadata"]["ocr_fallback"]["provider"] == (
+        "stub_ocr"
+    )
+    assert downloader.calls == 1
+
+
+def test_qc_document_review_keeps_remote_image_ocr_failure_for_manual_review(
+    monkeypatch,
+):
+    image_buffer = BytesIO()
+    Image.new("RGB", (80, 120), "white").save(image_buffer, format="PNG")
+
+    class StubDownloader:
+        def download(self, file_url):
+            return RemoteDocument(
+                source_url=file_url,
+                content=image_buffer.getvalue(),
+                file_type="png",
+                mime_type="image/png",
+                status_code=200,
+                headers={"content-type": "image/png"},
+            )
+
+    class FailedOcrAdapter:
+        def extract_text(self, _source):
+            return {
+                "text": "",
+                "metadata": {
+                    "provider": "stub_ocr",
+                    "status": "failed",
+                    "error_code": "OCR_FAILED",
+                },
+            }
+
+    monkeypatch.setattr(qc_document_workflow, "qc_document_remote_downloader", StubDownloader())
+    monkeypatch.setattr(
+        qc_document_workflow,
+        "qc_batch_report_file_adapter",
+        FailedOcrAdapter(),
+    )
+
+    result = ReviewService().review(
+        ReviewInput(
+            file={
+                "file_uri": "https://files.example.test/batch-report.png",
+                "file_name": "batch-report.png",
+            },
+            supplier_name="纳爱斯集团有限公司",
+            supplier_credit_code="",
+            declared_document_type="batch_report",
+        ),
+        use_case_name="qc_document_review",
+    )
+
+    assert result.status == "PENDING_MANUAL_REVIEW"
+    assert result.needs_manual_review is True
+    assert result.skill_result["document_input"]["input_type"] == (
+        "remote_image_ocr_failed"
+    )
+    assert result.skill_result["extracted_fields"]["product_name"] is None
+    assert result.skill_result["extraction_metadata"]["ocr_fallback"]["error_code"] == (
+        "OCR_FAILED"
+    )
+
+
+def test_qc_document_review_routes_remote_image_limit_to_manual_review(
+    monkeypatch,
+):
+    image_buffer = BytesIO()
+    Image.new("RGB", (80, 120), "white").save(image_buffer, format="PNG")
+
+    class StubDownloader:
+        def download(self, file_url):
+            return RemoteDocument(
+                source_url=file_url,
+                content=image_buffer.getvalue(),
+                file_type="png",
+                mime_type="image/png",
+                status_code=200,
+                headers={"content-type": "image/png"},
+            )
+
+    class UnexpectedOcrAdapter:
+        def extract_text(self, _source):
+            raise AssertionError("超限图片不应调用 OCR")
+
+    monkeypatch.setenv("BUSINESS_LICENSE_MAX_IMAGE_PIXELS", "100")
+    monkeypatch.setattr(qc_document_workflow, "qc_document_remote_downloader", StubDownloader())
+    monkeypatch.setattr(
+        qc_document_workflow,
+        "qc_batch_report_file_adapter",
+        UnexpectedOcrAdapter(),
+    )
+
+    result = ReviewService().review(
+        ReviewInput(
+            file={
+                "file_uri": "https://files.example.test/batch-report.png",
+                "file_name": "batch-report.png",
+            },
+            supplier_name="纳爱斯集团有限公司",
+            supplier_credit_code="",
+            declared_document_type="batch_report",
+        ),
+        use_case_name="qc_document_review",
+    )
+
+    assert result.status == "PENDING_MANUAL_REVIEW"
+    assert result.needs_manual_review is True
+    assert result.skill_result["document_input"]["input_type"] == "remote_input_limit"
+    assert result.skill_result["extraction_metadata"]["ocr_fallback"] == {
+        "status": "limit_error",
+        "error_code": "DOCUMENT_IMAGE_TOO_LARGE",
+        "error_message": "营业执照图片分辨率超过限制",
+    }
