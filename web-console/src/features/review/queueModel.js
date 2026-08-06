@@ -4,6 +4,18 @@ export function reviewQueueNotice({ filterStatus = '', stats = {} }) {
   return `有 ${pending} 条记录需要人工复核，请优先处理。`
 }
 
+export async function createReviewAndRefreshQueue({
+  documentType,
+  createReview,
+  refreshQueue,
+  openReview,
+}) {
+  const result = await createReview(documentType)
+  await refreshQueue({ preserveVisibleRecords: documentType === 'batch_report' })
+  if (result?.task_id) openReview(result.task_id)
+  return result
+}
+
 export function reviewPagination(totalRecords, requestedPage, pageSize = 20) {
   const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize))
   const currentPage = Math.min(Math.max(1, Number(requestedPage) || 1), totalPages)

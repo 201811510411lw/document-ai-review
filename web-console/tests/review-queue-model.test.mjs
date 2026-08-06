@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import {
+  createReviewAndRefreshQueue,
   fetchCurrentReviewPage,
   reviewPagination,
   reviewQueueNotice,
@@ -57,3 +58,30 @@ const staleResultPromise = fetchCurrentReviewPage({
 requestIsCurrent = false
 resolveStaleRequest({ records: [{ id: 'stale' }], filtered_total: 40 })
 assert.equal(await staleResultPromise, null)
+
+const createFlowEvents = []
+await createReviewAndRefreshQueue({
+  documentType: 'batch_report',
+  createReview: async (documentType) => {
+    createFlowEvents.push(`create:${documentType}`)
+    return { task_id: 'review-task-batch-1' }
+  },
+  refreshQueue: async (options) => {
+    createFlowEvents.push(`refresh:${options.preserveVisibleRecords}`)
+  },
+  openReview: (taskId) => createFlowEvents.push(`open:${taskId}`),
+})
+assert.deepEqual(createFlowEvents, [
+  'create:batch_report',
+  'refresh:true',
+  'open:review-task-batch-1',
+])
+
+const productRefreshOptions = []
+await createReviewAndRefreshQueue({
+  documentType: 'product_report',
+  createReview: async () => ({}),
+  refreshQueue: async (options) => productRefreshOptions.push(options),
+  openReview: () => { throw new Error('task without id must not navigate') },
+})
+assert.deepEqual(productRefreshOptions, [{ preserveVisibleRecords: false }])

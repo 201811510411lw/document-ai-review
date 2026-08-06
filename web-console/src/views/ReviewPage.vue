@@ -37,7 +37,11 @@ import { useRouter, useRoute } from 'vue-router'
 import { reviewApi } from '@/api'
 import { showToast } from 'vant'
 import ReviewQueueView from '@/features/review/ReviewQueueView.vue'
-import { fetchCurrentReviewPage, reviewPagination } from '@/features/review/queueModel.js'
+import {
+  createReviewAndRefreshQueue,
+  fetchCurrentReviewPage,
+  reviewPagination,
+} from '@/features/review/queueModel.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -132,11 +136,14 @@ watch(documentType, (value) => {
   if (isMounted) loadList()
 })
 
-async function loadList(requestedPage = 1, { resetContext = true } = {}) {
+async function loadList(
+  requestedPage = 1,
+  { clearCurrentResults = true, showLoading = true } = {},
+) {
   const requestId = ++listRequestId
-  loading.value = true
+  if (showLoading) loading.value = true
   const targetPage = Math.max(1, Number(requestedPage) || 1)
-  if (resetContext) {
+  if (clearCurrentResults) {
     currentPage.value = targetPage
     records.value = []
     stats.value = {}
@@ -170,7 +177,7 @@ async function loadList(requestedPage = 1, { resetContext = true } = {}) {
 }
 
 function setCurrentPage(page) {
-  loadList(page, { resetContext: false })
+  loadList(page, { clearCurrentResults: false })
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
@@ -190,12 +197,15 @@ function setFilterStatus(status) {
 async function createReviewFromSrm() {
   creating.value = true
   try {
-    const result = await reviewApi.createFromSrm(documentType.value)
+    await createReviewAndRefreshQueue({
+      documentType: documentType.value,
+      createReview: reviewApi.createFromSrm,
+      refreshQueue: ({ preserveVisibleRecords }) => loadList(1, preserveVisibleRecords
+        ? { clearCurrentResults: false, showLoading: false }
+        : undefined),
+      openReview: (taskId) => router.push(`/review/${taskId}`),
+    })
     showToast('已发起审核')
-    await loadList()
-    if (result?.task_id) {
-      router.push(`/review/${result.task_id}`)
-    }
   } catch (e) {
     showToast(e.message || '发起审核失败')
   } finally {
