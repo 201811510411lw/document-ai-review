@@ -67,7 +67,7 @@ ${agentImagePullSecretsYaml()}  restartPolicy: Never
 }
 
 def cloneProject() {
-  withCredentials([usernamePassword(credentialsId: 'ds-cicd', usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_PASSWORD')]) {
+  withCredentials([usernamePassword(credentialsId: 'ds-gitlab', usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_PASSWORD')]) {
     script {
       def repoUrl = params.GIT_REPO.replace('https://', '').replace('http://', '')
       sh """#!/bin/bash
