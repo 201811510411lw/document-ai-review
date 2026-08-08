@@ -3320,7 +3320,8 @@ def _try_create_index(cursor, ddl: str) -> None:
     try:
         cursor.execute(ddl)
     except pymysql.err.OperationalError as error:
-        if error.args and error.args[0] == 1061:
+        # The index improves frontend query performance but is not required for correctness.
+        if error.args and error.args[0] in {1061, 1142}:
             return
         raise
 

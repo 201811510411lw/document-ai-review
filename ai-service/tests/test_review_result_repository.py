@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+import pymysql
+
 from app.models import (
     ManualReview,
     ManualReviewStatus,
@@ -14,10 +16,26 @@ from app.repositories import (
     build_review_result_repository_from_env,
     reset_review_result_repository_cache,
 )
-from app.repositories.review_result_repository import _manual_review_payload
+from app.repositories.review_result_repository import _manual_review_payload, _try_create_index
 from app.services.review_service import ReviewService
 from app.workflows.runtime import ReviewGraphDefinition, ReviewRuntimeEntry
 from tests.mysql_repository_stub import install_mysql_repository_stub
+
+
+class IndexPermissionDeniedCursor:
+    def execute(self, _ddl):
+        raise pymysql.err.OperationalError(
+            1142,
+            "INDEX command denied to user for table 'review_summary_index'",
+        )
+
+
+def test_optional_index_creation_does_not_block_read_write_database_user():
+    _try_create_index(
+        IndexPermissionDeniedCursor(),
+        "CREATE INDEX idx_review_summary_frontend_type_created "
+        "ON review_summary_index (frontend_status, document_type, created_at)",
+    )
 
 
 def build_review_result(task_id: str = "review-task-mysql") -> ReviewResult:
