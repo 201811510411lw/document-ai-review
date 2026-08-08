@@ -206,7 +206,10 @@ async function loadReport() {
     const response = await tobaccoApi.detail(route.params.id)
     report.value = response.report || response
   } catch (error) {
-    showToast(error.message || '加载核对报告失败')
+    // The empty state already explains a missing report; avoid a redundant Toast overlay.
+    if (error.status !== 404) {
+      showToast(error.message || '加载核对报告失败')
+    }
   } finally {
     loading.value = false
   }

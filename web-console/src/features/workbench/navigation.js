@@ -25,11 +25,11 @@ function visibleItems(items, isAdmin, currentPath) {
 
 export function buildDesktopNavigation({ isAdmin, currentPath }) {
   const groups = [
-    { label: '工作空间', items: visibleItems(workspaceItems, isAdmin, currentPath) },
+    { label: 'QC 审核', items: visibleItems(workspaceItems, isAdmin, currentPath) },
   ]
+  groups.push({ label: '烟草业务', items: visibleItems(tobaccoItems, isAdmin, currentPath) })
   const management = visibleItems(managementItems, isAdmin, currentPath)
   if (management.length) groups.push({ label: '管理', items: management })
-  groups.push({ label: '烟草业务', items: visibleItems(tobaccoItems, isAdmin, currentPath) })
   return groups
 }
 

@@ -97,6 +97,23 @@ def test_fetch_business_license_source_tasks_falls_back_to_attachment_subject_na
     assert task.review_input.supplier_name == "湖南笑辣辣销售服务有限公司"
 
 
+def test_business_license_source_task_skips_prepackaged_filing_mistagged_as_business_license():
+    tasks = fetch_business_license_source_tasks(
+        StubSqlClient(
+            [{
+                "uuid": "cert-prepackaged-001",
+                "typeName": "营业执照",
+                "vendorName": "重庆佳贝贝电子商务有限公司",
+                "attachmentName": "仅销售预包装食品经营者新办备案信息采集表.pdf",
+                "url": "https://files.example.test/prepackaged-filing.pdf",
+            }]
+        ),
+        "select * from certification",
+    )
+
+    assert tasks == []
+
+
 def test_fetch_business_license_source_tasks_returns_empty_list_for_empty_sql_result():
     tasks = fetch_business_license_source_tasks(StubSqlClient([]), "select 1")
 

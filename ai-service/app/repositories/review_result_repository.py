@@ -120,6 +120,8 @@ class MySQLReviewResultRepository:
                 self._save_tobacco_license_projection(cursor, review_result)
                 self._save_tobacco_consistency_projection(cursor, review_result)
                 self._save_product_report_projection(cursor, review_result)
+                self._assert_required_projection(cursor, review_result)
+                self._save_review_summary_index(cursor, review_result)
             connection.commit()
 
     def claim(self, review_result: ReviewResult) -> bool:
@@ -188,6 +190,8 @@ class MySQLReviewResultRepository:
                 self._save_tobacco_license_projection(cursor, review_result)
                 self._save_tobacco_consistency_projection(cursor, review_result)
                 self._save_product_report_projection(cursor, review_result)
+                self._assert_required_projection(cursor, review_result)
+                self._save_review_summary_index(cursor, review_result)
             connection.commit()
         return True
 
@@ -317,6 +321,14 @@ class MySQLReviewResultRepository:
                         """,
                         (updated_payload.model_dump_json(), task_id),
                     )
+                cursor.execute(
+                    """
+                    UPDATE review_summary_index
+                    SET review_status = %s, needs_manual_review = %s, updated_at = %s
+                    WHERE task_id = %s
+                    """,
+                    ("MANUAL_REVIEWED", 0, reviewed_at_text, task_id),
+                )
                 cursor.execute(
                     """
                     INSERT INTO business_license_review_audit_events (
@@ -629,6 +641,7 @@ class MySQLReviewResultRepository:
         needs_manual_review: bool | None = None,
         created_from: str | None = None,
         created_to: str | None = None,
+        expire_status: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
@@ -834,38 +847,76 @@ class MySQLReviewResultRepository:
         needs_manual_review: bool | None = None,
         created_from: str | None = None,
         created_to: str | None = None,
+        expire_status: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
         self._ensure_schema_once()
-        rows = self._all_qc_review_rows()
-        filtered = [
-            row
-            for row in rows
-            if _qc_row_matches(
-                row,
-                supplier_name=supplier_name,
-                credit_code=credit_code,
-                document_type=document_type,
-                risk_level=risk_level,
-                review_status=review_status,
-                needs_manual_review=needs_manual_review,
-                created_from=created_from,
-                created_to=created_to,
-            )
-        ]
-        filtered.sort(
-            key=lambda row: (row.get("created_at") or "", row.get("task_id") or ""),
-            reverse=True,
-        )
         safe_page_size = min(max(1, page_size), 100)
-        total = len(filtered)
+        safe_page = max(1, page)
+        filters, params = _review_summary_index_filters(
+            supplier_name=supplier_name,
+            credit_code=credit_code,
+            document_type=document_type,
+            risk_level=risk_level,
+            review_status=review_status,
+            needs_manual_review=needs_manual_review,
+            created_from=created_from,
+            created_to=created_to,
+            expire_status=expire_status,
+        )
+        where_clause = f" WHERE {' AND '.join(filters)}" if filters else ""
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                self._backfill_review_summary_index(cursor)
+                cursor.execute(
+                    f"SELECT COUNT(*) AS total FROM review_summary_index{where_clause}",
+                    params,
+                )
+                total = int((cursor.fetchone() or {}).get("total") or 0)
+                total_pages = max(1, (total + safe_page_size - 1) // safe_page_size)
+                safe_page = min(safe_page, total_pages)
+                offset = (safe_page - 1) * safe_page_size
+                cursor.execute(
+                    f"""
+                    SELECT *
+                    FROM review_summary_index{where_clause}
+                    ORDER BY created_at DESC, task_id DESC
+                    LIMIT %s OFFSET %s
+                    """,
+                    (*params, safe_page_size, offset),
+                )
+                items = [_qc_review_summary_index_row(row) for row in cursor.fetchall()]
+                cursor.execute(
+                    f"""
+                    SELECT
+                        COUNT(*) AS total,
+                        SUM(CASE WHEN review_status = 'REVIEWED' THEN 1 ELSE 0 END) AS reviewed,
+                        SUM(CASE WHEN needs_manual_review = 1 THEN 1 ELSE 0 END) AS pending_manual_review,
+                        SUM(CASE WHEN risk_level = 'HIGH' THEN 1 ELSE 0 END) AS high_risk,
+                        SUM(CASE WHEN created_at >= %s THEN 1 ELSE 0 END) AS today_reviewed
+                    FROM review_summary_index{where_clause}
+                    """,
+                    (_today_boundary(), *params),
+                )
+                aggregate = cursor.fetchone() or {}
+                cursor.execute(
+                    f"""
+                    SELECT document_type, COUNT(*) AS total
+                    FROM review_summary_index{where_clause}
+                    GROUP BY document_type
+                    """,
+                    params,
+                )
+                document_type_counts = {
+                    str(row.get("document_type") or "unknown"): int(row.get("total") or 0)
+                    for row in cursor.fetchall()
+                }
+            connection.commit()
         total_pages = max(1, (total + safe_page_size - 1) // safe_page_size)
-        safe_page = min(max(1, page), total_pages)
-        offset = (safe_page - 1) * safe_page_size
         return {
-            "items": filtered[offset : offset + safe_page_size],
-            "metrics": _qc_review_metrics(filtered),
+            "items": items,
+            "metrics": _qc_review_metrics_from_aggregate(aggregate, document_type_counts),
             "page": safe_page,
             "page_size": safe_page_size,
             "total": total,
@@ -1002,6 +1053,19 @@ class MySQLReviewResultRepository:
                         """,
                         (updated_payload.model_dump_json(), task_id),
                     )
+                cursor.execute(
+                    """
+                    UPDATE review_summary_index
+                    SET review_status = %s, needs_manual_review = %s, updated_at = %s
+                    WHERE task_id = %s
+                    """,
+                    (
+                        "PENDING_MANUAL_REVIEW" if requests_more_info else "MANUAL_REVIEWED",
+                        1 if requests_more_info else 0,
+                        reviewed_at_text,
+                        task_id,
+                    ),
+                )
             connection.commit()
         if table is None and updated_payload is None:
             return None
@@ -1025,6 +1089,58 @@ class MySQLReviewResultRepository:
                     if cursor.fetchone() is not None:
                         return table
         return None
+
+    def _save_review_summary_index(self, cursor, review_result: ReviewResult) -> None:
+        """Persist the list-page fields separately from the full review payload."""
+        row = _review_summary_index_row_for_review(review_result)
+        cursor.execute(
+            """
+            INSERT INTO review_summary_index (
+                task_id, document_type, supplier_name, credit_code, review_status,
+                risk_level, needs_manual_review, summary, source_record_id,
+                        source_created_at, source_attachment_ref_id, source_url, valid_to,
+                expire_status, expire_days_remaining,
+                extracted_fields_json, normalized_fields_json, source_evidence_json,
+                rule_results_json, created_at, updated_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                document_type = VALUES(document_type), supplier_name = VALUES(supplier_name),
+                credit_code = VALUES(credit_code), review_status = VALUES(review_status),
+                risk_level = VALUES(risk_level), needs_manual_review = VALUES(needs_manual_review),
+                summary = VALUES(summary), source_record_id = VALUES(source_record_id),
+                source_created_at = VALUES(source_created_at),
+                source_attachment_ref_id = VALUES(source_attachment_ref_id), source_url = VALUES(source_url),
+                valid_to = VALUES(valid_to), expire_status = VALUES(expire_status),
+                expire_days_remaining = VALUES(expire_days_remaining), extracted_fields_json = VALUES(extracted_fields_json),
+                normalized_fields_json = VALUES(normalized_fields_json),
+                source_evidence_json = VALUES(source_evidence_json),
+                rule_results_json = VALUES(rule_results_json), created_at = VALUES(created_at),
+                updated_at = VALUES(updated_at)
+            """,
+            _review_summary_index_values(row),
+        )
+
+    def _backfill_review_summary_index(self, cursor) -> None:
+        """Incrementally backfill historical rows without delaying a page request."""
+        cursor.execute(
+            """
+            SELECT results.payload_json
+            FROM review_results AS results
+            LEFT JOIN review_summary_index AS summary
+                ON summary.task_id = results.task_id
+            WHERE summary.task_id IS NULL
+            ORDER BY results.created_at DESC
+            LIMIT 100
+            """
+        )
+        for stored in cursor.fetchall():
+            payload_json = stored.get("payload_json")
+            if not payload_json:
+                continue
+            self._save_review_summary_index(
+                cursor,
+                ReviewResult.model_validate_json(payload_json),
+            )
 
     def _all_qc_review_rows(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -1368,6 +1484,44 @@ class MySQLReviewResultRepository:
                     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
                     """
                 )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS review_summary_index (
+                        task_id VARCHAR(128) PRIMARY KEY,
+                        document_type VARCHAR(64) NOT NULL,
+                        supplier_name VARCHAR(512),
+                        credit_code VARCHAR(64),
+                        review_status VARCHAR(64) NOT NULL,
+                        risk_level VARCHAR(64) NOT NULL,
+                        needs_manual_review TINYINT NOT NULL,
+                        summary TEXT NOT NULL,
+                        source_record_id VARCHAR(255),
+                        source_created_at VARCHAR(64),
+                        source_attachment_ref_id VARCHAR(255),
+                        source_url TEXT,
+                        valid_to VARCHAR(64),
+                        expire_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
+                        expire_days_remaining INT NULL,
+                        extracted_fields_json JSON NOT NULL,
+                        normalized_fields_json JSON NOT NULL,
+                        source_evidence_json JSON NOT NULL,
+                        rule_results_json JSON NOT NULL,
+                        created_at VARCHAR(64),
+                        updated_at VARCHAR(64),
+                        INDEX idx_review_summary_type_created (document_type, created_at),
+                        INDEX idx_review_summary_status_created (review_status, created_at),
+                        INDEX idx_review_summary_risk_created (risk_level, created_at),
+                        INDEX idx_review_summary_manual_created (needs_manual_review, created_at),
+                        INDEX idx_review_summary_credit_code (credit_code)
+                        , INDEX idx_review_summary_expire_created (expire_status, created_at)
+                    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+                    """
+                )
+                for ddl in (
+                    "ALTER TABLE review_summary_index ADD COLUMN expire_status VARCHAR(32) NOT NULL DEFAULT 'unknown'",
+                    "ALTER TABLE review_summary_index ADD COLUMN expire_days_remaining INT NULL",
+                ):
+                    _try_add_column(cursor, ddl)
                 cursor.execute(
                     """
                     CREATE TABLE IF NOT EXISTS business_license_reviews (
@@ -1828,6 +1982,19 @@ class MySQLReviewResultRepository:
             cursor.execute(
                 f"DELETE FROM {table} WHERE task_id = %s",
                 (review_result.task_id,),
+            )
+
+    def _assert_required_projection(self, cursor, review_result: ReviewResult) -> None:
+        """确保烟草一致性结果提交后可被详情页读取。"""
+        if review_result.document_type != "business_tobacco_consistency":
+            return
+        cursor.execute(
+            "SELECT task_id FROM tobacco_consistency_reviews WHERE task_id = %s",
+            (review_result.task_id,),
+        )
+        if cursor.fetchone() is None:
+            raise RuntimeError(
+                "烟草一致性审核结果投影写入失败，已取消保存以避免产生空详情"
             )
 
     def _save_food_license_projection(self, cursor, review_result: ReviewResult) -> None:
@@ -2772,6 +2939,178 @@ def _qc_row_matches(
     return True
 
 
+def _review_summary_index_filters(
+    *,
+    supplier_name: str | None,
+    credit_code: str | None,
+    document_type: str | None,
+    risk_level: str | None,
+    review_status: str | None,
+    needs_manual_review: bool | None,
+    created_from: str | None,
+    created_to: str | None,
+    expire_status: str | None,
+) -> tuple[list[str], list[Any]]:
+    filters: list[str] = []
+    params: list[Any] = []
+    if supplier_name:
+        filters.append("supplier_name LIKE %s")
+        params.append(f"%{supplier_name}%")
+    if credit_code:
+        filters.append("UPPER(credit_code) = %s")
+        params.append(credit_code.upper())
+    if document_type:
+        filters.append("document_type = %s")
+        params.append(document_type)
+    if risk_level:
+        filters.append("risk_level = %s")
+        params.append(risk_level)
+    if review_status:
+        filters.append("review_status = %s")
+        params.append(review_status)
+    if needs_manual_review is not None:
+        filters.append("needs_manual_review = %s")
+        params.append(1 if needs_manual_review else 0)
+    if created_from:
+        filters.append("created_at >= %s")
+        params.append(_created_from_boundary(created_from))
+    if created_to:
+        filters.append("created_at <= %s")
+        params.append(_created_to_boundary(created_to))
+    if expire_status:
+        filters.append("expire_status = %s")
+        params.append(expire_status)
+    return filters, params
+
+
+def _review_summary_index_values(row: dict[str, Any]) -> tuple[Any, ...]:
+    expire_status, expire_days_remaining = _summary_expire_status(row.get("valid_to"))
+    return (
+        row.get("task_id"), row.get("document_type"), row.get("supplier_name"),
+        row.get("credit_code"), row.get("review_status"), row.get("risk_level"),
+        1 if row.get("needs_manual_review") else 0, row.get("summary") or "",
+        row.get("source_record_id"), row.get("source_created_at"),
+        row.get("source_attachment_ref_id"), row.get("source_url"), row.get("valid_to"),
+        expire_status, expire_days_remaining,
+        dumps(row.get("extracted_fields") or {}, ensure_ascii=False),
+        dumps(row.get("normalized_fields") or {}, ensure_ascii=False),
+        dumps(row.get("source_evidence") or {}, ensure_ascii=False),
+        dumps(row.get("rule_results") or [], ensure_ascii=False),
+        row.get("created_at"), row.get("updated_at"),
+    )
+
+
+def _review_summary_index_row_for_review(review_result: ReviewResult) -> dict[str, Any]:
+    """Use the same source-aware values as the document projection tables."""
+    row = _qc_review_result_row(review_result)
+    document_type = review_result.document_type
+    if document_type == "business_license":
+        projection = _business_license_projection(review_result)
+        row.update({
+            "supplier_name": projection.get("business_name"),
+            "credit_code": projection.get("credit_code"),
+            "valid_to": projection.get("valid_to"),
+        })
+    elif document_type == "food_license":
+        projection = _food_license_projection(review_result)
+        row.update({
+            "supplier_name": projection.get("subject_name"),
+            "credit_code": projection.get("credit_code"),
+            "valid_to": projection.get("valid_to"),
+        })
+    elif document_type == "food_production_license":
+        projection = _food_production_license_projection(review_result)
+        row.update({
+            "supplier_name": projection.get("supplier_name"),
+            "credit_code": _food_production_credit_code_for_display(projection.get("credit_code")),
+            "valid_to": (row.get("normalized_fields") or {}).get("valid_to"),
+        })
+    elif document_type == "tobacco_license":
+        projection = _tobacco_license_projection(review_result)
+        row.update({
+            "supplier_name": projection.get("subject_name"),
+            "credit_code": (row.get("extracted_fields") or {}).get("credit_code"),
+            "valid_to": projection.get("valid_to"),
+        })
+    elif document_type == "business_tobacco_consistency":
+        projection = _tobacco_consistency_projection(review_result)
+        row["supplier_name"] = projection.get("subject_name")
+    elif document_type == "product_report":
+        projection = _product_report_projection(review_result)
+        row.update({
+            "supplier_name": (
+                projection.get("vendor_name")
+                or projection.get("vendor_name_extracted")
+                or projection.get("product_name")
+                or projection.get("sample_name")
+            ),
+            "valid_to": projection.get("valid_to"),
+        })
+    return row
+
+
+def _qc_review_summary_index_row(row: dict[str, Any]) -> dict[str, Any]:
+    item = dict(row)
+    document_type = str(item.get("document_type") or "")
+    return {
+        "task_id": item.get("task_id"),
+        "use_case_name": _use_case_name_for_document_type(document_type),
+        "document_type": document_type,
+        "document_type_label": _document_type_label(document_type),
+        "supplier_name": item.get("supplier_name"),
+        "credit_code": item.get("credit_code"),
+        "review_status": item.get("review_status"),
+        "review_status_label": _review_status_label(item.get("review_status") or ""),
+        "risk_level": item.get("risk_level"),
+        "risk_level_label": _risk_level_label(item.get("risk_level") or ""),
+        "needs_manual_review": bool(item.get("needs_manual_review")),
+        "summary": item.get("summary"),
+        "source_record_id": item.get("source_record_id"),
+        "source_created_at": item.get("source_created_at"),
+        "source_attachment_ref_id": item.get("source_attachment_ref_id"),
+        "source_url": item.get("source_url"),
+        "valid_to": item.get("valid_to"),
+        "expire_status": item.get("expire_status") or "unknown",
+        "expire_days_remaining": item.get("expire_days_remaining"),
+        "extracted_fields": loads(item.get("extracted_fields_json") or "{}"),
+        "normalized_fields": loads(item.get("normalized_fields_json") or "{}"),
+        "source_evidence": loads(item.get("source_evidence_json") or "{}"),
+        "rule_results": loads(item.get("rule_results_json") or "[]"),
+        "created_at": item.get("created_at"),
+        "updated_at": item.get("updated_at"),
+    }
+
+
+def _use_case_name_for_document_type(document_type: str) -> str:
+    return {
+        "business_license": "business_license",
+        "food_license": "food_license",
+        "food_production_license": "food_production_license",
+        "tobacco_license": "tobacco_license",
+        "business_tobacco_consistency": "tobacco_license_consistency_review",
+        "product_report": "qc_document_review",
+        "batch_report": "qc_document_review",
+    }.get(document_type, document_type)
+
+
+def _summary_expire_status(valid_to: Any) -> tuple[str, int | None]:
+    value = str(valid_to or "").strip()
+    if not value:
+        return "unknown", None
+    if "长期" in value:
+        return "valid", None
+    try:
+        expiry_date = datetime.fromisoformat(value[:10]).date()
+    except ValueError:
+        return "unknown", None
+    remaining = (expiry_date - datetime.now().astimezone().date()).days
+    if remaining < 0:
+        return "expired", remaining
+    if remaining <= 30:
+        return "expiring_soon", remaining
+    return "valid", remaining
+
+
 def _qc_review_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     total = len(rows)
     reviewed = sum(1 for row in rows if row.get("review_status") == "REVIEWED")
@@ -2786,6 +3125,25 @@ def _qc_review_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "pass_rate": 0 if total == 0 else round((reviewed / total) * 100),
         "document_type_counts": document_type_counts,
     }
+
+
+def _qc_review_metrics_from_aggregate(
+    aggregate: dict[str, Any],
+    document_type_counts: dict[str, int],
+) -> dict[str, Any]:
+    total = int(aggregate.get("total") or 0)
+    reviewed = int(aggregate.get("reviewed") or 0)
+    return {
+        "today_reviewed": int(aggregate.get("today_reviewed") or 0),
+        "pending_manual_review": int(aggregate.get("pending_manual_review") or 0),
+        "high_risk": int(aggregate.get("high_risk") or 0),
+        "pass_rate": 0 if total == 0 else round((reviewed / total) * 100),
+        "document_type_counts": document_type_counts,
+    }
+
+
+def _today_boundary() -> str:
+    return datetime.now().astimezone().date().isoformat()
 
 
 def _document_type_label(document_type: str) -> str:

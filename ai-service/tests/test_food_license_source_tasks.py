@@ -48,6 +48,27 @@ def test_fetch_food_license_source_tasks_maps_sql_rows_to_review_inputs():
     assert task.review_input.source["attachment_ref_id"] == "attach-food-001"
 
 
+def test_food_license_source_task_accepts_prepackaged_filing_mistagged_as_business_license():
+    tasks = fetch_food_license_source_tasks(
+        StubSqlClient(
+            [{
+                "uuid": "cert-prepackaged-001",
+                "refId": "attach-prepackaged-001",
+                "typeName": "营业执照",
+                "vendorName": "重庆佳贝贝电子商务有限公司",
+                "num": "91500100MADELEJ23N",
+                "attachmentName": "仅销售预包装食品经营者新办备案信息采集表.pdf",
+                "url": "https://files.example.test/prepackaged-filing.pdf",
+            }]
+        ),
+        "select * from certification",
+    )
+
+    assert len(tasks) == 1
+    assert tasks[0].review_input.declared_document_type == "food_license"
+    assert tasks[0].review_input.source["document_type_evidence"]["conflict"] is True
+
+
 def test_fetch_food_license_source_tasks_does_not_treat_serial_num_as_credit_code():
     client = StubSqlClient(
         [
@@ -202,6 +223,7 @@ def test_fetch_one_food_license_source_task_uses_default_srm_sql():
     assert "ods_srm_srm_certification_df t1" in DEFAULT_FOOD_LICENSE_SOURCE_SQL
     assert "ods_srm_srm_attachment_df t2" in DEFAULT_FOOD_LICENSE_SOURCE_SQL
     assert "t1.typeName = '食品经营许可证'" in normalized_sql
+    assert "t2.attachmentName like '%仅销售预包装食品%'" in normalized_sql
     assert "t2.url is not null" in DEFAULT_FOOD_LICENSE_SOURCE_SQL.lower()
     assert "t2.url <> ''" in DEFAULT_FOOD_LICENSE_SOURCE_SQL.lower()
     assert "order by rand()" in DEFAULT_FOOD_LICENSE_SOURCE_SQL.lower()

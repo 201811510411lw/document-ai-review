@@ -73,6 +73,24 @@ OA 应按 `task_id` 幂等消费可能重复的回调，并根据 `result.data.d
 触发请求已被正常受理时 `code` 为 `0`；鉴权失败返回 HTTP 401，参数校验失败返回
 HTTP 422，回调地址未配置返回 HTTP 503。最终 `exception` 作为回调业务结果发送。
 
+## 本地调用样例
+
+仓库提供 OA 调用方模拟脚本，用于在不改动 OA 系统的前提下验证鉴权、触发和轮询契约。
+该脚本不会伪造 StarRocks、NAS 或 OCR 数据，需使用真实可用的 OA `requestid` 与门店编码。
+
+```bash
+cd ai-service
+export OA_AUTO_REVIEW_TOKEN='<shared-secret>'
+python scripts/oa_auto_review_smoke_test.py \
+  --base-url http://127.0.0.1:8000 \
+  --requestid 584412 \
+  --store-code 00001 \
+  --poll
+```
+
+Windows PowerShell 可改为 `$env:OA_AUTO_REVIEW_TOKEN = '<shared-secret>'`。只有触发响应为
+`REVIEW_IN_PROGRESS` 时，`--poll` 才会继续请求结果接口。
+
 ## 轮询结果
 
 `GET /api/v1/tobacco-license-consistency/reviews/{task_id}/oa-result`

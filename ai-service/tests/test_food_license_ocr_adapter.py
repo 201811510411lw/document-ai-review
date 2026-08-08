@@ -41,6 +41,21 @@ def test_food_license_adapter_accepts_prepackaged_food_filing_voucher_pdf_text()
     assert fields["valid_from"] == "2022年4月24日"
 
 
+def test_food_license_adapter_extracts_subject_from_prepackaged_food_filing_form():
+    source_text = (
+        "仅销售预包装食品经营者新办备案信息采集表\n"
+        "食品经营者名称：重庆佳贝贝电子商务有限公司\n"
+        "办理备案日期：2024年04月24日"
+    )
+
+    fields = _sanitize_food_license_fields({}, source_text=source_text)
+
+    assert fields["document_type"] == "food_license"
+    assert fields["document_type_raw"] == "仅销售预包装食品经营者新办备案信息采集表"
+    assert fields["subject_name"] == "重庆佳贝贝电子商务有限公司"
+    assert fields["valid_from"] == "2024年04月24日"
+
+
 def test_validate_food_license_ocr_result_accepts_key_fields():
     validation = validate_food_license_ocr_result(
         {

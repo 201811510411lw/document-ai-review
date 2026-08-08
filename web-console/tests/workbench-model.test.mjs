@@ -7,7 +7,7 @@ import {
 import { buildWorkbenchOverview } from '../src/features/workbench/overview.js'
 
 const reviewerDesktop = buildDesktopNavigation({ isAdmin: false, currentPath: '/tobacco/reports/abc' })
-assert.deepEqual(reviewerDesktop.map(group => group.label), ['工作空间', '烟草业务'])
+assert.deepEqual(reviewerDesktop.map(group => group.label), ['QC 审核', '烟草业务'])
 assert.equal(reviewerDesktop.flatMap(group => group.items).some(item => item.to === '/admin'), false)
 assert.equal(reviewerDesktop.flatMap(group => group.items).some(item => item.to === '/review'), false)
 assert.equal(reviewerDesktop[0].items.some(item => item.to === '/tobacco/reports'), false)
@@ -20,10 +20,17 @@ const reviewerTobaccoList = buildDesktopNavigation({ isAdmin: false, currentPath
 assert.equal(reviewerTobaccoList.at(-1).items[0].active, true)
 
 const adminDesktop = buildDesktopNavigation({ isAdmin: true, currentPath: '/review/task-1' })
-assert.deepEqual(adminDesktop.map(group => group.label), ['工作空间', '管理', '烟草业务'])
+assert.deepEqual(adminDesktop.map(group => group.label), ['QC 审核', '烟草业务', '管理'])
 assert.equal(adminDesktop.flatMap(group => group.items).some(item => item.to === '/admin'), true)
 assert.equal(adminDesktop.flatMap(group => group.items).find(item => item.to === '/review')?.active, true)
-assert.deepEqual(adminDesktop.at(-1).items.map(item => item.to), ['/tobacco/reports'])
+assert.deepEqual(
+  adminDesktop.find(group => group.label === '烟草业务')?.items.map(item => item.to),
+  ['/tobacco/reports'],
+)
+assert.deepEqual(
+  adminDesktop.find(group => group.label === '管理')?.items.map(item => item.to),
+  ['/admin'],
+)
 
 const adminMobile = buildMobileNavigation({ isAdmin: true, currentPath: '/dashboard' })
 assert.deepEqual(adminMobile.map(item => item.to), ['/home', '/review', '/dashboard', '/profile'])

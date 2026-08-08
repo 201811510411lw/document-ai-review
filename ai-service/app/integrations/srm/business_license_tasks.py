@@ -8,6 +8,7 @@ from app.integrations.srm.document_records import (
     DocumentRecord,
     map_srm_certification_row,
 )
+from app.integrations.srm.document_type_evidence import resolve_srm_document_type
 from app.models import ReviewDocumentInput, ReviewInput
 
 
@@ -72,6 +73,10 @@ def fetch_business_license_source_tasks(
     for row in rows:
         record = map_srm_certification_row(row)
         if record.declared_document_type != "business_license":
+            continue
+        # SRM 的 typeName 偶有误填。文件名或备注已明确说明为食品备案时，
+        # 不得继续送入营业执照工作流，避免标题被误抽为主体名称。
+        if resolve_srm_document_type(record).resolved_document_type != "business_license":
             continue
         if not record.file_url:
             raise BusinessLicenseSourceTaskError(

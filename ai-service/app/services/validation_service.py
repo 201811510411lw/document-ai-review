@@ -437,6 +437,9 @@ def compute_validation_fields(
                         if not fields[i].get("expected") and rf.get("expected"):
                             fields[i]["expected"] = rf["expected"]
                             fields[i]["missing_expected"] = False
+                            # Rule details are an audit expectation, not necessarily a
+                            # source-system field. Keep the origin explicit for the UI.
+                            fields[i]["expected_source"] = "rule_expected"
                         if rf.get("required") is not None:
                             fields[i]["required"] = rf["required"]
                         if _rule_overlay_matches_current_field(rule_field, fields[i]):
@@ -452,6 +455,42 @@ def compute_validation_fields(
             else:
                 fields.append(rf)
                 seen_fields.add(field_name)
+    return _attach_validity_recognition_sources(fields, detail)
+
+
+def _attach_validity_recognition_sources(
+    fields: list[dict[str, Any]],
+    detail: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """为有效期字段补充 OCR 取值来源，供前端追溯展示。"""
+    extraction_metadata = detail.get("extraction_metadata")
+    if not isinstance(extraction_metadata, dict):
+        return fields
+
+    extractor = extraction_metadata.get("llm_file_extractor")
+    extractor = extractor if isinstance(extractor, dict) else {}
+    recovery = extractor.get("valid_to_recovery")
+    recovery = recovery if isinstance(recovery, dict) else {}
+
+    if recovery.get("recovered") and recovery.get("method") == "red_seal_date_region_ocr":
+        source = "红章日期区域 OCR 恢复"
+    else:
+        provider = str(extractor.get("provider") or "").lower()
+        if "qwen" in provider:
+            source = "主 OCR 识别"
+        elif "aliyun" in provider:
+            source = "阿里云 OCR 识别"
+        elif provider:
+            source = "OCR 识别"
+        else:
+            source = "OCR 识别"
+
+    for field in fields:
+        if (
+            field.get("field") in {"有效期开始", "有效期结束"}
+            and field.get("recognized")
+        ):
+            field["recognized_source"] = source
     return fields
 
 
@@ -599,6 +638,7 @@ def _from_rule_results(
                     "field": field_name,
                     "recognized": actual,
                     "expected": expected,
+                    "expected_source": "rule_expected" if expected else "not_available",
                     "match": passed,
                     "risk": risk if not passed else "",
                     "required": spec.get("required", True),
@@ -810,10 +850,15 @@ def _field_comparison(
     for label, keys in specs:
         recognized = _recognized_value(extracted, normalized, keys)
         expected = _first_field_value(source, keys)
+        expected_source = "source_system" if _is_source_field(keys) else ""
 
-        # 非来源字段使用 normalized 作为兜底
+        # Non-source fields still use normalized data for the existing matching
+        # calculation, but the UI must not present that value as a database value.
         if expected is None and not _is_source_field(keys):
             expected = _first_field_value(normalized, keys)
+            expected_source = (
+                "normalized_recognition" if expected is not None else "not_available"
+            )
 
         required = _is_required_field(document_type, keys)
         missing_rec = not _display_value(recognized)
@@ -838,6 +883,7 @@ def _field_comparison(
                 match = recognized_display == expected_display if expected_display else False
                 recognized = recognized_display
                 expected = expected_display or _display_value(expected)
+                expected_source = "task_declaration"
             else:
                 # 无原始标题 → 用系统值映射显示名
                 db_doc_type = detail.get("document_type") or document_type
@@ -848,6 +894,7 @@ def _field_comparison(
                 if recognized_display and expected_display:
                     recognized = recognized_display
                     expected = expected_display
+                    expected_source = "task_declaration"
                     match = recognized_display == expected_display
                 else:
                     match = str(recognized).lower() == str(expected).lower() if recognized and expected else False
@@ -870,6 +917,7 @@ def _field_comparison(
                 "field": label,
                 "recognized": _display_value(recognized),
                 "expected": _display_value(expected),
+                "expected_source": expected_source,
                 "match": match,
                 "risk": _field_risk(keys, recognized),
                 "required": required,
@@ -1009,7 +1057,14 @@ def _fail_reason(field: dict[str, Any]) -> str:
     if field.get("missing_expected"):
         parts.append("来源系统无此字段")
     if not parts and not field.get("match"):
-        parts.append("识别值与数据库不一致")
+        expected_source = field.get("expected_source")
+        reason_by_source = {
+            "source_system": "识别值与来源系统值不一致",
+            "task_declaration": "识别类型与任务声明类型不一致",
+            "rule_expected": "识别值与规则期望值不一致",
+            "normalized_recognition": "识别值标准化结果不一致",
+        }
+        parts.append(reason_by_source.get(expected_source, "该字段缺少可比来源"))
     return "；".join(parts) if parts else "校验不通过"
 
 

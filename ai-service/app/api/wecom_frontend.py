@@ -112,6 +112,7 @@ def dashboard_stats(
             "pending_manual_review": workbench["pending"],
             "batches": 0,
             "type_distribution": metrics["type_distribution"],
+            "all_records": records,
         }
     }
 
@@ -175,7 +176,9 @@ def review_list(
     repository: FrontendRepository = Depends(get_review_read_repository),
 ) -> dict[str, Any]:
     review_filter = _frontend_review_filter(review_status)
-    records_scope = _all_qc_records(repository, document_type=_blank_to_none(document_type))
+    records_scope = _license_only_records(
+        _all_qc_records(repository, document_type=_blank_to_none(document_type))
+    )
     records = _filter_frontend_records(
         records_scope,
         [keyword.strip()] if keyword.strip() else [],
@@ -1004,6 +1007,7 @@ def _frontend_qc_record(
 
 
 def _frontend_qc_detail(detail: dict[str, Any], payload: dict[str, Any] | None) -> dict[str, Any]:
+    detail = _with_extraction_metadata(detail, payload)
     record = _frontend_qc_record(detail)
     validation_fields = _validation_fields(detail)
     verification_result = compute_verification_result(validation_fields)
@@ -1155,6 +1159,7 @@ def _frontend_record_matches_review_filter(record: dict[str, Any], review_filter
 
 
 def _frontend_review_detail(snapshot: dict[str, Any], payload: dict[str, Any] | None) -> dict[str, Any]:
+    snapshot = _with_extraction_metadata(snapshot, payload)
     record = _frontend_review_record(snapshot)
     record.update(
         {
@@ -1170,6 +1175,21 @@ def _frontend_review_detail(snapshot: dict[str, Any], payload: dict[str, Any] | 
 
 def _validation_fields(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     return compute_validation_fields(snapshot, snapshot.get("document_type") or "")
+
+
+def _with_extraction_metadata(
+    snapshot: dict[str, Any], payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """将完整审核结果中的识别元数据补入详情快照。"""
+    if snapshot.get("extraction_metadata"):
+        return snapshot
+    skill_result = (payload or {}).get("skill_result")
+    metadata = skill_result.get("extraction_metadata") if isinstance(skill_result, dict) else None
+    if not isinstance(metadata, dict):
+        return snapshot
+    enriched = dict(snapshot)
+    enriched["extraction_metadata"] = metadata
+    return enriched
 
 
 def _recognized_field_value(

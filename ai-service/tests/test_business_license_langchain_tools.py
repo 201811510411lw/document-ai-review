@@ -17,6 +17,28 @@ def test_business_license_classify_tool_uses_structured_document_type():
     }
 
 
+def test_business_license_classify_tool_recognizes_prepackaged_filing_title():
+    result = business_license_classify_document.invoke(
+        {
+            "structured_fields": {
+                "document_type": "business_license",
+                "subject_name": "仅销售预包装食品经营者新办备案信息采集表",
+            }
+        }
+    )
+
+    assert result["document_type"] == "food_license"
+    assert result["confidence"] == 0.0
+
+
+def test_business_license_classify_tool_recognizes_other_supported_document_titles():
+    result = business_license_classify_document.invoke(
+        {"structured_fields": {"document_type_raw": "食品生产许可证"}}
+    )
+
+    assert result["document_type"] == "food_production_license"
+
+
 def test_business_license_extract_tool_returns_structured_fields_and_metadata():
     result = business_license_extract_fields.invoke(
         {
@@ -42,9 +64,11 @@ def test_business_license_extract_tool_returns_structured_fields_and_metadata():
         "issue_date": None,
         "source_page": None,
         "ignored_pages": [],
-        "subject_name_evidence": None,
-        "credit_code_evidence": None,
-        "valid_to_evidence": None,
+            "subject_name_evidence": None,
+            "credit_code_evidence": None,
+            "business_address_evidence": None,
+            "legal_person_evidence": None,
+            "valid_to_evidence": None,
     }
     assert result["metadata"] == {
         "structured_extraction": {

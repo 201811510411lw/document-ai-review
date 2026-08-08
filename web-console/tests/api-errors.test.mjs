@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { apiErrorMessage } from '../src/api/errors.js'
+import { apiErrorInfo, apiErrorMessage } from '../src/api/errors.js'
 
 
 assert.equal(
@@ -29,3 +29,13 @@ assert.equal(
 )
 
 assert.equal(apiErrorMessage({ message: 'Network Error' }), 'Network Error')
+
+assert.deepEqual(
+  apiErrorInfo({ code: 'ECONNABORTED' }),
+  { message: '请求超时，请稍后重试', code: 'REQUEST_TIMEOUT', status: 0 },
+)
+
+assert.deepEqual(
+  apiErrorInfo({ response: { status: 422, data: { detail: [{ type: 'missing', msg: 'Field required' }] } } }),
+  { message: 'Field required', code: 'missing', status: 422 },
+)

@@ -11,6 +11,7 @@
       :records="displayRecords"
       :loading="loading"
       :creating="creating"
+      :create-error="createError"
       :current-page="pagination.currentPage"
       :total-pages="pagination.totalPages"
       :create-button-text="createButtonText"
@@ -18,6 +19,7 @@
       :on-set-filter="setFilterStatus"
       :on-search="loadList"
       :on-create="createReviewFromSrm"
+      :on-dismiss-create-error="dismissCreateError"
       :on-open="goToDetail"
       :on-set-page="setCurrentPage"
       :record-title="recordTitle"
@@ -40,6 +42,7 @@ import ReviewQueueView from '@/features/review/ReviewQueueView.vue'
 import {
   createReviewAndRefreshQueue,
   fetchCurrentReviewPage,
+  reviewCreateFailureMessage,
   reviewPagination,
 } from '@/features/review/queueModel.js'
 
@@ -49,6 +52,7 @@ const records = ref([])
 const stats = ref({})
 const loading = ref(true)
 const creating = ref(false)
+const createError = ref('')
 const keyword = ref('')
 const filterStatus = ref('')
 const activeDocumentType = ref('')
@@ -195,6 +199,7 @@ function setFilterStatus(status) {
 }
 
 async function createReviewFromSrm() {
+  createError.value = ''
   creating.value = true
   try {
     await createReviewAndRefreshQueue({
@@ -207,10 +212,14 @@ async function createReviewFromSrm() {
     })
     showToast('已发起审核')
   } catch (e) {
-    showToast(e.message || '发起审核失败')
+    createError.value = reviewCreateFailureMessage(e)
   } finally {
     creating.value = false
   }
+}
+
+function dismissCreateError() {
+  createError.value = ''
 }
 
 function goToDetail(id) {

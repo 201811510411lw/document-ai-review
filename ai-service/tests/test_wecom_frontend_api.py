@@ -64,6 +64,7 @@ def test_business_license_type_rule_aliases_render_as_one_chinese_field():
     assert len(type_fields) == 1
     assert type_fields[0]["recognized"] == "营业执照"
     assert type_fields[0]["expected"] == "营业执照"
+    assert type_fields[0]["expected_source"] == "task_declaration"
 
 
 def test_review_source_file_proxy_requires_login_and_returns_inline_attachment(
@@ -781,8 +782,10 @@ def test_wecom_frontend_dashboard_stats_empty_and_with_data(tmp_path, monkeypatc
 
     assert empty_response.json()["data"]["total"] == 0
     assert empty_response.json()["data"]["type_distribution"] == []
+    assert empty_response.json()["data"]["all_records"] == []
     assert data_response.json()["data"]["total"] == 1
     assert data_response.json()["data"]["type_distribution"][0]["type"] == "营业执照"
+    assert data_response.json()["data"]["all_records"][0]["company_name"] == "看板统计有限公司"
     assert daily_response.json()["data"]["all_records"][0]["company_name"] == "看板统计有限公司"
 
 
@@ -1439,7 +1442,14 @@ def test_wecom_frontend_food_production_detail_uses_production_validation_fields
                     "food_categories": ["糕点", "速冻食品"],
                     "valid_to": "2028-06-05",
                 },
-                "metadata": {"implementation_status": "stub"},
+                "metadata": {
+                    "implementation_status": "stub",
+                    "provider": "qwen_ocr",
+                    "valid_to_recovery": {
+                        "method": "red_seal_date_region_ocr",
+                        "recovered": True,
+                    },
+                },
             }
 
     pdf_path = tmp_path / "food-production-wecom-detail.pdf"
@@ -1487,8 +1497,13 @@ def test_wecom_frontend_food_production_detail_uses_production_validation_fields
         "签发日期",
     ]
     food_categories = next(field for field in fields if field["field"] == "食品类别")
+    producer_name = next(field for field in fields if field["field"] == "生产者名称")
     assert food_categories["recognized"] == "糕点、速冻食品"
+    assert food_categories["expected_source"] == "normalized_recognition"
     assert food_categories["match"] is True
+    assert producer_name["expected_source"] == "source_system"
+    valid_to = next(field for field in fields if field["field"] == "有效期结束")
+    assert valid_to["recognized_source"] == "红章日期区域 OCR 恢复"
 
 
 def test_wecom_frontend_product_report_detail_uses_product_report_validation_fields(

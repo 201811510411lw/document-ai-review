@@ -105,56 +105,39 @@
           <div v-for="(field, idx) in group.fields" :key="idx" class="field-item">
             <div class="field-name">
               {{ field.field }}
-              <span v-if="field.confidence" class="confidence-badge" :class="'conf-' + field.confidence.toLowerCase()">
-                {{ field.confidence }}
+              <span v-if="buildFieldRiskBadge(field)" class="field-risk-badge" :class="buildFieldRiskBadge(field).className">
+                {{ buildFieldRiskBadge(field).label }}
               </span>
             </div>
             <div class="field-values">
-              <!-- 识别值 = 数据库值 => 显示"一致" -->
-              <div v-if="field.recognized && field.expected && field.recognized === field.expected" class="value-row match-row">
-                <van-icon name="check" color="#07c160" size="14" />
-                <span class="value-text">{{ field.recognized }}</span>
-              </div>
-              <!-- 识别值 != 数据库值 => 两行对比 -->
-              <template v-else-if="field.recognized && field.expected && field.recognized !== field.expected">
-                <div class="value-row mismatch-row">
+              <!-- A value with an explicit comparison source always shows both sides. -->
+              <template v-if="hasComparisonSource(field)">
+                <div class="value-row" :class="{ 'mismatch-row': field.recognized && field.expected && field.recognized !== field.expected }">
                   <span class="value-label">识别值</span>
-                  <span class="value-text mismatch">{{ field.recognized }}</span>
-                  <van-icon name="cross" color="#ee0a24" size="14" />
+                  <span class="value-text" :class="{ mismatch: field.recognized && field.expected && field.recognized !== field.expected, empty: !field.recognized }">
+                    {{ field.recognized || '未识别到' }}
+                  </span>
+                  <van-icon :name="field.recognized ? (field.expected && field.recognized === field.expected ? 'check' : 'cross') : 'warning-o'" :color="field.recognized && field.expected && field.recognized === field.expected ? '#07c160' : '#ee0a24'" size="14" />
                 </div>
                 <div class="value-row">
-                  <span class="value-label">数据库</span>
-                  <span class="value-text" style="color:#07c160">{{ field.expected }}</span>
-                  <van-icon name="check" color="#07c160" size="14" />
+                  <span class="value-label">{{ comparisonLabel(field) }}</span>
+                  <span class="value-text" :class="{ empty: !field.expected }" style="color:#07c160">{{ field.expected || '未提供' }}</span>
+                  <van-icon :name="field.expected ? 'check' : 'warning-o'" :color="field.expected ? '#07c160' : '#ff976a'" size="14" />
                 </div>
               </template>
-              <!-- 只有识别值（无数据库对照） -->
-              <div v-else-if="field.recognized && !field.expected" class="value-row">
-                <van-icon name="check" color="#07c160" size="14" />
-                <span class="value-text">{{ field.recognized }}</span>
-              </div>
-              <!-- 只有数据库值 -->
-              <template v-else-if="field.expected && !field.recognized">
+              <!-- Normalized OCR values are not source-system comparison values. -->
+              <template v-else>
                 <div class="value-row">
                   <span class="value-label">识别值</span>
-                  <span class="value-text empty">未识别到</span>
-                  <van-icon
-                    name="warning-o"
-                    color="#ff976a"
-                    size="14"
-                    title="原件未识别到该字段，需人工确认"
-                    aria-label="原件未识别到该字段，需人工确认"
-                  />
+                  <span class="value-text" :class="{ empty: !field.recognized }">{{ field.recognized || '未识别到' }}</span>
+                  <van-icon :name="field.recognized ? 'check' : 'warning-o'" :color="field.recognized ? '#07c160' : '#ff976a'" size="14" />
                 </div>
-                <div class="value-row">
-                  <span class="value-label">数据库</span>
-                  <span class="value-text">{{ field.expected }}</span>
+                <div class="source-state">
+                  {{ field.expected_source === 'normalized_recognition' ? '识别结果已标准化，不作为来源系统对照' : '来源系统未提供可比字段' }}
                 </div>
               </template>
-              <!-- 都为空 -->
-              <div v-else class="value-row empty-row">
-                <van-icon name="info-o" color="#969799" size="14" />
-                <span class="value-text empty">{{ field.missing_recognized ? '未识别到' : '-' }}</span>
+              <div v-if="field.recognized_source" class="recognition-source">
+                识别来源：{{ field.recognized_source }}
               </div>
               <!-- LLM 匹配理由 -->
               <div v-if="field.match_reason" class="match-reason-row">
@@ -177,7 +160,7 @@
           <div class="rule-top">
             <van-icon
               :name="rule.passed ? 'success' : (rule.risk_level_on_failure === 'HIGH' ? 'fail' : 'warning-o')"
-              :color="rule.passed ? '#07c160' : (rule.risk_level_on_failure === 'HIGH' ? '#ee0a24' : '#ff976a')"
+              :color="rule.passed ? '#07c160' : (rule.risk_level_on_failure === 'HIGH' ? '#ee0a24' : '#a56d00')"
               size="16"
             />
             <span class="rule-name">{{ rule.rule_name || rule.rule_code }}</span>
@@ -244,7 +227,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { reviewApi } from '@/api'
-import { buildRuleRiskBadge } from '@/features/review/detailModel.js'
+import { buildFieldRiskBadge, buildRuleRiskBadge } from '@/features/review/detailModel.js'
 import { showToast, showConfirmDialog } from 'vant'
 
 const router = useRouter()
@@ -257,6 +240,19 @@ const openingSourceFile = ref(false)
 const comment = ref('')
 const showKeyIssues = ref(true)
 const showRuleDetails = ref(false)
+
+function hasComparisonSource(field) {
+  return ['source_system', 'task_declaration', 'rule_expected'].includes(field?.expected_source)
+}
+
+function comparisonLabel(field) {
+  const labels = {
+    source_system: '来源系统值',
+    task_declaration: '任务声明类型',
+    rule_expected: '规则期望值',
+  }
+  return labels[field?.expected_source] || '对照值'
+}
 
 const verificationResult = computed(() => {
   return record.value?.verification_result || null
@@ -548,7 +544,7 @@ async function handleFlag() {
   white-space: nowrap;
 }
 .risk-badge.risk-high { background: #ee0a24; color: #fff; }
-.risk-badge.risk-medium { background: #ff976a; color: #fff; }
+.risk-badge.risk-medium { background: #fff8db; color: #a56d00; }
 .risk-badge.risk-low { background: #e8fae8; color: #07c160; }
 .result-meta-row {
   display: flex;
@@ -626,7 +622,7 @@ async function handleFlag() {
   flex-shrink: 0;
 }
 .issue-risk.risk-high { background: #ee0a24; color: #fff; }
-.issue-risk.risk-medium { background: #ff976a; color: #fff; }
+.issue-risk.risk-medium { background: #fff8db; color: #a56d00; }
 .issue-risk.risk-low { background: #e8fae8; color: #07c160; }
 .issue-desc {
   font-size: 12px;
@@ -768,7 +764,7 @@ async function handleFlag() {
   flex-shrink: 0;
 }
 .rule-risk-badge.risk-high { background: #ee0a24; color: #fff; }
-.rule-risk-badge.risk-medium { background: #ff976a; color: #fff; }
+.rule-risk-badge.risk-medium { background: #fff8db; color: #a56d00; }
 .rule-risk-badge.risk-low { background: #e8fae8; color: #07c160; }
 .rule-message {
   font-size: 12px;
@@ -819,12 +815,12 @@ async function handleFlag() {
 }
 .field-item:last-child { border-bottom: none; }
 .field-name { font-size: 12px; font-weight: 500; color: #969799; margin-bottom: 3px; display: flex; align-items: center; gap: 6px; }
-.confidence-badge {
+.field-risk-badge {
   font-size: 10px; font-weight: 600; padding: 0 5px; border-radius: 3px; line-height: 16px;
 }
-.conf-high { background: #e8fae8; color: #07c160; }
-.conf-medium { background: #fff7e6; color: #ff976a; }
-.conf-low { background: #ffeeed; color: #ee0a24; }
+.field-risk-badge.risk-high { background: #ffeeed; color: #ee0a24; }
+.field-risk-badge.risk-medium { background: #fff8db; color: #a56d00; }
+.field-risk-badge.risk-low { background: #e8fae8; color: #07c160; }
 .match-reason-row {
   display: flex; align-items: flex-start; gap: 4px;
   font-size: 12px; color: #969799; margin-top: 3px; padding: 3px 6px;
@@ -833,10 +829,12 @@ async function handleFlag() {
 .reason-icon { font-size: 12px; flex-shrink: 0; }
 .reason-text { line-height: 1.4; }
 .value-row { display: flex; align-items: center; gap: 5px; font-size: 13px; padding: 2px 0; }
-.value-label { font-size: 11px; color: #969799; width: 44px; flex-shrink: 0; }
+.value-label { min-width: 68px; color: #969799; flex-shrink: 0; font-size: 11px; white-space: nowrap; }
 .value-text { color: #323233; flex: 1; }
 .value-text.mismatch { color: #ee0a24; }
 .value-text.empty { color: #969799; font-style: italic; }
+.source-state { margin-top: 4px; color: #969799; font-size: 12px; line-height: 1.4; }
+.recognition-source { margin-top: 4px; color: #969799; font-size: 12px; line-height: 1.4; }
 .match-row { color: #07c160; }
 .mismatch-row { color: #ee0a24; }
 .empty-row { color: #969799; }

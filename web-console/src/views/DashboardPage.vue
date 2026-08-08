@@ -197,14 +197,9 @@ function goToQuery(companyName) {
 
 onMounted(async () => {
   try {
-    const [dailyRes, statsRes] = await Promise.all([
-      dashboardApi.daily(),
-      dashboardApi.stats(),
-    ])
-    const dailyData = dailyRes.data || dailyRes
-    dailyReport.value = dailyData
-
+    const statsRes = await dashboardApi.stats()
     const statsData = statsRes.data || statsRes
+    dailyReport.value = { all_records: statsData.all_records || [] }
     typeDistributionRows.value = statsData.type_distribution || []
   } catch (e) {
     showToast('加载失败: ' + e.message)

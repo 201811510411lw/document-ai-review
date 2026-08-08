@@ -40,7 +40,10 @@ where
 	and t2.refType = 'certification'
 	and t2.url is not null
 	and t2.url <> ''
-	and t1.typeName = '食品经营许可证'
+	and (
+		t1.typeName = '食品经营许可证'
+		or t2.attachmentName like '%仅销售预包装食品%'
+	)
 	order by rand()
 	limit 1
 """.strip()
@@ -64,7 +67,13 @@ def fetch_food_license_source_tasks(
 
     for row in rows:
         record = map_srm_certification_row(row)
-        if record.declared_document_type != "food_license":
+        document_type_evidence = resolve_srm_document_type(record)
+        # 保留既有行为：食品经营来源可在附件证据指向生产许可证时继续
+        # 交给生产许可证工作流；同时接纳 SRM 误标营业执照但证据明确为备案的附件。
+        if (
+            record.declared_document_type != "food_license"
+            and document_type_evidence.resolved_document_type != "food_license"
+        ):
             continue
         if not record.file_url:
             raise FoodLicenseSourceTaskError(
@@ -77,13 +86,18 @@ def fetch_food_license_source_tasks(
         if dedupe_key in seen_keys:
             continue
         seen_keys.add(dedupe_key)
-        tasks.append(FoodLicenseSourceTask(record=record, review_input=_to_review_input(record)))
+        tasks.append(
+            FoodLicenseSourceTask(
+                record=record,
+                review_input=_to_review_input(record, document_type_evidence),
+            )
+        )
 
     return tasks
 
 
-def _to_review_input(record: DocumentRecord) -> ReviewInput:
-    document_type_evidence = resolve_srm_document_type(record)
+def _to_review_input(record: DocumentRecord, document_type_evidence=None) -> ReviewInput:
+    document_type_evidence = document_type_evidence or resolve_srm_document_type(record)
     return ReviewInput(
         supplier_name=record.vendor_name or "",
         supplier_credit_code=_credit_code_or_empty(record.business_num),

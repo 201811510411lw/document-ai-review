@@ -44,6 +44,61 @@ class StubMySQLCursor:
             }
             self.rowcount = 1
             return
+        if compact.startswith("insert into review_summary_index"):
+            keys = [
+                "task_id", "document_type", "supplier_name", "credit_code", "review_status",
+                "risk_level", "needs_manual_review", "summary", "source_record_id",
+                "source_created_at", "source_attachment_ref_id", "source_url", "valid_to",
+                "expire_status", "expire_days_remaining",
+                "extracted_fields_json", "normalized_fields_json", "source_evidence_json",
+                "rule_results_json", "created_at", "updated_at",
+            ]
+            self.storage["review_summary_index"][params[0]] = dict(zip(keys, params))
+            return
+        if compact.startswith("select count(*) as total from review_summary_index"):
+            self.result = {"total": len(_filter_review_summary_rows(self.storage, compact, params))}
+            return
+        if compact.startswith("select count(*) as total from review_results"):
+            self.result = {"total": len(self.storage["review_results"])}
+            return
+        if compact.startswith("select results.payload_json from review_results as results left join review_summary_index"):
+            indexed = self.storage["review_summary_index"]
+            self.result = [
+                row for task_id, row in self.storage["review_results"].items()
+                if task_id not in indexed
+            ][:100]
+            return
+        if compact.startswith("select * from review_summary_index"):
+            rows = _filter_review_summary_rows(self.storage, compact, params)
+            if "limit %s offset %s" in compact:
+                rows = rows[:params[-2]][params[-1]:params[-1] + params[-2]]
+            self.result = rows
+            return
+        if compact.startswith("select review_status, risk_level, needs_manual_review, document_type, created_at from review_summary_index"):
+            self.result = _filter_review_summary_rows(self.storage, compact, params)
+            return
+        if compact.startswith("select count(*) as total, sum(case when review_status"):
+            filter_compact = compact.replace(
+                "sum(case when created_at >= %s then 1 else 0 end) as today_reviewed",
+                "",
+            )
+            rows = _filter_review_summary_rows(self.storage, filter_compact, params[1:])
+            today = str(params[0])
+            self.result = {
+                "total": len(rows),
+                "reviewed": sum(row.get("review_status") == "REVIEWED" for row in rows),
+                "pending_manual_review": sum(bool(row.get("needs_manual_review")) for row in rows),
+                "high_risk": sum(row.get("risk_level") == "HIGH" for row in rows),
+                "today_reviewed": sum(str(row.get("created_at") or "") >= today for row in rows),
+            }
+            return
+        if compact.startswith("select document_type, count(*) as total from review_summary_index"):
+            rows = _filter_review_summary_rows(self.storage, compact, params)
+            counts = {}
+            for row in rows:
+                counts[row.get("document_type") or "unknown"] = counts.get(row.get("document_type") or "unknown", 0) + 1
+            self.result = [{"document_type": key, "total": value} for key, value in counts.items()]
+            return
         if compact.startswith("select payload_json from review_results"):
             if "where task_id = %s" in compact:
                 self.result = self.storage["review_results"].get(params[0])
@@ -64,6 +119,15 @@ class StubMySQLCursor:
             row = self.storage["review_results"].get(params[1])
             if row is not None:
                 row["payload_json"] = params[0]
+            return
+        if compact.startswith("update review_summary_index set review_status"):
+            row = self.storage["review_summary_index"].get(params[-1])
+            if row is not None:
+                row.update({
+                    "review_status": params[0],
+                    "needs_manual_review": params[1],
+                    "updated_at": params[2],
+                })
             return
         if compact.startswith("insert into business_license_reviews"):
             keys = [
@@ -587,6 +651,7 @@ def install_mysql_repository_stub(monkeypatch):
     storage = {
         "executed_sql": [],
         "review_results": {},
+        "review_summary_index": {},
         "business_license_reviews": {},
         "business_license_review_audit_events": [],
         "wecom_notification_queue": [],
@@ -647,6 +712,33 @@ def _filter_business_license_rows(storage, params):
         expected = params[param_index]
         rows = [row for row in rows if str(row.get("created_at") or "") <= expected]
     return rows
+
+
+def _filter_review_summary_rows(storage, compact, params):
+    rows = list(storage["review_summary_index"].values())
+    value_index = 0
+    if "supplier_name like %s" in compact:
+        term = str(params[value_index]).strip("%").lower()
+        rows = [row for row in rows if term in str(row.get("supplier_name") or "").lower()]
+        value_index += 1
+    if "upper(credit_code) = %s" in compact:
+        term = str(params[value_index]).upper()
+        rows = [row for row in rows if str(row.get("credit_code") or "").upper() == term]
+        value_index += 1
+    for field in ("document_type", "risk_level", "review_status", "needs_manual_review"):
+        if f"{field} = %s" not in compact:
+            continue
+        expected = params[value_index]
+        rows = [row for row in rows if row.get(field) == expected]
+        value_index += 1
+    if "created_at >= %s" in compact:
+        expected = str(params[value_index])
+        rows = [row for row in rows if str(row.get("created_at") or "") >= expected]
+        value_index += 1
+    if "created_at <= %s" in compact:
+        expected = str(params[value_index])
+        rows = [row for row in rows if str(row.get("created_at") or "") <= expected]
+    return sorted(rows, key=lambda row: (row.get("created_at") or "", row.get("task_id") or ""), reverse=True)
 
 
 def _is_today(value):

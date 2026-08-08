@@ -11,6 +11,12 @@
         </button>
       </header>
 
+      <div v-if="createError" class="create-error" role="alert">
+        <van-icon name="warning-o" />
+        <span>{{ createError }}</span>
+        <button type="button" aria-label="关闭错误提示" @click="onDismissCreateError">关闭</button>
+      </div>
+
       <nav class="document-switcher" aria-label="材料类型">
         <button
           v-for="item in documentOptions"
@@ -145,6 +151,7 @@ const props = defineProps({
   records: { type: Array, required: true },
   loading: { type: Boolean, required: true },
   creating: { type: Boolean, required: true },
+  createError: { type: String, default: '' },
   currentPage: { type: Number, required: true },
   totalPages: { type: Number, required: true },
   createButtonText: { type: String, required: true },
@@ -152,6 +159,7 @@ const props = defineProps({
   onSetFilter: { type: Function, required: true },
   onSearch: { type: Function, required: true },
   onCreate: { type: Function, required: true },
+  onDismissCreateError: { type: Function, default: () => {} },
   onOpen: { type: Function, required: true },
   onSetPage: { type: Function, required: true },
   recordTitle: { type: Function, required: true },
@@ -243,6 +251,32 @@ function formatDate(value) {
 }
 
 .create-button:disabled { opacity: 0.55; cursor: wait; }
+
+.create-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #efb5b9;
+  border-radius: 4px;
+  color: #a61b29;
+  background: #fff1f2;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.create-error :deep(.van-icon) { margin-top: 2px; font-size: 16px; }
+.create-error span { flex: 1; }
+.create-error button {
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
 
 .create-button:focus-visible,
 .document-switcher button:focus-visible,

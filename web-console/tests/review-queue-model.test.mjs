@@ -3,9 +3,19 @@ import assert from 'node:assert/strict'
 import {
   createReviewAndRefreshQueue,
   fetchCurrentReviewPage,
+  reviewCreateFailureMessage,
   reviewPagination,
   reviewQueueNotice,
 } from '../src/features/review/queueModel.js'
+
+assert.equal(
+  reviewCreateFailureMessage({ code: 'UNAUTHORIZED', message: '请先登录工作台' }),
+  '登录状态已失效，请重新登录后再发起审核。',
+)
+assert.equal(
+  reviewCreateFailureMessage({ code: 'REQUEST_TIMEOUT' }),
+  '发起审核超时。来源文件较大或识别服务响应较慢，请稍后重试。',
+)
 
 const stats = { pending: 53, confirmed: 20, flagged: 1 }
 

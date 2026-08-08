@@ -10,6 +10,11 @@ DOCUMENT_TYPE_LABELS = {
 }
 
 DOCUMENT_TYPE_HINTS = (
+    ("仅销售预包装食品经营者新办备案信息采集表", "food_license"),
+    ("仅销售预包装食品经营者备案信息采集表", "food_license"),
+    ("仅销售预包装食品单位备案凭证", "food_license"),
+    ("仅销售预包装食品备案凭证", "food_license"),
+    ("仅销售预包装食品备案", "food_license"),
     ("食品生产许可证", "food_production_license"),
     ("食品生产许可品种明细表", "food_production_license"),
     ("食品生产许可", "food_production_license"),

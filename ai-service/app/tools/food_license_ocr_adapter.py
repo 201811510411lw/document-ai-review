@@ -501,6 +501,8 @@ def _sanitize_food_license_fields(
         sanitized["document_type"] = "food_license"
     elif sanitized.get("document_type") == "食品生产许可证":
         sanitized["document_type"] = "food_production_license"
+    if not _optional_text(sanitized.get("subject_name")):
+        sanitized["subject_name"] = _extract_food_license_subject_name(source_text)
     # document_type_raw 保底：从 source_text 提取标题
     if not _optional_text(sanitized.get("document_type_raw")):
         raw = _extract_food_license_title_from_text(source_text)
@@ -709,6 +711,8 @@ def _extract_food_license_title_from_text(text: str) -> str | None:
         return None
     compact = "".join(text.split())
     titles = [
+        "仅销售预包装食品经营者新办备案信息采集表",
+        "仅销售预包装食品经营者备案信息采集表",
         "仅销售预包装食品单位备案凭证",
         "仅销售预包装食品备案凭证",
         "仅销售预包装食品备案",
@@ -723,6 +727,25 @@ def _extract_food_license_title_from_text(text: str) -> str | None:
     for title in titles:
         if title in compact:
             return title
+    return None
+
+
+def _extract_food_license_subject_name(text: str) -> str | None:
+    """从食品备案表的明确字段标签中恢复经营者名称。"""
+    if not text:
+        return None
+    normalized = unicodedata.normalize("NFKC", text)
+    labels = ("食品经营者名称", "经营者名称", "经营主体名称")
+    for label in labels:
+        match = re.search(
+            rf"{re.escape(label)}\s*[:：]?\s*([^\n\r|｜]+)",
+            normalized,
+        )
+        if not match:
+            continue
+        value = match.group(1).strip(" ：:")
+        if value and not re.fullmatch(r"[\s_—-]+", value):
+            return value
     return None
 
 

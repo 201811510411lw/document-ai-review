@@ -102,6 +102,11 @@ assert.doesNotMatch(
 )
 assert.match(
   detailSource,
+  /if \(error\.status !== 404\)[\s\S]*showToast\(error\.message \|\| '加载核对报告失败'\)/,
+  'Tobacco report detail should not show a Toast when its empty state handles a missing report',
+)
+assert.match(
+  detailSource,
   /rpaStatus === 'FAILED'[\s\S]*官网验真未通过/,
   'Tobacco report detail should distinguish verification failure from execution error',
 )

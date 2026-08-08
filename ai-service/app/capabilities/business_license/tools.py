@@ -7,6 +7,7 @@ from app.capabilities.business_license.schemas import (
     BusinessLicenseExtractedFields,
     normalize_business_license_fields,
 )
+from app.capabilities.document_type_mapping import display_to_system, match_document_type
 
 
 @tool
@@ -16,6 +17,13 @@ def business_license_classify_document(
     """Classify whether structured OCR/vision fields describe a business license."""
     fields = structured_fields or {}
     document_type = fields.get("document_type")
+    title_evidence = " ".join(
+        str(fields.get(key) or "")
+        for key in ("document_type_raw", "subject_name")
+    )
+    detected_display_type = match_document_type(title_evidence)
+    if detected_display_type:
+        document_type = display_to_system(detected_display_type)
     if document_type:
         classification = BusinessLicenseDocumentClassification(
             document_type=document_type,

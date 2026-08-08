@@ -15,7 +15,13 @@ from typing import Literal, TypedDict
 # (关键词, 标准显示名, 系统类型)
 # 按关键词长度降序排列，确保最长匹配优先
 _RAW_MAP: list[tuple[str, str, str]] = [
+    # ── 基础证照（对应系统类型：business_license / tobacco_license） ──
+    ("烟草专卖零售许可证", "烟草专卖零售许可证", "tobacco_license"),
+    ("营业执照", "营业执照", "business_license"),
     # ── 商品报告（对应系统类型：product_report） ──
+    ("商品批次报告", "商品批次报告", "batch_report"),
+    ("批次检验报告", "商品批次报告", "batch_report"),
+    ("批次报告", "商品批次报告", "batch_report"),
     ("第三方检验报告", "商品报告", "product_report"),
     ("产品检验报告", "商品报告", "product_report"),
     ("产品检测报告", "商品报告", "product_report"),
@@ -23,6 +29,8 @@ _RAW_MAP: list[tuple[str, str, str]] = [
     ("特殊医学用途配方食品生产许可证", "食品生产许可证", "food_production_license"),
     ("婴幼儿配方食品生产许可证", "食品生产许可证", "food_production_license"),
     ("食品生产加工小作坊许可证", "食品生产许可证", "food_production_license"),
+    ("仅销售预包装食品经营者新办备案信息采集表", "食品经营许可证", "food_license"),
+    ("仅销售预包装食品经营者备案信息采集表", "食品经营许可证", "food_license"),
     ("仅销售预包装食品备案凭证", "食品经营许可证", "food_license"),
     ("仅销售预包装食品备案", "食品经营许可证", "food_license"),
     ("网络食品交易第三方平台备案", "食品经营许可证", "food_license"),

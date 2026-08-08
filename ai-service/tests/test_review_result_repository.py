@@ -47,6 +47,24 @@ def build_review_result(task_id: str = "review-task-mysql") -> ReviewResult:
     )
 
 
+def build_tobacco_consistency_result(task_id: str) -> ReviewResult:
+    result = build_review_result(task_id)
+    return result.model_copy(
+        update={
+            "use_case_name": "tobacco_license_consistency_review",
+            "skill_name": "tobacco-license-review",
+            "ruleset_version": "tobacco-consistency-rules-v1",
+            "document_type": "business_tobacco_consistency",
+            "skill_result": {
+                "business_license_fields": {"subject_name": "成都示例烟草商行"},
+                "tobacco_license_fields": {"license_no": "510101000000"},
+                "comparison": {"differences": []},
+                "source_evidence": {"source": {"requestid": "OA-001"}},
+            },
+        }
+    )
+
+
 def test_mysql_repository_saves_and_gets_review_result_by_task_id(monkeypatch):
     install_mysql_repository_stub(monkeypatch)
     repository = _repository()
@@ -101,6 +119,34 @@ def test_mysql_repository_old_claim_cannot_overwrite_new_owner(monkeypatch):
     }
     assert repository.complete_claim(second_claim, final_result) is True
     assert repository.get_by_task_id(final_result.task_id).status == ReviewStatus.REVIEWED
+
+
+def test_mysql_repository_save_persists_tobacco_consistency_detail_projection(monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    result = build_tobacco_consistency_result("tobacco-consistency-save")
+
+    repository.save(result)
+
+    assert repository.get_by_task_id(result.task_id) is not None
+    detail = repository.get_tobacco_consistency_snapshot(result.task_id)
+    assert detail is not None
+    assert detail["document_type"] == "business_tobacco_consistency"
+
+
+def test_mysql_repository_complete_claim_persists_tobacco_consistency_detail_projection(monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    result = build_tobacco_consistency_result("tobacco-consistency-claim")
+    claim = result.model_copy(update={"status": ReviewStatus.RUNNING})
+
+    assert repository.claim(claim) is True
+    assert repository.complete_claim(claim, result) is True
+
+    assert repository.get_by_task_id(result.task_id) is not None
+    detail = repository.get_tobacco_consistency_snapshot(result.task_id)
+    assert detail is not None
+    assert detail["document_type"] == "business_tobacco_consistency"
 
 
 def test_review_service_can_save_result_with_injected_mysql_repository(monkeypatch):

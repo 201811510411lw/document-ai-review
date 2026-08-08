@@ -16,6 +16,19 @@ export async function createReviewAndRefreshQueue({
   return result
 }
 
+export function reviewCreateFailureMessage(error) {
+  if (error?.code === 'UNAUTHORIZED' || error?.status === 401) {
+    return '登录状态已失效，请重新登录后再发起审核。'
+  }
+  if (error?.code === 'REQUEST_TIMEOUT') {
+    return '发起审核超时。来源文件较大或识别服务响应较慢，请稍后重试。'
+  }
+  if (error?.status >= 500) {
+    return `发起审核失败：服务暂时不可用${error.message ? `（${error.message}）` : ''}。`
+  }
+  return error?.message || '发起审核失败，请稍后重试。'
+}
+
 export function reviewPagination(totalRecords, requestedPage, pageSize = 20) {
   const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize))
   const currentPage = Math.min(Math.max(1, Number(requestedPage) || 1), totalPages)
