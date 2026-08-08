@@ -45,6 +45,25 @@ export function reviewPageOffset(requestedPage, pageSize = 20) {
   return (currentPage - 1) * pageSize
 }
 
+export function prepareReviewListRefresh({ requestedPage, current }) {
+  return {
+    currentPage: Math.max(1, Number(requestedPage) || 1),
+    records: current.records,
+    stats: current.stats,
+    filteredTotal: current.filteredTotal,
+  }
+}
+
+export function reviewListFilterChange({ changedFilter, documentType, filterStatus }) {
+  const documentTypeChanged = changedFilter === 'documentType'
+  return {
+    activeDocumentType: documentType,
+    filterStatus: documentTypeChanged ? '' : filterStatus,
+    // Clearing a previous status schedules the one refresh through the next watcher run.
+    shouldRefresh: !documentTypeChanged || !filterStatus,
+  }
+}
+
 export async function fetchCurrentReviewPage({
   fetchPage,
   requestedPage,

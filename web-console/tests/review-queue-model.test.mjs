@@ -3,7 +3,9 @@ import assert from 'node:assert/strict'
 import {
   createReviewAndRefreshQueue,
   fetchCurrentReviewPage,
+  prepareReviewListRefresh,
   reviewCreateFailureMessage,
+  reviewListFilterChange,
   reviewPagination,
   reviewQueueNotice,
 } from '../src/features/review/queueModel.js'
@@ -68,6 +70,36 @@ const staleResultPromise = fetchCurrentReviewPage({
 requestIsCurrent = false
 resolveStaleRequest({ records: [{ id: 'stale' }], filtered_total: 40 })
 assert.equal(await staleResultPromise, null)
+
+assert.deepEqual(
+  prepareReviewListRefresh({
+    requestedPage: 3,
+    current: {
+      records: [{ id: 'existing-review' }],
+      stats: { total: 8, pending: 2 },
+      filteredTotal: 8,
+    },
+  }),
+  {
+    currentPage: 3,
+    records: [{ id: 'existing-review' }],
+    stats: { total: 8, pending: 2 },
+    filteredTotal: 8,
+  },
+)
+
+assert.deepEqual(
+  reviewListFilterChange({
+    changedFilter: 'documentType',
+    documentType: 'food_license',
+    filterStatus: 'pending',
+  }),
+  {
+    activeDocumentType: 'food_license',
+    filterStatus: '',
+    shouldRefresh: false,
+  },
+)
 
 const createFlowEvents = []
 await createReviewAndRefreshQueue({

@@ -42,6 +42,17 @@ class BatchQueryRequest(BaseModel):
 
 
 class FrontendRepository(BusinessLicenseReviewReadRepository):
+    def list_frontend_reviews(
+        self,
+        *,
+        document_type: str | None = None,
+        review_status: str = "",
+        keyword: str = "",
+        limit: int = 20,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        ...
+
     def list_qc_reviews(
         self,
         *,
@@ -175,6 +186,23 @@ def review_list(
     _current_user: dict[str, Any] = Depends(get_wecom_frontend_user),
     repository: FrontendRepository = Depends(get_review_read_repository),
 ) -> dict[str, Any]:
+    frontend_query = getattr(repository, "list_frontend_reviews", None)
+    if callable(frontend_query):
+        payload = frontend_query(
+            document_type=_blank_to_none(document_type),
+            review_status=review_status,
+            keyword=keyword.strip(),
+            limit=limit,
+            offset=offset,
+        )
+        return {
+            "records": [
+                _frontend_qc_record(row, force_status=row.get("frontend_status"))
+                for row in payload.get("items", [])
+            ],
+            "stats": payload.get("stats", _frontend_workbench_stats([])),
+            "filtered_total": int(payload.get("filtered_total") or 0),
+        }
     review_filter = _frontend_review_filter(review_status)
     records_scope = _license_only_records(
         _all_qc_records(repository, document_type=_blank_to_none(document_type))

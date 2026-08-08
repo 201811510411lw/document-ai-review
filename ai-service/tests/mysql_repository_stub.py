@@ -11,6 +11,8 @@ class StubMySQLCursor:
         self.rowcount = 0
         if compact.startswith("create table"):
             return
+        if compact.startswith("create index"):
+            return
         if compact.startswith("alter table"):
             return
         if compact.startswith("delete from "):
@@ -50,13 +52,14 @@ class StubMySQLCursor:
                 "risk_level", "needs_manual_review", "summary", "source_record_id",
                 "source_created_at", "source_attachment_ref_id", "source_url", "valid_to",
                 "expire_status", "expire_days_remaining",
+                "manual_review_decision", "frontend_status", "source_system", "search_text",
                 "extracted_fields_json", "normalized_fields_json", "source_evidence_json",
                 "rule_results_json", "created_at", "updated_at",
             ]
             self.storage["review_summary_index"][params[0]] = dict(zip(keys, params))
             return
         if compact.startswith("select count(*) as total from review_summary_index"):
-            self.result = {"total": len(_filter_review_summary_rows(self.storage, compact, params))}
+            self.result = {"total": len(_filter_frontend_summary_rows(self.storage, compact, params))}
             return
         if compact.startswith("select count(*) as total from review_results"):
             self.result = {"total": len(self.storage["review_results"])}
@@ -69,9 +72,9 @@ class StubMySQLCursor:
             ][:100]
             return
         if compact.startswith("select * from review_summary_index"):
-            rows = _filter_review_summary_rows(self.storage, compact, params)
+            rows = _filter_frontend_summary_rows(self.storage, compact, params)
             if "limit %s offset %s" in compact:
-                rows = rows[:params[-2]][params[-1]:params[-1] + params[-2]]
+                rows = rows[params[-1]:params[-1] + params[-2]]
             self.result = rows
             return
         if compact.startswith("select review_status, risk_level, needs_manual_review, document_type, created_at from review_summary_index"):
@@ -90,6 +93,18 @@ class StubMySQLCursor:
                 "pending_manual_review": sum(bool(row.get("needs_manual_review")) for row in rows),
                 "high_risk": sum(row.get("risk_level") == "HIGH" for row in rows),
                 "today_reviewed": sum(str(row.get("created_at") or "") >= today for row in rows),
+            }
+            return
+        if compact.startswith("select count(*) as total, sum(case when frontend_status"):
+            rows = _filter_frontend_summary_rows(self.storage, compact, params)
+            self.result = {
+                "total": len(rows),
+                "pending": sum(row.get("frontend_status") == "pending" for row in rows),
+                "confirmed": sum(row.get("frontend_status") == "confirmed" for row in rows),
+                "flagged": sum(
+                    row.get("frontend_status") == "flagged" or row.get("risk_level") == "HIGH"
+                    for row in rows
+                ),
             }
             return
         if compact.startswith("select document_type, count(*) as total from review_summary_index"):
@@ -123,11 +138,20 @@ class StubMySQLCursor:
         if compact.startswith("update review_summary_index set review_status"):
             row = self.storage["review_summary_index"].get(params[-1])
             if row is not None:
-                row.update({
-                    "review_status": params[0],
-                    "needs_manual_review": params[1],
-                    "updated_at": params[2],
-                })
+                if len(params) >= 6:
+                    row.update({
+                        "review_status": params[0],
+                        "needs_manual_review": params[1],
+                        "manual_review_decision": params[2],
+                        "frontend_status": params[3],
+                        "updated_at": params[4],
+                    })
+                else:
+                    row.update({
+                        "review_status": params[0],
+                        "needs_manual_review": params[1],
+                        "updated_at": params[2],
+                    })
             return
         if compact.startswith("insert into business_license_reviews"):
             keys = [
@@ -738,6 +762,31 @@ def _filter_review_summary_rows(storage, compact, params):
     if "created_at <= %s" in compact:
         expected = str(params[value_index])
         rows = [row for row in rows if str(row.get("created_at") or "") <= expected]
+    return sorted(rows, key=lambda row: (row.get("created_at") or "", row.get("task_id") or ""), reverse=True)
+
+
+def _filter_frontend_summary_rows(storage, compact, params):
+    if "frontend_status" not in compact and "search_text" not in compact:
+        return _filter_review_summary_rows(storage, compact, params)
+    where_clause = compact.split(" where ", 1)[1] if " where " in compact else ""
+    rows = list(storage["review_summary_index"].values())
+    value_index = 0
+    if "document_type = %s" in where_clause:
+        expected = params[value_index]
+        rows = [row for row in rows if row.get("document_type") == expected]
+        value_index += 1
+    if "frontend_status = 'pending'" in where_clause:
+        rows = [row for row in rows if row.get("frontend_status") == "pending"]
+    elif "frontend_status = 'confirmed'" in where_clause:
+        rows = [row for row in rows if row.get("frontend_status") == "confirmed"]
+    elif "frontend_status = 'flagged'" in where_clause:
+        rows = [
+            row for row in rows
+            if row.get("frontend_status") == "flagged" or row.get("risk_level") == "HIGH"
+        ]
+    if "search_text like %s" in where_clause:
+        term = str(params[value_index]).strip("%").lower()
+        rows = [row for row in rows if term in str(row.get("search_text") or "").lower()]
     return sorted(rows, key=lambda row: (row.get("created_at") or "", row.get("task_id") or ""), reverse=True)
 
 

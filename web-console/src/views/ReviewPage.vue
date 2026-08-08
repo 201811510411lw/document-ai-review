@@ -42,7 +42,9 @@ import ReviewQueueView from '@/features/review/ReviewQueueView.vue'
 import {
   createReviewAndRefreshQueue,
   fetchCurrentReviewPage,
+  prepareReviewListRefresh,
   reviewCreateFailureMessage,
+  reviewListFilterChange,
   reviewPagination,
 } from '@/features/review/queueModel.js'
 
@@ -130,14 +132,19 @@ onMounted(() => {
   loadList()
 })
 
-watch(filterStatus, () => {
-  if (isMounted) loadList()
-})
-
-watch(documentType, (value) => {
-  activeDocumentType.value = value
-  filterStatus.value = ''
-  if (isMounted) loadList()
+watch([filterStatus, documentType], ([nextFilterStatus, nextDocumentType], [previousFilterStatus, previousDocumentType]) => {
+  if (!isMounted) return
+  const change = reviewListFilterChange({
+    changedFilter: nextDocumentType !== previousDocumentType ? 'documentType' : 'filterStatus',
+    documentType: nextDocumentType,
+    filterStatus: nextFilterStatus,
+  })
+  activeDocumentType.value = change.activeDocumentType
+  if (change.filterStatus !== nextFilterStatus) {
+    filterStatus.value = change.filterStatus
+    return
+  }
+  if (change.shouldRefresh) loadList()
 })
 
 async function loadList(
@@ -148,10 +155,18 @@ async function loadList(
   if (showLoading) loading.value = true
   const targetPage = Math.max(1, Number(requestedPage) || 1)
   if (clearCurrentResults) {
-    currentPage.value = targetPage
-    records.value = []
-    stats.value = {}
-    filteredTotal.value = 0
+    const refreshState = prepareReviewListRefresh({
+      requestedPage: targetPage,
+      current: {
+        records: records.value,
+        stats: stats.value,
+        filteredTotal: filteredTotal.value,
+      },
+    })
+    currentPage.value = refreshState.currentPage
+    records.value = refreshState.records
+    stats.value = refreshState.stats
+    filteredTotal.value = refreshState.filteredTotal
   }
   try {
     const result = await fetchCurrentReviewPage({

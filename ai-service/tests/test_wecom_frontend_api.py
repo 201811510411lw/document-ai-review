@@ -223,6 +223,49 @@ def test_wecom_frontend_review_list_applies_offset_after_filtering():
     assert parameters["offset"]["schema"]["minimum"] == 0
 
 
+def test_wecom_frontend_review_list_uses_paged_read_model():
+    class StubRepository:
+        calls = []
+
+        def list_frontend_reviews(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "items": [{
+                    "task_id": "paged-review-1",
+                    "document_type": "business_license",
+                    "supplier_name": "分页读取企业",
+                    "review_status": "PENDING_MANUAL_REVIEW",
+                    "risk_level": "LOW",
+                    "needs_manual_review": True,
+                    "frontend_status": "pending",
+                }],
+                "stats": {"total": 41, "pending": 3, "confirmed": 38, "flagged": 1},
+                "filtered_total": 3,
+            }
+
+    repository = StubRepository()
+    payload = review_list(
+        review_status="pending",
+        keyword="分页",
+        document_type="business_license",
+        limit=20,
+        offset=20,
+        _current_user={},
+        repository=repository,
+    )
+
+    assert repository.calls == [{
+        "document_type": "business_license",
+        "review_status": "pending",
+        "keyword": "分页",
+        "limit": 20,
+        "offset": 20,
+    }]
+    assert payload["stats"]["total"] == 41
+    assert payload["filtered_total"] == 3
+    assert payload["records"][0]["review_status"] == "pending"
+
+
 def test_wecom_frontend_pending_queue_returns_complete_frontend_pending_scope():
     rows = [
         {

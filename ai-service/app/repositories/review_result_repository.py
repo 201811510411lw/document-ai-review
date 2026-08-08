@@ -9,6 +9,7 @@ from fastapi.encoders import jsonable_encoder
 
 from app.integrations.mysql_client import MySqlSettings, mysql_settings_from_env
 from app.models import AuditEvent, ManualReview, ManualReviewStatus, ReviewResult, ReviewStatus
+from app.services.validation_service import compute_match_ratio, compute_validation_fields
 from app.services.wecom_notifications import notification_details_json
 
 
@@ -324,10 +325,15 @@ class MySQLReviewResultRepository:
                 cursor.execute(
                     """
                     UPDATE review_summary_index
-                    SET review_status = %s, needs_manual_review = %s, updated_at = %s
+                    SET review_status = %s, needs_manual_review = %s,
+                        manual_review_decision = %s, frontend_status = %s, updated_at = %s
                     WHERE task_id = %s
                     """,
-                    ("MANUAL_REVIEWED", 0, reviewed_at_text, task_id),
+                    (
+                        "MANUAL_REVIEWED", 0, decision,
+                        _frontend_status_after_manual_decision(decision),
+                        reviewed_at_text, task_id,
+                    ),
                 )
                 cursor.execute(
                     """
@@ -923,6 +929,80 @@ class MySQLReviewResultRepository:
             "total_pages": total_pages,
         }
 
+    def list_frontend_reviews(
+        self,
+        *,
+        document_type: str | None = None,
+        review_status: str = "",
+        keyword: str = "",
+        limit: int = 20,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Return one Web Console page plus scope statistics from the summary projection."""
+        self._ensure_schema_once()
+        safe_limit = min(max(1, limit), 1000)
+        safe_offset = max(0, offset)
+        scope_filters = [
+            "document_type IN ('business_license', 'food_license', 'food_production_license', 'product_report', 'batch_report')",
+            "NOT (document_type = 'business_license' AND COALESCE(source_system, '') = 'oa_starrocks')",
+        ]
+        scope_params: list[Any] = []
+        if document_type:
+            scope_filters.append("document_type = %s")
+            scope_params.append(document_type)
+        where_scope = " WHERE " + " AND ".join(scope_filters)
+        page_filters = list(scope_filters)
+        page_params = list(scope_params)
+        if review_status == "pending":
+            page_filters.append("frontend_status = 'pending'")
+        elif review_status == "confirmed":
+            page_filters.append("frontend_status = 'confirmed'")
+        elif review_status == "flagged":
+            page_filters.append("(frontend_status = 'flagged' OR risk_level = 'HIGH')")
+        if keyword:
+            page_filters.append("search_text LIKE %s")
+            page_params.append(f"%{keyword.lower()}%")
+        where_page = " WHERE " + " AND ".join(page_filters)
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                self._backfill_review_summary_index(cursor)
+                cursor.execute(
+                    f"""
+                    SELECT COUNT(*) AS total,
+                        SUM(CASE WHEN frontend_status = 'pending' THEN 1 ELSE 0 END) AS pending,
+                        SUM(CASE WHEN frontend_status = 'confirmed' THEN 1 ELSE 0 END) AS confirmed,
+                        SUM(CASE WHEN frontend_status = 'flagged' OR risk_level = 'HIGH' THEN 1 ELSE 0 END) AS flagged
+                    FROM review_summary_index{where_scope}
+                    """,
+                    scope_params,
+                )
+                stats = cursor.fetchone() or {}
+                cursor.execute(
+                    f"SELECT COUNT(*) AS total FROM review_summary_index{where_page}",
+                    page_params,
+                )
+                filtered_total = int((cursor.fetchone() or {}).get("total") or 0)
+                cursor.execute(
+                    f"""
+                    SELECT * FROM review_summary_index{where_page}
+                    ORDER BY created_at DESC, task_id DESC
+                    LIMIT %s OFFSET %s
+                    """,
+                    (*page_params, safe_limit, safe_offset),
+                )
+                items = [_qc_review_summary_index_row(row) for row in cursor.fetchall()]
+            connection.commit()
+        return {
+            "items": items,
+            "stats": {
+                "total": int(stats.get("total") or 0),
+                "pending": int(stats.get("pending") or 0),
+                "confirmed": int(stats.get("confirmed") or 0),
+                "flagged": int(stats.get("flagged") or 0),
+            },
+            "filtered_total": filtered_total,
+        }
+
     def get_qc_review_detail(self, task_id: str) -> dict[str, Any] | None:
         payload = self.get_by_task_id(task_id)
         if payload is not None:
@@ -1056,12 +1136,17 @@ class MySQLReviewResultRepository:
                 cursor.execute(
                     """
                     UPDATE review_summary_index
-                    SET review_status = %s, needs_manual_review = %s, updated_at = %s
+                    SET review_status = %s, needs_manual_review = %s,
+                        manual_review_decision = %s, frontend_status = %s, updated_at = %s
                     WHERE task_id = %s
                     """,
                     (
                         "PENDING_MANUAL_REVIEW" if requests_more_info else "MANUAL_REVIEWED",
                         1 if requests_more_info else 0,
+                        decision,
+                        _frontend_status_after_manual_decision(
+                            decision, requests_more_info=requests_more_info,
+                        ),
                         reviewed_at_text,
                         task_id,
                     ),
@@ -1100,9 +1185,10 @@ class MySQLReviewResultRepository:
                 risk_level, needs_manual_review, summary, source_record_id,
                         source_created_at, source_attachment_ref_id, source_url, valid_to,
                 expire_status, expire_days_remaining,
+                manual_review_decision, frontend_status, source_system, search_text,
                 extracted_fields_json, normalized_fields_json, source_evidence_json,
                 rule_results_json, created_at, updated_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 document_type = VALUES(document_type), supplier_name = VALUES(supplier_name),
                 credit_code = VALUES(credit_code), review_status = VALUES(review_status),
@@ -1112,6 +1198,8 @@ class MySQLReviewResultRepository:
                 source_attachment_ref_id = VALUES(source_attachment_ref_id), source_url = VALUES(source_url),
                 valid_to = VALUES(valid_to), expire_status = VALUES(expire_status),
                 expire_days_remaining = VALUES(expire_days_remaining), extracted_fields_json = VALUES(extracted_fields_json),
+                manual_review_decision = VALUES(manual_review_decision), frontend_status = VALUES(frontend_status),
+                source_system = VALUES(source_system), search_text = VALUES(search_text),
                 normalized_fields_json = VALUES(normalized_fields_json),
                 source_evidence_json = VALUES(source_evidence_json),
                 rule_results_json = VALUES(rule_results_json), created_at = VALUES(created_at),
@@ -1121,17 +1209,16 @@ class MySQLReviewResultRepository:
         )
 
     def _backfill_review_summary_index(self, cursor) -> None:
-        """Incrementally backfill historical rows without delaying a page request."""
+        """Backfill historical summaries needed by the frontend read model."""
         cursor.execute(
             """
             SELECT results.payload_json
             FROM review_results AS results
             LEFT JOIN review_summary_index AS summary
                 ON summary.task_id = results.task_id
-            WHERE summary.task_id IS NULL
+            WHERE summary.task_id IS NULL OR summary.frontend_status IS NULL
             ORDER BY results.created_at DESC
-            LIMIT 100
-            """
+                """
         )
         for stored in cursor.fetchall():
             payload_json = stored.get("payload_json")
@@ -1502,6 +1589,10 @@ class MySQLReviewResultRepository:
                         valid_to VARCHAR(64),
                         expire_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
                         expire_days_remaining INT NULL,
+                        manual_review_decision VARCHAR(32),
+                        frontend_status VARCHAR(32),
+                        source_system VARCHAR(64),
+                        search_text TEXT,
                         extracted_fields_json JSON NOT NULL,
                         normalized_fields_json JSON NOT NULL,
                         source_evidence_json JSON NOT NULL,
@@ -1514,14 +1605,24 @@ class MySQLReviewResultRepository:
                         INDEX idx_review_summary_manual_created (needs_manual_review, created_at),
                         INDEX idx_review_summary_credit_code (credit_code)
                         , INDEX idx_review_summary_expire_created (expire_status, created_at)
+                        , INDEX idx_review_summary_frontend_type_created (frontend_status, document_type, created_at)
                     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
                     """
                 )
                 for ddl in (
                     "ALTER TABLE review_summary_index ADD COLUMN expire_status VARCHAR(32) NOT NULL DEFAULT 'unknown'",
                     "ALTER TABLE review_summary_index ADD COLUMN expire_days_remaining INT NULL",
+                    "ALTER TABLE review_summary_index ADD COLUMN manual_review_decision VARCHAR(32)",
+                    "ALTER TABLE review_summary_index ADD COLUMN frontend_status VARCHAR(32)",
+                    "ALTER TABLE review_summary_index ADD COLUMN source_system VARCHAR(64)",
+                    "ALTER TABLE review_summary_index ADD COLUMN search_text TEXT",
                 ):
                     _try_add_column(cursor, ddl)
+                _try_create_index(
+                    cursor,
+                    "CREATE INDEX idx_review_summary_frontend_type_created "
+                    "ON review_summary_index (frontend_status, document_type, created_at)",
+                )
                 cursor.execute(
                     """
                     CREATE TABLE IF NOT EXISTS business_license_reviews (
@@ -2992,6 +3093,7 @@ def _review_summary_index_values(row: dict[str, Any]) -> tuple[Any, ...]:
         row.get("source_record_id"), row.get("source_created_at"),
         row.get("source_attachment_ref_id"), row.get("source_url"), row.get("valid_to"),
         expire_status, expire_days_remaining,
+        row.get("manual_review_decision"), row.get("frontend_status"), row.get("source_system"), row.get("search_text"),
         dumps(row.get("extracted_fields") or {}, ensure_ascii=False),
         dumps(row.get("normalized_fields") or {}, ensure_ascii=False),
         dumps(row.get("source_evidence") or {}, ensure_ascii=False),
@@ -3046,7 +3148,51 @@ def _review_summary_index_row_for_review(review_result: ReviewResult) -> dict[st
             ),
             "valid_to": projection.get("valid_to"),
         })
+    manual_review = row.get("manual_review") or {}
+    source_evidence = row.get("source_evidence") or {}
+    source = source_evidence.get("source") if isinstance(source_evidence, dict) else {}
+    row["manual_review_decision"] = manual_review.get("decision")
+    row["source_system"] = source.get("source_system") if isinstance(source, dict) else ""
+    row["frontend_status"] = _summary_frontend_status(row)
+    row["search_text"] = _summary_search_text(row)
     return row
+
+
+def _summary_frontend_status(row: dict[str, Any]) -> str:
+    status = str(row.get("review_status") or "")
+    decision = str(row.get("manual_review_decision") or "")
+    if status == "MANUAL_REVIEWED":
+        return "flagged" if decision == "rejected" else "confirmed"
+    if status == "REVIEWED":
+        return "confirmed"
+    if status == "FAILED":
+        return "flagged"
+    if status == "PENDING_MANUAL_REVIEW":
+        fields = compute_validation_fields(row, str(row.get("document_type") or ""))
+        if compute_match_ratio(fields, str(row.get("risk_level") or "")) >= 100:
+            return "confirmed"
+        return "pending"
+    return "flagged" if str(row.get("risk_level") or "") == "HIGH" else "pending"
+
+
+def _frontend_status_after_manual_decision(
+    decision: str,
+    *,
+    requests_more_info: bool = False,
+) -> str:
+    if requests_more_info:
+        return "pending"
+    return "flagged" if decision == "rejected" else "confirmed"
+
+
+def _summary_search_text(row: dict[str, Any]) -> str:
+    values = [
+        row.get("supplier_name"), row.get("credit_code"), row.get("document_type"),
+        row.get("document_type_label"),
+        row.get("source_record_id"), row.get("summary"), row.get("extracted_fields"),
+        row.get("normalized_fields"),
+    ]
+    return " ".join(str(value or "") for value in values).lower()
 
 
 def _qc_review_summary_index_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -3064,6 +3210,9 @@ def _qc_review_summary_index_row(row: dict[str, Any]) -> dict[str, Any]:
         "risk_level": item.get("risk_level"),
         "risk_level_label": _risk_level_label(item.get("risk_level") or ""),
         "needs_manual_review": bool(item.get("needs_manual_review")),
+        "manual_review_decision": item.get("manual_review_decision"),
+        "frontend_status": item.get("frontend_status"),
+        "source_system": item.get("source_system") or "",
         "summary": item.get("summary"),
         "source_record_id": item.get("source_record_id"),
         "source_created_at": item.get("source_created_at"),
@@ -3163,6 +3312,15 @@ def _try_add_column(cursor, ddl: str) -> None:
         cursor.execute(ddl)
     except pymysql.err.OperationalError as error:
         if error.args and error.args[0] == 1060:
+            return
+        raise
+
+
+def _try_create_index(cursor, ddl: str) -> None:
+    try:
+        cursor.execute(ddl)
+    except pymysql.err.OperationalError as error:
+        if error.args and error.args[0] == 1061:
             return
         raise
 

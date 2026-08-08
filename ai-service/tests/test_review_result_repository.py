@@ -85,6 +85,37 @@ def test_mysql_repository_returns_none_for_missing_task(monkeypatch):
     assert repository.get_by_task_id("missing-task") is None
 
 
+def test_mysql_repository_reads_frontend_review_page_from_summary_projection(monkeypatch):
+    storage = install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    repository.save(build_review_result("frontend-page-1"))
+    repository.save(build_review_result("frontend-page-2"))
+
+    payload = repository.list_frontend_reviews(
+        document_type="food_license",
+        review_status="confirmed",
+        keyword="规则审核",
+        limit=1,
+        offset=1,
+    )
+
+    assert payload["stats"] == {"total": 2, "pending": 0, "confirmed": 2, "flagged": 0}
+    assert payload["filtered_total"] == 2
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["frontend_status"] == "confirmed"
+    assert sum("SELECT * FROM review_summary_index" in sql for sql in storage["executed_sql"]) == 1
+
+    label_payload = repository.list_frontend_reviews(
+        document_type="food_license",
+        review_status="confirmed",
+        keyword="食品经营许可证",
+        limit=20,
+        offset=0,
+    )
+
+    assert label_payload["filtered_total"] == 2
+
+
 def test_mysql_repository_claim_is_atomic_and_releasable(monkeypatch):
     install_mysql_repository_stub(monkeypatch)
     repository = _repository()
