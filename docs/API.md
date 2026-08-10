@@ -171,10 +171,21 @@ QC 路由承载食品生产许可证、产品报告和批次报告的来源审�
 | --- | --- | --- |
 | `POST` | `/api/v1/qc/food-production-license/reviews/from-srm` | 审核一条食品生产许可证来源记录 |
 | `POST` | `/api/v1/qc/product-report/reviews/from-srm` | 审核一条 SKU 产品报告来源记录 |
-| `POST` | `/api/v1/qc/batch-report/reviews/from-starrocks` | 按 `review_date` 审核一条批次报告来源记录 |
+| `POST` | `/api/v1/qc/batch-report/reviews/from-starrocks` | 按 `review_date` 审核一个订单中的一条商品批次附件；可传订单/订单行/SKU 精确选择 |
 | `GET` | `/api/v1/qc/reviews` | 按主体、证件号、类型、风险、状态和时间分页查询 |
 | `GET` | `/api/v1/qc/reviews/{task_id}` | 查询投影详情和完整 `ReviewResult` payload |
 | `POST` | `/api/v1/qc/reviews/{task_id}/manual-review` | 提交 QC 人工复核 |
+
+批次报告来源审核默认先随机选择一个符合日期条件的订单，再只选择该订单的一条
+`orderLineUuid` 批次明细及其附件。需要精确重试时，可在请求体传入以下任一组合：
+
+```json
+{
+  "order_number": "10102605050175",
+  "orderline_uuid": "订单行 UUID",
+  "sku_code": "商品编码"
+}
+```
 
 QC 人工复核请求：
 

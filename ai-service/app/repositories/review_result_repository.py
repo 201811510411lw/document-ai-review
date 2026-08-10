@@ -3094,10 +3094,10 @@ def _review_summary_index_values(row: dict[str, Any]) -> tuple[Any, ...]:
         row.get("source_attachment_ref_id"), row.get("source_url"), row.get("valid_to"),
         expire_status, expire_days_remaining,
         row.get("manual_review_decision"), row.get("frontend_status"), row.get("source_system"), row.get("search_text"),
-        dumps(row.get("extracted_fields") or {}, ensure_ascii=False),
-        dumps(row.get("normalized_fields") or {}, ensure_ascii=False),
-        dumps(row.get("source_evidence") or {}, ensure_ascii=False),
-        dumps(row.get("rule_results") or [], ensure_ascii=False),
+        _json_dumps(row.get("extracted_fields") or {}),
+        _json_dumps(row.get("normalized_fields") or {}),
+        _json_dumps(row.get("source_evidence") or {}),
+        _json_dumps(row.get("rule_results") or []),
         row.get("created_at"), row.get("updated_at"),
     )
 

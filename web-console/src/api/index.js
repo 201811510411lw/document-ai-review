@@ -98,7 +98,7 @@ export const reviewApi = {
   pendingQueue() {
     return http.get('/api/review/pending-queue')
   },
-  createFromSrm(documentType = 'business_license') {
+  createFromSrm(documentType = 'business_license', sourceSelector = undefined) {
     const endpoints = {
       business_license: '/api/v1/business-license/reviews/from-srm',
       food_license: '/api/v1/food-license/reviews/from-srm',
@@ -109,6 +109,9 @@ export const reviewApi = {
     const endpoint = endpoints[documentType] || endpoints.business_license
     if (documentType === 'product_report') {
       return http.post(endpoint, undefined, { timeout: 0 })
+    }
+    if (documentType === 'batch_report') {
+      return http.post(endpoint, sourceSelector)
     }
     return http.post(endpoint)
   },

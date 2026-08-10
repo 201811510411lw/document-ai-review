@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from fastapi.testclient import TestClient
 
 from app.api.qc_reviews import (
@@ -20,6 +22,7 @@ def teardown_function():
 
 def test_batch_report_review_from_starrocks_routes_to_qc_document_review():
     calls = []
+    expiring_date = date.today() + timedelta(days=27)
 
     class StubStarRocksClient:
         def fetch_all(self, sql):
@@ -41,7 +44,7 @@ def test_batch_report_review_from_starrocks_routes_to_qc_document_review():
                     "barcode": "6959011900929",
                     "sku_name": "游世佳族金唱片面包",
                     "production_time": "2026-05-08 00:00:00",
-                    "expired_time": "2026-08-06 00:00:00",
+                    "expired_time": f"{expiring_date.isoformat()} 00:00:00",
                     "attachment_uuid": "attach-001",
                     "attachment_ref_id": "batch-001",
                     "attachment_ref_type": "orderDeliveryBatch",
@@ -83,7 +86,7 @@ def test_batch_report_review_from_starrocks_routes_to_qc_document_review():
     payload = response.json()
     assert payload["use_case_name"] == "qc_document_review"
     assert payload["document_type"] == "batch_report"
-    # expired_time=2026-08-06（距今日27天），按规则标记为"临期待审"
+    # 到期日距当前日期 27 天，按规则标记为“临期待审”。
     assert payload["status"] == "PENDING_MANUAL_REVIEW"
     assert payload["risk_level"] == "MEDIUM"
     assert calls[0][1] == "qc_document_review"
@@ -134,6 +137,32 @@ def test_batch_report_review_from_starrocks_accepts_review_date_query():
 
     assert response.status_code == 404
     assert response.json()["detail"]["review_date"] == "2026-05-06"
+
+
+def test_batch_report_review_from_starrocks_accepts_order_line_selector():
+    class StubStarRocksClient:
+        def fetch_all(self, sql):
+            assert "t1.number = '10102605050175'" in sql
+            assert "t2.orderLineUuid = 'line-001'" in sql
+            assert "t2.skuCode = 'SKU-001'" in sql
+            return []
+
+    app.dependency_overrides[get_batch_report_starrocks_sql_client] = (
+        lambda: StubStarRocksClient()
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/qc/batch-report/reviews/from-starrocks",
+        headers=_auth_headers(client),
+        json={
+            "order_number": "10102605050175",
+            "orderline_uuid": "line-001",
+            "sku_code": "SKU-001",
+        },
+    )
+
+    assert response.status_code == 404
 
 
 def _auth_headers(client):

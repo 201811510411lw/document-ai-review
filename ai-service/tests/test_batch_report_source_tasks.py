@@ -27,7 +27,25 @@ def test_build_batch_report_source_sql_uses_review_date_window():
     assert "t1.created < '2026-05-06 00:00:00'" in sql
     assert "t3.refType = 'orderDeliveryBatch'" in sql
     assert "(t3.removed = 0 or t3.removed is null)" in sql
-    assert "order by rand()" in sql.lower()
+    assert "with selected_order as" in sql.lower()
+    assert "group by t1.uuid" in sql.lower()
+    assert "t1.uuid = (select order_uuid from selected_order)" in sql
+    assert "order by t2.orderLineUuid, t2.uuid, t3.uuid" in sql
+
+
+def test_build_batch_report_source_sql_can_target_one_order_line_and_sku():
+    sql = build_batch_report_source_sql(
+        date(2026, 5, 5),
+        order_number="10102605050175",
+        orderline_uuid="line-001",
+        sku_code="SKU-001",
+    )
+
+    assert "with selected_order as" not in sql.lower()
+    assert "t1.number = '10102605050175'" in sql
+    assert "t2.orderLineUuid = 'line-001'" in sql
+    assert "t2.skuCode = 'SKU-001'" in sql
+    assert sql.lower().endswith("limit 1")
 
 
 def test_fetch_batch_report_source_tasks_maps_starrocks_row_to_review_input():
@@ -92,3 +110,35 @@ def test_fetch_batch_report_source_tasks_rejects_missing_url():
 
     assert error.value.code == "BATCH_REPORT_SOURCE_URL_MISSING"
     assert error.value.record_id == "batch-001"
+
+
+def test_fetch_batch_report_source_tasks_keeps_shared_attachment_for_each_order_line():
+    shared_attachment = {
+        "order_uuid": "order-001",
+        "attachment_uuid": "attach-001",
+        "attachment_url": "https://files.example.test/batch-report.pdf",
+    }
+    client = StubSqlClient(
+        [
+            {
+                **shared_attachment,
+                "batch_uuid": "batch-001",
+                "orderline_uuid": "line-001",
+                "sku_code": "SKU-001",
+            },
+            {
+                **shared_attachment,
+                "batch_uuid": "batch-002",
+                "orderline_uuid": "line-002",
+                "sku_code": "SKU-002",
+            },
+        ]
+    )
+
+    tasks = fetch_batch_report_source_tasks(client, "select 1")
+
+    assert len(tasks) == 2
+    assert [task.review_input.source["orderline_uuid"] for task in tasks] == [
+        "line-001",
+        "line-002",
+    ]

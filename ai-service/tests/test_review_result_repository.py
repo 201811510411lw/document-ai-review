@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from json import loads
 
 import pymysql
 
@@ -94,6 +95,30 @@ def test_mysql_repository_saves_and_gets_review_result_by_task_id(monkeypatch):
     assert isinstance(loaded, ReviewResult)
     assert loaded.model_dump(mode="json") == result.model_dump(mode="json")
     assert loaded.skill_result["extracted_fields"]["license_no"] == "JY15101000000000"
+
+
+def test_mysql_repository_summary_index_serializes_datetime_source_evidence(monkeypatch):
+    storage = install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    source_created_at = datetime(2026, 8, 10, 9, 30, tzinfo=timezone.utc)
+    result = build_review_result("review-summary-datetime").model_copy(
+        update={
+            "skill_result": {
+                "extracted_fields": {"license_no": "JY15101000000000"},
+                "source_evidence": {
+                    "source": {
+                        "source_payload": {"created": source_created_at},
+                    },
+                },
+            },
+        }
+    )
+
+    repository.save(result)
+
+    summary_row = storage["review_summary_index"][result.task_id]
+    source_evidence = loads(summary_row["source_evidence_json"])
+    assert source_evidence["source"]["source_payload"]["created"] == source_created_at.isoformat()
 
 
 def test_mysql_repository_returns_none_for_missing_task(monkeypatch):

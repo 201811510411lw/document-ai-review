@@ -76,15 +76,48 @@ where t1.tenant = '8560'
 
 def build_batch_report_source_sql(
     review_date: date = DEFAULT_BATCH_REPORT_REVIEW_DATE,
+    *,
+    order_number: str | None = None,
+    orderline_uuid: str | None = None,
+    sku_code: str | None = None,
 ) -> str:
     start = review_date.isoformat()
     end = (review_date + timedelta(days=1)).isoformat()
-    return f"""select {_batch_report_columns()}
+    filters = [
+        f"t1.created >= '{start} 00:00:00'",
+        f"t1.created < '{end} 00:00:00'",
+    ]
+    if order_number:
+        filters.append(f"t1.number = {_sql_literal(order_number)}")
+    if orderline_uuid:
+        filters.append(f"t2.orderLineUuid = {_sql_literal(orderline_uuid)}")
+    if sku_code:
+        filters.append(f"t2.skuCode = {_sql_literal(sku_code)}")
+
+    where_clause = "\n  and ".join(filters)
+    if order_number:
+        selected_order_cte = ""
+        order_filter = ""
+    else:
+        # First pick one order, then select one order-line attachment from it.
+        # This keeps the review scope to one product instead of a whole order.
+        selected_order_cte = f"""with selected_order as (
+    select t1.uuid as order_uuid
+    {_batch_report_from_clause()}
+    {_batch_report_where_clause()}
+      and {where_clause}
+    group by t1.uuid
+    order by rand()
+    limit 1
+)
+"""
+        order_filter = "\n  and t1.uuid = (select order_uuid from selected_order)"
+
+    return f"""{selected_order_cte}select {_batch_report_columns()}
 {_batch_report_from_clause()}
 {_batch_report_where_clause()}
-  and t1.created >= '{start} 00:00:00'
-  and t1.created < '{end} 00:00:00'
-order by rand()
+  and {where_clause}{order_filter}
+order by t2.orderLineUuid, t2.uuid, t3.uuid
 limit 1
 """.strip()
 
@@ -103,11 +136,20 @@ def fetch_one_batch_report_source_task(
     sql_client: SqlFetchClient,
     *,
     review_date: date = DEFAULT_BATCH_REPORT_REVIEW_DATE,
+    order_number: str | None = None,
+    orderline_uuid: str | None = None,
+    sku_code: str | None = None,
     sql: str | None = None,
 ) -> BatchReportSourceTask | None:
     tasks = fetch_batch_report_source_tasks(
         sql_client,
-        sql or build_batch_report_source_sql(review_date),
+        sql
+        or build_batch_report_source_sql(
+            review_date,
+            order_number=order_number,
+            orderline_uuid=orderline_uuid,
+            sku_code=sku_code,
+        ),
     )
     return tasks[0] if tasks else None
 
@@ -118,7 +160,7 @@ def fetch_batch_report_source_tasks(
 ) -> list[BatchReportSourceTask]:
     rows = sql_client.fetch_all(sql)
     tasks: list[BatchReportSourceTask] = []
-    seen_keys: set[tuple[str | None, str | None]] = set()
+    seen_keys: set[tuple[str | None, str | None, str | None, str | None]] = set()
 
     for row in rows:
         batch_uuid = _optional_string(row.get("batch_uuid"))
@@ -129,7 +171,14 @@ def fetch_batch_report_source_tasks(
                 "商品批次报告来源记录缺少文件 URL",
                 record_id=batch_uuid,
             )
-        dedupe_key = (batch_uuid, attachment_uuid)
+        # An attachment can be shared by several order lines. Each line is an
+        # independent product/batch review and must not be merged into one task.
+        dedupe_key = (
+            _optional_string(row.get("order_uuid")),
+            _optional_string(row.get("orderline_uuid")),
+            _optional_string(row.get("sku_code")),
+            attachment_uuid,
+        )
         if dedupe_key in seen_keys:
             continue
         seen_keys.add(dedupe_key)
@@ -198,3 +247,8 @@ def _text_or_none(value: Any) -> str | None:
 
 def _optional_string(value: Any) -> str | None:
     return _text_or_none(value)
+
+
+def _sql_literal(value: str) -> str:
+    """Quote an API-validated selector for the StarRocks source query."""
+    return "'" + value.replace("'", "''") + "'"

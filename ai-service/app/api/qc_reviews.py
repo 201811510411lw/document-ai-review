@@ -79,6 +79,22 @@ class ManualReviewRequest(BaseModel):
         return stripped
 
 
+class BatchReportReviewRequest(BaseModel):
+    """Optional source selectors for one order-line batch report review."""
+
+    order_number: str | None = Field(default=None, max_length=128)
+    orderline_uuid: str | None = Field(default=None, max_length=128)
+    sku_code: str | None = Field(default=None, max_length=128)
+
+    @field_validator("order_number", "orderline_uuid", "sku_code")
+    @classmethod
+    def normalize_optional_selector(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+
 def get_qc_review_repository() -> QcReviewRepository:
     return build_review_result_repository_from_env()
 
@@ -167,6 +183,7 @@ def create_product_report_review_from_srm(
 @router.post("/batch-report/reviews/from-starrocks")
 def create_batch_report_review_from_starrocks(
     review_date: date = Query(default=DEFAULT_BATCH_REPORT_REVIEW_DATE),
+    request: BatchReportReviewRequest | None = None,
     _current_user: dict[str, Any] = Depends(require_web_console_user),
     sql_client: SqlFetchClient = Depends(get_batch_report_starrocks_sql_client),
     service: ReviewService = Depends(get_review_service),
@@ -175,6 +192,9 @@ def create_batch_report_review_from_starrocks(
         task = fetch_one_batch_report_source_task(
             sql_client,
             review_date=review_date,
+            order_number=request.order_number if request else None,
+            orderline_uuid=request.orderline_uuid if request else None,
+            sku_code=request.sku_code if request else None,
         )
     except BatchReportSourceTaskError as error:
         raise HTTPException(
