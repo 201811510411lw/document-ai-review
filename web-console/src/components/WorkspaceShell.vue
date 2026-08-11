@@ -56,7 +56,11 @@
         <slot />
       </div>
 
-      <nav class="mobile-navigation" aria-label="移动端导航">
+      <nav
+        class="mobile-navigation"
+        :class="{ 'has-five-items': mobileNavigation.length === 5 }"
+        aria-label="移动端导航"
+      >
         <button
           v-for="item in mobileNavigation"
           :key="item.to"
@@ -131,6 +135,6 @@ button:focus-visible, input:focus-visible { outline: 2px solid #5272eb; outline-
   .workspace-shell { grid-template-columns: 76px minmax(0, 1fr); }.workspace-sidebar { padding-right: 10px; padding-left: 10px; }.workspace-brand { justify-content: center; padding-right: 0; padding-left: 0; }.brand-copy, .desktop-navigation p, .desktop-navigation button span, .sidebar-user > span:last-child { display: none; }.desktop-navigation button { display: grid; grid-template-columns: 1fr; justify-items: center; padding: 0; }.sidebar-user { justify-content: center; padding-right: 0; padding-left: 0; }
 }
 @media (max-width: 640px) {
-  .workspace-shell { display: block; }.workspace-sidebar, .desktop-topbar { display: none; }.mobile-topbar { position: sticky; z-index: 20; top: 0; display: flex; align-items: center; justify-content: space-between; height: 66px; padding: 0 18px; border-bottom: 1px solid #e4e9f1; background: rgba(255,255,255,0.98); }.mobile-brand { display: flex; align-items: center; gap: 10px; padding: 0; color: #182238; background: transparent; text-align: left; }.mobile-brand .brand-mark { width: 34px; height: 34px; font-size: 16px; }.mobile-brand strong, .mobile-brand small { display: block; }.mobile-brand strong { font-size: 15px; }.mobile-brand small { margin-top: 2px; color: #8a95a7; font-size: 8px; }.mobile-avatar { width: 34px; height: 34px; }.workspace-content { min-height: calc(100dvh - 132px); padding-bottom: 66px; }.mobile-navigation { position: fixed; z-index: 30; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: repeat(4, 1fr); height: 66px; border-top: 1px solid #e4e9f1; background: rgba(255,255,255,0.98); }.mobile-navigation button { display: grid; align-content: center; justify-items: center; gap: 4px; padding: 0; color: #8d97a8; background: transparent; font-size: 9px; }.mobile-navigation button :deep(.van-icon) { font-size: 20px; }.mobile-navigation button.active { color: #3159e7; }.mobile-navigation button.active :deep(.van-icon) { display: grid; width: 26px; height: 25px; place-items: center; border-radius: 8px; background: #eef2ff; }
+  .workspace-shell { display: block; }.workspace-sidebar, .desktop-topbar { display: none; }.mobile-topbar { position: sticky; z-index: 20; top: 0; display: flex; align-items: center; justify-content: space-between; height: 66px; padding: 0 18px; border-bottom: 1px solid #e4e9f1; background: rgba(255,255,255,0.98); }.mobile-brand { display: flex; align-items: center; gap: 10px; padding: 0; color: #182238; background: transparent; text-align: left; }.mobile-brand .brand-mark { width: 34px; height: 34px; font-size: 16px; }.mobile-brand strong, .mobile-brand small { display: block; }.mobile-brand strong { font-size: 15px; }.mobile-brand small { margin-top: 2px; color: #8a95a7; font-size: 8px; }.mobile-avatar { width: 34px; height: 34px; }.workspace-content { min-height: calc(100dvh - 132px); padding-bottom: 66px; }.mobile-navigation { position: fixed; z-index: 30; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: repeat(4, 1fr); height: 66px; border-top: 1px solid #e4e9f1; background: rgba(255,255,255,0.98); }.mobile-navigation.has-five-items { grid-template-columns: repeat(5, 1fr); }.mobile-navigation button { display: grid; align-content: center; justify-items: center; gap: 4px; padding: 0; color: #8d97a8; background: transparent; font-size: 9px; }.mobile-navigation button :deep(.van-icon) { font-size: 20px; }.mobile-navigation button.active { color: #3159e7; }.mobile-navigation button.active :deep(.van-icon) { display: grid; width: 26px; height: 25px; place-items: center; border-radius: 8px; background: #eef2ff; }
 }
 </style>

@@ -33,7 +33,7 @@ assert.deepEqual(
 )
 
 const adminMobile = buildMobileNavigation({ isAdmin: true, currentPath: '/dashboard' })
-assert.deepEqual(adminMobile.map(item => item.to), ['/home', '/review', '/dashboard', '/profile'])
+assert.deepEqual(adminMobile.map(item => item.to), ['/home', '/query', '/review', '/dashboard', '/profile'])
 assert.equal(adminMobile.find(item => item.to === '/dashboard')?.active, true)
 
 const overview = buildWorkbenchOverview({

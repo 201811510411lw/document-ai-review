@@ -37,6 +37,7 @@ export function buildMobileNavigation({ isAdmin, currentPath }) {
   const items = isAdmin
     ? [
         { label: '首页', to: '/home', icon: 'home-o' },
+        { label: '查询', to: '/query', icon: 'search' },
         { label: '审核', to: '/review', icon: 'records-o' },
         { label: '看板', to: '/dashboard', icon: 'bar-chart-o' },
         { label: '我的', to: '/profile', icon: 'contact-o' },
