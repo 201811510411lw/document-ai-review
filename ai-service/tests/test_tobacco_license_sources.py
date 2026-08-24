@@ -1,4 +1,5 @@
 from app.integrations.starrocks.tobacco_license_sources import (
+    OA_MYSQL_TOBACCO_SOURCE_TABLES,
     build_pending_stores_sql,
     build_tobacco_license_source_by_request_sql,
     build_tobacco_license_source_sql,
@@ -104,6 +105,20 @@ def test_build_source_by_request_sql_uses_exact_workflow_and_request_identity():
     assert "INSTR(IFNULL(r.REQUESTNAME, '')" not in sql
     assert "ORDER BY d.ID, dif.IMAGEFILEID" in sql
     assert "'承诺函'" in sql
+
+
+def test_build_source_by_request_sql_supports_oa_mysql_table_names():
+    sql = build_tobacco_license_source_by_request_sql(
+        2801287,
+        tables=OA_MYSQL_TOBACCO_SOURCE_TABLES,
+    )
+
+    assert "FROM formtable_main_283 f" in sql
+    assert "JOIN workflow_requestbase r" in sql
+    assert "LEFT JOIN docdetail d" in sql
+    assert "LEFT JOIN docimagefile dif" in sql
+    assert "LEFT JOIN imagefile i" in sql
+    assert "ods_oa_ecology_" not in sql
 
 
 def test_fetch_source_files_by_request_does_not_select_another_request():

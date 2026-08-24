@@ -103,7 +103,7 @@
 
 - 识别烟草专卖零售许可证并生成统一 Review Result。
 - 作为烟草证一致性审核中的证照识别 Workflow 使用。
-- 来源文件由 OA 数据同步到 StarRocks 后准备到受控本地目录。
+- OA 烟草来源文件由 ecology MySQL 实时查询后准备到受控本地目录；StarRocks ODS 仍可用于历史或分析查询。
 
 ### 当前边界
 

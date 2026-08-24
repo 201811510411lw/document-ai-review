@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from app.api.auth import require_web_console_user
 from app.integrations.mysql_client import MySqlFetchClient, mysql_settings_from_env
 from app.integrations.starrocks.tobacco_license_sources import (
+    OA_MYSQL_TOBACCO_SOURCE_TABLES,
     SqlFetchClient,
     TobaccoLicenseSourceTaskError,
     fetch_latest_tobacco_license_source_files,
@@ -24,8 +25,16 @@ class TobaccoLicenseSourceFetchRequest(BaseModel):
     store_identifier: str
 
 
-def get_tobacco_license_starrocks_sql_client() -> SqlFetchClient:
-    return MySqlFetchClient(mysql_settings_from_env("STARROCKS"))
+def get_tobacco_license_oa_source_sql_client() -> SqlFetchClient:
+    return MySqlFetchClient(
+        mysql_settings_from_env("OA_SOURCE_MYSQL"),
+        source_tables=OA_MYSQL_TOBACCO_SOURCE_TABLES,
+    )
+
+
+# Keep the old dependency symbol for deployed clients and tests; it now resolves
+# the live OA ecology source rather than StarRocks.
+get_tobacco_license_starrocks_sql_client = get_tobacco_license_oa_source_sql_client
 
 
 def get_tobacco_license_file_store() -> TobaccoLicenseFileStore:

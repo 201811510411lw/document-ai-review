@@ -63,6 +63,22 @@ def test_mysql_fetch_client_executes_sql_and_returns_dict_rows(monkeypatch):
     assert calls[0]["cursorclass"].__name__ == "DictCursor"
 
 
+def test_mysql_fetch_client_keeps_source_table_mapping():
+    tables = {"form": "formtable_main_283"}
+    client = MySqlFetchClient(
+        MySqlSettings(
+            host="127.0.0.1",
+            port=3306,
+            user="demo",
+            password="secret",
+            database="ecology",
+        ),
+        source_tables=tables,
+    )
+
+    assert client.source_tables == tables
+
+
 def test_mysql_fetch_client_reuses_open_connection(monkeypatch):
     connections = [StubConnection(), StubConnection()]
     calls = []

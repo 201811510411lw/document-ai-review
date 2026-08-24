@@ -38,6 +38,10 @@ starrocks:
   host: starrocks.example.test
   port: 9030
   database: work_temp
+oa_source_mysql:
+  host: oa-mysql.example.test
+  port: 3306
+  database: ecology
 oa_auto_review:
   callback_url: http://oa.example.test/api/bicallback/result
 wecom:
@@ -67,6 +71,9 @@ wecom:
     assert os.environ["STARROCKS_HOST"] == "starrocks.example.test"
     assert os.environ["STARROCKS_PORT"] == "9030"
     assert os.environ["STARROCKS_DATABASE"] == "work_temp"
+    assert os.environ["OA_SOURCE_MYSQL_HOST"] == "oa-mysql.example.test"
+    assert os.environ["OA_SOURCE_MYSQL_PORT"] == "3306"
+    assert os.environ["OA_SOURCE_MYSQL_DATABASE"] == "ecology"
     assert os.environ["OA_AUTO_REVIEW_CALLBACK_URL"] == (
         "http://oa.example.test/api/bicallback/result"
     )

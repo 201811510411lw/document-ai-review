@@ -214,7 +214,7 @@ GET /api/v1/tobacco-license/source-files/local/{relative_path}
 }
 ```
 
-服务从 StarRocks 中查询 OA 来源附件，将可用文件准备到受控目录，再返回预览和下载地址。
+服务从 OA ecology MySQL 中查询来源附件，将可用文件准备到受控目录，再返回预览和下载地址。
 本地文件接口只接受文件存储服务生成的相对路径；`download=1` 会设置下载文件名。
 
 ## 8. 烟草证一致性审核

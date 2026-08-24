@@ -164,6 +164,9 @@ CONFIG_KEY_PATHS = {
     "STARROCKS_HOST": ("starrocks", "host"),
     "STARROCKS_PORT": ("starrocks", "port"),
     "STARROCKS_DATABASE": ("starrocks", "database"),
+    "OA_SOURCE_MYSQL_HOST": ("oa_source_mysql", "host"),
+    "OA_SOURCE_MYSQL_PORT": ("oa_source_mysql", "port"),
+    "OA_SOURCE_MYSQL_DATABASE": ("oa_source_mysql", "database"),
     "TOBACCO_CONSISTENCY_DAILY_SYNC_ENABLED": (
         "tobacco_consistency",
         "daily_sync_enabled",
@@ -224,6 +227,8 @@ SECRET_ENV_KEYS = {
     "REVIEW_RESULT_MYSQL_PASSWORD",
     "STARROCKS_USER",
     "STARROCKS_PASSWORD",
+    "OA_SOURCE_MYSQL_USER",
+    "OA_SOURCE_MYSQL_PASSWORD",
     "WEB_CONSOLE_AUTH_PASSWORD",
     "OA_AUTO_REVIEW_TOKEN",
     "WEB_CONSOLE_AUTH_SECRET",

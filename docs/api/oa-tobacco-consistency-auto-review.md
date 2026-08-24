@@ -6,7 +6,7 @@
 ## 1. 当前链路
 
 ```text
-OA 来源记录同步到 StarRocks
+OA 来源记录直接从 ecology MySQL 查询
   -> OA 按 workflow_id + requestid 精确触发，或控制台查询待处理门店
   -> 查询待处理门店
   -> 获取营业执照和烟草证附件
@@ -44,7 +44,7 @@ GET /api/v1/tobacco-license-consistency/pending-stores
 }
 ```
 
-StarRocks 不可用时返回 HTTP `503` 和 `STARROCKS_UNAVAILABLE`，不会静默回退到 demo 数据。
+OA ecology 源库不可用时返回 HTTP `503` 和 `OA_SOURCE_UNAVAILABLE`，不会静默回退到 demo 数据。
 
 ## 3. 创建单门店一致性审核
 

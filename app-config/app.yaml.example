@@ -60,6 +60,13 @@ starrocks:
   port: 9030
   database: work_temp
 
+# OA ecology 源库；烟草 OA 自动审核实时查询此库，不等待 StarRocks 同步。
+# 账号和密码放在 .env 的 OA_SOURCE_MYSQL_USER/OA_SOURCE_MYSQL_PASSWORD。
+oa_source_mysql:
+  host: your-oa-mysql-host
+  port: 3306
+  database: ecology
+
 # 烟草证一致性配置。字段值为 OA formtable_main_283 中三个“其他附件”控件的技术字段名。
 # daily_sync_enabled 当前仅完成配置映射，尚未被调度器消费；不能作为任务启停开关。
 # 未确认 OA 字段名时保持空字符串，避免基于不完整附件生成自动结论。

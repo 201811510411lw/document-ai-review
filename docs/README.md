@@ -13,7 +13,7 @@
 
 - [API 契约](API.md)：认证方式、业务接口、响应语义和当前限制。
 - [OpenAPI operation 清单](api/openapi-operations.md)：从 FastAPI 应用生成的 HTTP operation 索引。
-- [OA 烟草证一致性审核](api/oa-tobacco-consistency-auto-review.md)：OA/StarRocks 来源审核与影刀验真的现行接口。
+- [OA 烟草证一致性审核](api/oa-tobacco-consistency-auto-review.md)：OA ecology MySQL 来源审核与影刀验真的现行接口。
 - [外部集成](INTEGRATIONS.md)：SRM、StarRocks、OA、企业微信、OCR/LLM、远程文件和影刀 RPA 的职责边界。
 
 ## 业务规则

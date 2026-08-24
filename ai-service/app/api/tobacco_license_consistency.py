@@ -9,6 +9,7 @@ from app.api.auth import require_oa_token, require_web_console_user
 from app.core.config import settings
 from app.integrations.mysql_client import MySqlFetchClient, mysql_settings_from_env
 from app.integrations.starrocks.tobacco_license_sources import (
+    OA_MYSQL_TOBACCO_SOURCE_TABLES,
     SqlFetchClient,
     build_pending_stores_sql,
     fetch_pending_stores,
@@ -102,8 +103,15 @@ class OaAutoReviewRequest(BaseModel):
         return None
 
 
-def get_starrocks_sql_client() -> SqlFetchClient:
-    return MySqlFetchClient(mysql_settings_from_env("STARROCKS"))
+def get_oa_source_sql_client() -> SqlFetchClient:
+    return MySqlFetchClient(
+        mysql_settings_from_env("OA_SOURCE_MYSQL"),
+        source_tables=OA_MYSQL_TOBACCO_SOURCE_TABLES,
+    )
+
+
+# Backward-compatible dependency name; this now points to OA ecology MySQL.
+get_starrocks_sql_client = get_oa_source_sql_client
 
 
 def get_file_store() -> TobaccoLicenseFileStore:
@@ -138,7 +146,7 @@ def list_pending_stores(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     _current_user: dict[str, Any] = Depends(require_web_console_user),
-    sql_client: SqlFetchClient = Depends(get_starrocks_sql_client),
+    sql_client: SqlFetchClient = Depends(get_oa_source_sql_client),
 ) -> dict[str, Any]:
     """返回有待处理 OA 烟草证提交流程的门店列表"""
     try:
@@ -159,8 +167,8 @@ def list_pending_stores(
         raise HTTPException(
             status_code=503,
             detail={
-                "code": "STARROCKS_UNAVAILABLE",
-                "message": f"StarRocks 不可用，无法获取待处理列表: {error}",
+                "code": "OA_SOURCE_UNAVAILABLE",
+                "message": f"OA ecology 来源库不可用，无法获取待处理列表: {error}",
             },
         ) from error
 
@@ -176,7 +184,7 @@ def list_pending_stores(
 def create_consistency_review(
     request: CreateConsistencyReviewRequest,
     _current_user: dict[str, Any] = Depends(require_web_console_user),
-    sql_client: SqlFetchClient = Depends(get_starrocks_sql_client),
+    sql_client: SqlFetchClient = Depends(get_oa_source_sql_client),
     file_store: TobaccoLicenseFileStore = Depends(get_file_store),
     repository=Depends(get_review_repository),
     document_review_service: ReviewService = Depends(get_document_review_service),
@@ -366,7 +374,7 @@ def create_consistency_review(
 def create_oa_auto_review(
     request: OaAutoReviewRequest,
     _oa_client: dict[str, str] = Depends(require_oa_token),
-    sql_client: SqlFetchClient = Depends(get_starrocks_sql_client),
+    sql_client: SqlFetchClient = Depends(get_oa_source_sql_client),
     file_store: TobaccoLicenseFileStore = Depends(get_file_store),
     repository=Depends(get_review_repository),
     document_review_service: ReviewService = Depends(get_document_review_service),
@@ -393,7 +401,7 @@ def submit_oa_auto_review(
     request: OaAutoReviewRequest,
     background_tasks: BackgroundTasks,
     _oa_client: dict[str, str] = Depends(require_oa_token),
-    sql_client: SqlFetchClient = Depends(get_starrocks_sql_client),
+    sql_client: SqlFetchClient = Depends(get_oa_source_sql_client),
     file_store: TobaccoLicenseFileStore = Depends(get_file_store),
     repository=Depends(get_review_repository),
     document_review_service: ReviewService = Depends(get_document_review_service),
@@ -469,7 +477,7 @@ def _run_oa_auto_review_and_callback(
 def create_consistency_reviews_batch(
     request: BatchConsistencyReviewRequest,
     current_user: dict[str, Any] = Depends(require_web_console_user),
-    sql_client: SqlFetchClient = Depends(get_starrocks_sql_client),
+    sql_client: SqlFetchClient = Depends(get_oa_source_sql_client),
     file_store: TobaccoLicenseFileStore = Depends(get_file_store),
     repository=Depends(get_review_repository),
 ) -> dict[str, Any]:

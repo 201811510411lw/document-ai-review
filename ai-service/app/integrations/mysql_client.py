@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Mapping
 
 import pymysql
 
@@ -17,8 +17,14 @@ class MySqlSettings:
 
 
 class MySqlFetchClient:
-    def __init__(self, settings: MySqlSettings) -> None:
+    def __init__(
+        self,
+        settings: MySqlSettings,
+        *,
+        source_tables: Mapping[str, str] | None = None,
+    ) -> None:
         self.settings = settings
+        self.source_tables = dict(source_tables or {})
         self._connection = None
 
     def fetch_all(self, sql: str) -> list[dict[str, Any]]:

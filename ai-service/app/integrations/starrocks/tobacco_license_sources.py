@@ -1,4 +1,4 @@
-from typing import Any, Protocol
+from typing import Any, Mapping, Protocol
 
 from pydantic import BaseModel
 
@@ -44,7 +44,34 @@ class TobaccoLicenseSourceTaskError(ValueError):
         super().__init__(message)
 
 
-def build_tobacco_license_source_sql(store_identifier: str, *, limit: int = 50) -> str:
+STARROCKS_TOBACCO_SOURCE_TABLES = {
+    "form": "ods_oa_ecology_formtable_main_283_df",
+    "request": "ods_oa_ecology_workflow_requestbase_df",
+    "docdetail": "ods_oa_ecology_docdetail_df",
+    "docimagefile": "ods_oa_ecology_docimagefile_df",
+    "imagefile": "ods_oa_ecology_imagefile_df",
+}
+
+OA_MYSQL_TOBACCO_SOURCE_TABLES = {
+    "form": "formtable_main_283",
+    "request": "workflow_requestbase",
+    "docdetail": "docdetail",
+    "docimagefile": "docimagefile",
+    "imagefile": "imagefile",
+}
+
+
+def _source_tables(sql_client: SqlFetchClient) -> Mapping[str, str]:
+    configured = getattr(sql_client, "source_tables", None)
+    return configured or STARROCKS_TOBACCO_SOURCE_TABLES
+
+
+def build_tobacco_license_source_sql(
+    store_identifier: str,
+    *,
+    limit: int = 50,
+    tables: Mapping[str, str] | None = None,
+) -> str:
     store_identifier = _required_text(store_identifier, "store_identifier")
     safe_limit = max(1, min(int(limit), 200))
     store_literal = _sql_string_literal(store_identifier)
@@ -60,6 +87,7 @@ def build_tobacco_license_source_sql(store_identifier: str, *, limit: int = 50) 
         identity_predicate=identity_predicate,
         order_by="r.CREATEDATE DESC, r.CREATETIME DESC, f.id DESC, d.ID, dif.IMAGEFILEID",
         limit=safe_limit,
+        tables=tables or STARROCKS_TOBACCO_SOURCE_TABLES,
     )
 
 
@@ -67,6 +95,7 @@ def build_tobacco_license_source_by_request_sql(
     requestid: int,
     *,
     workflow_id: int = 614,
+    tables: Mapping[str, str] | None = None,
 ) -> str:
     safe_requestid = _required_positive_int(requestid, "requestid")
     safe_workflow_id = _required_positive_int(workflow_id, "workflow_id")
@@ -74,6 +103,7 @@ def build_tobacco_license_source_by_request_sql(
         workflow_id=safe_workflow_id,
         identity_predicate=f"f.requestid = {safe_requestid}",
         order_by="d.ID, dif.IMAGEFILEID",
+        tables=tables or STARROCKS_TOBACCO_SOURCE_TABLES,
     )
 
 
@@ -83,6 +113,7 @@ def _build_source_sql(
     identity_predicate: str,
     order_by: str,
     limit: int | None = None,
+    tables: Mapping[str, str] = STARROCKS_TOBACCO_SOURCE_TABLES,
 ) -> str:
     limit_clause = f"\nLIMIT {limit}" if limit is not None else ""
     return f"""
@@ -96,7 +127,7 @@ SELECT
     f.ycxsxkz AS tobacco_license_docids,
     f.yyzz AS business_license_docids,
     CASE
-      WHEN FIND_IN_SET(CAST(d.ID AS VARCHAR), REPLACE(f.yyzz, ' ', '')) > 0
+      WHEN FIND_IN_SET(CONCAT(d.ID, ''), REPLACE(f.yyzz, ' ', '')) > 0
         THEN 'business_license'
       ELSE 'tobacco_license'
     END AS document_role,
@@ -117,17 +148,17 @@ SELECT
     i.ISENCRYPT AS is_encrypt,
     i.ISAESENCRYPT AS is_aes_encrypt,
     i.FILESIZE AS file_size
-FROM ods_oa_ecology_formtable_main_283_df f
-JOIN ods_oa_ecology_workflow_requestbase_df r
+FROM {tables["form"]} f
+JOIN {tables["request"]} r
   ON r.REQUESTID = f.requestid
-LEFT JOIN ods_oa_ecology_docdetail_df d
+LEFT JOIN {tables["docdetail"]} d
   ON (
-    FIND_IN_SET(CAST(d.ID AS VARCHAR), REPLACE(f.ycxsxkz, ' ', '')) > 0
-    OR FIND_IN_SET(CAST(d.ID AS VARCHAR), REPLACE(f.yyzz, ' ', '')) > 0
+    FIND_IN_SET(CONCAT(d.ID, ''), REPLACE(f.ycxsxkz, ' ', '')) > 0
+    OR FIND_IN_SET(CONCAT(d.ID, ''), REPLACE(f.yyzz, ' ', '')) > 0
   )
-LEFT JOIN ods_oa_ecology_docimagefile_df dif
+LEFT JOIN {tables["docimagefile"]} dif
   ON dif.DOCID = d.ID
-LEFT JOIN ods_oa_ecology_imagefile_df i
+LEFT JOIN {tables["imagefile"]} i
   ON i.IMAGEFILEID = dif.IMAGEFILEID
 WHERE r.WORKFLOWID = {workflow_id}
   AND f.ycxsxkz IS NOT NULL
@@ -137,7 +168,7 @@ WHERE r.WORKFLOWID = {workflow_id}
   -- The yyzz field can include non-license supporting documents such as commitments.
   -- Exclude only those explicit commitment attachments from the business-license candidates.
   AND NOT (
-    FIND_IN_SET(CAST(d.ID AS VARCHAR), REPLACE(f.yyzz, ' ', '')) > 0
+    FIND_IN_SET(CONCAT(d.ID, ''), REPLACE(f.yyzz, ' ', '')) > 0
     AND (
       INSTR(IFNULL(d.DOCSUBJECT, ''), '承诺函') > 0
       OR INSTR(IFNULL(dif.IMAGEFILENAME, ''), '承诺函') > 0
@@ -149,7 +180,12 @@ ORDER BY {order_by}{limit_clause}
 """.strip()
 
 
-def build_pending_stores_sql(*, page: int = 1, page_size: int = 20) -> str:
+def build_pending_stores_sql(
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    tables: Mapping[str, str] | None = None,
+) -> str:
     safe_page = max(1, int(page))
     safe_page_size = max(1, min(int(page_size), 100))
     offset = (safe_page - 1) * safe_page_size
@@ -175,8 +211,8 @@ FROM (
             PARTITION BY COALESCE(NULLIF(f.mdbm, ''), f.mdmc)
             ORDER BY r.CREATEDATE DESC, r.CREATETIME DESC, f.id DESC
         ) AS latest_row_num
-    FROM ods_oa_ecology_formtable_main_283_df f
-    JOIN ods_oa_ecology_workflow_requestbase_df r
+    FROM {((tables or STARROCKS_TOBACCO_SOURCE_TABLES)["form"])} f
+    JOIN {((tables or STARROCKS_TOBACCO_SOURCE_TABLES)["request"])} r
       ON r.REQUESTID = f.requestid
     WHERE r.WORKFLOWID = 614
       AND f.ycxsxkz IS NOT NULL
@@ -196,7 +232,14 @@ def fetch_pending_stores(
     page: int = 1,
     page_size: int = 20,
 ) -> list[dict[str, object]]:
-    rows = sql_client.fetch_all(sql or build_pending_stores_sql(page=page, page_size=page_size))
+    rows = sql_client.fetch_all(
+        sql
+        or build_pending_stores_sql(
+            page=page,
+            page_size=page_size,
+            tables=_source_tables(sql_client),
+        )
+    )
     return [
         {
             "store_code": str(row.get("store_code") or ""),
@@ -218,7 +261,13 @@ def fetch_latest_tobacco_license_source_files(
     *,
     sql: str | None = None,
 ) -> list[TobaccoLicenseSourceFile]:
-    rows = sql_client.fetch_all(sql or build_tobacco_license_source_sql(store_identifier))
+    rows = sql_client.fetch_all(
+        sql
+        or build_tobacco_license_source_sql(
+            store_identifier,
+            tables=_source_tables(sql_client),
+        )
+    )
     files = [_to_source_file(row) for row in rows]
     files = [source_file for source_file in files if source_file.file_real_path.strip()]
     if not files:
@@ -247,6 +296,7 @@ def fetch_tobacco_license_source_files_by_request(
         or build_tobacco_license_source_by_request_sql(
             safe_requestid,
             workflow_id=safe_workflow_id,
+            tables=_source_tables(sql_client),
         )
     )
     return [
