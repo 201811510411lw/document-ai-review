@@ -122,6 +122,7 @@ OCR/LLM 字段抽取只能依据烟草证图片、PDF 页面或 OCR 文本中的
 - StarRocks、审核结果数据库或 NAS 不可用时必须返回真实错误，不得回退到内置 demo 门店、报告或附件。
 - `FILEREALPATH` 为空、本地 NAS 文件不存在、zip 无法解压或附件加密时，进入人工复核或返回来源文件准备失败。
 - OA zip 内文件无扩展名时，可使用 `imagefile.IMAGEFILENAME` 或 `docimagefile.IMAGEFILENAME` 作为落盘文件名。
+- `yyzz` 附件中标题或文件名明确包含“承诺函”的材料属于补充材料，不进入营业执照 OCR 候选或两证字段比对；该预过滤只用于排除明确的非证照材料，不得用文件名推断或补全证照字段。
 
 ## 输出要求
 

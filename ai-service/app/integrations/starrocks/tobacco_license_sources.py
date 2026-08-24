@@ -134,6 +134,16 @@ WHERE r.WORKFLOWID = {workflow_id}
   AND TRIM(f.ycxsxkz) <> ''
   AND i.FILEREALPATH IS NOT NULL
   AND TRIM(i.FILEREALPATH) <> ''
+  -- The yyzz field can include non-license supporting documents such as commitments.
+  -- Exclude only those explicit commitment attachments from the business-license candidates.
+  AND NOT (
+    FIND_IN_SET(CAST(d.ID AS VARCHAR), REPLACE(f.yyzz, ' ', '')) > 0
+    AND (
+      INSTR(IFNULL(d.DOCSUBJECT, ''), '承诺函') > 0
+      OR INSTR(IFNULL(dif.IMAGEFILENAME, ''), '承诺函') > 0
+      OR INSTR(IFNULL(i.IMAGEFILENAME, ''), '承诺函') > 0
+    )
+  )
   AND {identity_predicate}
 ORDER BY {order_by}{limit_clause}
 """.strip()

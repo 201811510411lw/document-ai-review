@@ -30,6 +30,10 @@ def test_build_tobacco_license_source_sql_filters_store_and_attachment_chain():
     assert "FIND_IN_SET" in sql
     assert "f.yyzz AS business_license_docids" in sql
     assert "'business_license'" in sql
+    assert "d.DOCSUBJECT" in sql
+    assert "dif.IMAGEFILENAME" in sql
+    assert "i.IMAGEFILENAME" in sql
+    assert "'承诺函'" in sql
     assert "f.mdbm = 'B65230024'" in sql
     assert "ORDER BY r.CREATEDATE DESC" in sql
 
@@ -95,8 +99,11 @@ def test_build_source_by_request_sql_uses_exact_workflow_and_request_identity():
     assert "r.WORKFLOWID = 614" in sql
     assert "f.requestid = 2801287" in sql
     assert "f.mdbm =" not in sql
-    assert "INSTR(" not in sql
+    assert "INSTR(IFNULL(f.qsbt, '')" not in sql
+    assert "INSTR(IFNULL(f.nrgk, '')" not in sql
+    assert "INSTR(IFNULL(r.REQUESTNAME, '')" not in sql
     assert "ORDER BY d.ID, dif.IMAGEFILEID" in sql
+    assert "'承诺函'" in sql
 
 
 def test_fetch_source_files_by_request_does_not_select_another_request():
