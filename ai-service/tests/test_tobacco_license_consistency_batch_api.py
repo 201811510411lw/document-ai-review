@@ -1,5 +1,20 @@
 from app.api import tobacco_license_consistency as consistency_api
 from app.api.tobacco_license_consistency import BatchConsistencyReviewRequest
+from app.integrations.starrocks.tobacco_license_sources import TobaccoLicenseSourceFile
+
+
+def test_consistency_requires_both_license_document_roles():
+    source = TobaccoLicenseSourceFile(
+        requestid=1,
+        docid=2,
+        imagefile_id=3,
+        document_role="tobacco_license",
+        file_real_path="/data/oaec/test.zip",
+    )
+
+    assert consistency_api._missing_required_document_roles([source]) == [
+        "business_license",
+    ]
 
 
 def test_batch_consistency_review_removes_duplicate_stores(monkeypatch):

@@ -59,6 +59,18 @@ router = APIRouter(
     tags=["tobacco-license-consistency"],
 )
 logger = logging.getLogger(__name__)
+REQUIRED_CONSISTENCY_DOCUMENT_ROLES = frozenset(
+    {"business_license", "tobacco_license"}
+)
+
+
+def _missing_required_document_roles(source_files: list[Any]) -> list[str]:
+    available_roles = {
+        source.document_role
+        for source in source_files
+        if source.document_role in REQUIRED_CONSISTENCY_DOCUMENT_ROLES
+    }
+    return sorted(REQUIRED_CONSISTENCY_DOCUMENT_ROLES - available_roles)
 
 
 class CreateConsistencyReviewRequest(BaseModel):
@@ -226,6 +238,19 @@ def create_consistency_review(
             },
         )
 
+    required_roles = REQUIRED_CONSISTENCY_DOCUMENT_ROLES
+    missing_roles = _missing_required_document_roles(source_files)
+    if missing_roles:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "REQUIRED_DOCUMENT_ATTACHMENT_MISSING",
+                "message": "两证一致性审核必须同时提供营业执照和烟草证原件",
+                "missing_roles": missing_roles,
+                "store_identifier": store_identifier,
+            },
+        )
+
     # 2. 证照字段必须来自文件抽取或人工确认，不能用 OA 门店名称伪造。
     first = source_files[0]
     store_name = first.store_name or first.store_code or store_identifier
@@ -236,8 +261,33 @@ def create_consistency_review(
     stored_documents = []
     try:
         stored_documents = file_store.store_source_files(source_files)
-    except TobaccoLicenseFileStoreError:
-        pass  # 文件存储失败不影响比对流程
+    except TobaccoLicenseFileStoreError as error:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "REQUIRED_DOCUMENT_ATTACHMENT_UNAVAILABLE",
+                "message": "两证原件未能完整落盘，不能跳过附件继续审核",
+                "source_path": error.source_path,
+                "store_identifier": store_identifier,
+            },
+        ) from error
+
+    stored_roles = {
+        document.source.document_role
+        for document in stored_documents
+        if document.files and document.source.document_role in required_roles
+    }
+    missing_stored_roles = sorted(required_roles - stored_roles)
+    if missing_stored_roles:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "REQUIRED_DOCUMENT_ATTACHMENT_UNAVAILABLE",
+                "message": "两证原件未能完整落盘，不能跳过附件继续审核",
+                "missing_roles": missing_stored_roles,
+                "store_identifier": store_identifier,
+            },
+        )
 
     document_results = {}
     extraction_errors = {}

@@ -113,7 +113,7 @@
       </section>
 
       <section v-if="report.oa" class="content-section oa-section">
-        <header class="section-header"><div><p>原始凭据</p><h2>OA 来源与附件</h2></div><span>流程 {{ report.oa.requestid || '-' }}</span></header>
+        <header class="section-header"><div><p>原始凭据</p><h2>OA 来源与必需证照原件</h2></div><span>流程 {{ report.oa.requestid || '-' }}</span></header>
         <dl class="oa-meta">
           <div><dt>流程状态</dt><dd>{{ report.oa.request_status || '-' }}</dd></div>
           <div><dt>提交时间</dt><dd>{{ [report.oa.created_date, report.oa.created_time].filter(Boolean).join(' ') || '-' }}</dd></div>
@@ -121,11 +121,19 @@
         </dl>
         <div v-if="report.oa.content_summary" class="oa-content"><span>OA 申请正文</span><p>{{ report.oa.content_summary }}</p></div>
         <van-notice-bar v-if="report.oa.unavailable_message" left-icon="warning-o" color="#9d5d1d" background="#fff8e8">{{ report.oa.unavailable_message }}</van-notice-bar>
+        <van-notice-bar
+          v-if="missingRequiredAttachmentRoles.length"
+          left-icon="warning-o"
+          color="#9d5d1d"
+          background="#fff8e8"
+        >
+          缺少必需原件：{{ missingRequiredAttachmentRoles.map(attachmentRoleLabel).join('、') }}，本次两证审核不可继续。
+        </van-notice-bar>
         <div v-if="report.oa.attachments?.length" class="attachment-list">
           <article v-for="(attachment, index) in report.oa.attachments" :key="`${attachment.docid || 'attachment'}-${attachment.relative_path || index}`">
             <div><van-icon name="description" color="#176784" /><span><strong>{{ attachment.file_name || attachment.doc_subject || 'OA 附件' }}</strong><small>{{ attachmentRoleLabel(attachment.document_role) }}<template v-if="attachment.docid"><b>文档 {{ attachment.docid }}</b></template></small></span></div>
             <van-button v-if="attachment.relative_path" size="small" plain type="primary" icon="eye-o" @click="previewOaAttachment(attachment)">预览</van-button>
-            <em v-else>未落盘</em>
+            <em v-else>必需原件未落盘</em>
           </article>
         </div>
       </section>
@@ -169,6 +177,11 @@ const comparisonFields = computed(() => {
   ]
 })
 const mismatchCount = computed(() => comparisonFields.value.filter((item) => !item.passed).length)
+const missingRequiredAttachmentRoles = computed(() => {
+  const attachments = report.value?.oa?.attachments || []
+  const roles = new Set(attachments.filter((item) => item.relative_path).map((item) => item.document_role))
+  return ['business_license', 'tobacco_license'].filter((role) => !roles.has(role))
+})
 
 // ── RPA 验真 ──
 const rpaStatus = computed(() => rpaVerification.value?.status || report.value?.rpa_verification?.status)
