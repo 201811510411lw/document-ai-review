@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -22,6 +23,10 @@ from app.integrations.mysql_client import mysql_settings_from_env
 from app.repositories import build_review_result_repository_from_env
 from app.services.review_service import ReviewService
 from app.services.scheduled_review_service import DailyReviewScheduler
+
+
+# Uvicorn 默认只显示 WARNING；OA 审核阶段日志需要以 INFO 级别输出。
+logging.getLogger("app").setLevel(logging.INFO)
 
 
 app = FastAPI(
