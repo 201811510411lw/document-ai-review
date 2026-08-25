@@ -5,12 +5,12 @@ import os
 import zipfile
 from datetime import date, datetime
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 from xml.etree import ElementTree
 
 import httpx
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, UploadFile
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from app.api.auth import me as api_v1_me
@@ -30,6 +30,7 @@ from app.services.tobacco_review_cache import (
     list_tobacco_reports,
     save_tobacco_report,
 )
+from app.services.tobacco_license_files import TobaccoLicenseFileStore, TobaccoLicenseFileStoreError
 from app.workflows.registry import review_graph_registry
 
 
@@ -267,6 +268,18 @@ def preview_review_source_file(
     source_url = str(detail.get("source_url") or "").strip()
     if not source_url:
         raise HTTPException(status_code=404, detail="该记录没有可预览的附件")
+    local_prefix = "/api/v1/tobacco-license/source-files/local/"
+    if source_url.startswith(local_prefix):
+        relative_path = unquote(source_url[len(local_prefix):].split("?", 1)[0])
+        try:
+            local_path = TobaccoLicenseFileStore().resolve_local_file(relative_path)
+        except TobaccoLicenseFileStoreError as error:
+            raise HTTPException(status_code=404, detail="本地证照附件不存在") from error
+        return FileResponse(
+            local_path,
+            media_type=_content_type_for_local_file(local_path.name),
+            content_disposition_type="inline",
+        )
     if not _is_allowed_preview_source_url(source_url):
         raise HTTPException(status_code=403, detail="附件来源不支持预览代理")
 
@@ -369,6 +382,12 @@ def _is_allowed_preview_source_url(url: str) -> bool:
 def _preview_content_type(value: str | None) -> str | None:
     content_type = str(value or "").split(";", 1)[0].strip().lower()
     return content_type if content_type in {"application/pdf", "image/jpeg", "image/png"} else None
+
+
+def _content_type_for_local_file(file_name: str) -> str:
+    import mimetypes
+
+    return mimetypes.guess_type(file_name)[0] or "application/octet-stream"
 
 
 @api_router.post("/query")

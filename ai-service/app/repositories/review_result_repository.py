@@ -3683,7 +3683,15 @@ def _tobacco_license_projection(review_result: ReviewResult) -> dict[str, Any]:
         "source_record_id": source.get("record_id"),
         "source_created_at": _source_payload_value(source, "created"),
         "source_attachment_ref_id": source.get("attachment_ref_id"),
-        "source_url": document_input.get("source_url"),
+        "source_url": (
+            document_input.get("source_url")
+            or (
+                "/api/v1/tobacco-license/source-files/local/"
+                f"{source.get('relative_path')}"
+                if source.get("relative_path")
+                else None
+            )
+        ),
         "tenant": source.get("tenant"),
         "document_type": review_result.document_type,
         "subject_name": extracted_fields.get("subject_name"),

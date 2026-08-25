@@ -64,6 +64,9 @@ def test_source_documents_are_reviewed_by_their_oa_document_role(tmp_path):
         assert review_input.source["source_system"] == "oa_starrocks"
         assert review_input.source["attachment_ref_id"].startswith("oa:")
         assert Path(review_input.file.local_path).is_file()
+        assert review_input.file.file_uri.startswith(
+            "/api/v1/tobacco-license/source-files/local/"
+        )
     inputs_by_use_case = {
         use_case_name: review_input
         for review_input, use_case_name in service.calls

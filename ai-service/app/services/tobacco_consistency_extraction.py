@@ -112,6 +112,10 @@ def _review_input_for_document(
             local_path=stored_file.local_path,
             file_name=stored_file.file_name,
             mime_type=stored_file.content_type,
+            file_uri=(
+                "/api/v1/tobacco-license/source-files/local/"
+                f"{stored_file.relative_path}"
+            ),
         ),
         source={
             "source_system": "oa_starrocks",
