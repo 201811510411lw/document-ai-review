@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 from typing import Any, Protocol
 from uuid import uuid4
@@ -27,6 +28,11 @@ from app.services.tobacco_rpa_verification import execute_tobacco_rpa_verificati
 from app.use_cases.tobacco_license_consistency_review import (
     tobacco_license_consistency_review_use_case,
 )
+
+
+logger = logging.getLogger(__name__)
+
+
 class ReviewRepository(Protocol):
     def get_by_task_id(self, task_id: str) -> ReviewResult | None:
         ...
@@ -128,12 +134,29 @@ class OaTobaccoAutoReviewService:
             )
 
         try:
+            logger.info(
+                "[OA自动审核][来源查询开始] task_id=%s requestid=%s workflow_id=%s",
+                task_id,
+                command.requestid,
+                command.workflow_id,
+            )
             source_files = fetch_tobacco_license_source_files_by_request(
                 self._sql_client,
                 command.requestid,
                 workflow_id=command.workflow_id,
             )
+            logger.info(
+                "[OA自动审核][来源查询完成] task_id=%s requestid=%s 附件数量=%s",
+                task_id,
+                command.requestid,
+                len(source_files),
+            )
         except Exception:
+            logger.exception(
+                "[OA自动审核][来源查询失败] task_id=%s requestid=%s",
+                task_id,
+                command.requestid,
+            )
             return self._error_after_release(
                 claim,
                 task_id,
@@ -162,8 +185,25 @@ class OaTobaccoAutoReviewService:
             )
 
         try:
+            logger.info(
+                "[OA自动审核][NAS文件准备开始] task_id=%s requestid=%s 附件数量=%s",
+                task_id,
+                command.requestid,
+                len(source_files),
+            )
             stored_documents = self._file_store.store_source_files(source_files)
+            logger.info(
+                "[OA自动审核][NAS文件准备完成] task_id=%s requestid=%s 文件数量=%s",
+                task_id,
+                command.requestid,
+                sum(len(document.files) for document in stored_documents),
+            )
         except Exception:
+            logger.exception(
+                "[OA自动审核][NAS文件准备失败] task_id=%s requestid=%s",
+                task_id,
+                command.requestid,
+            )
             return self._error_after_release(
                 claim,
                 task_id,
@@ -172,10 +212,22 @@ class OaTobaccoAutoReviewService:
                 retryable=True,
             )
 
+        logger.info(
+            "[OA自动审核][OCR解析开始] task_id=%s requestid=%s",
+            task_id,
+            command.requestid,
+        )
         document_results, extraction_errors = extract_consistency_document_results(
             stored_documents,
             review_service=self._document_review_service,
             store_identifier=command.store_code,
+        )
+        logger.info(
+            "[OA自动审核][OCR解析完成] task_id=%s requestid=%s 证照角色=%s 抽取错误=%s",
+            task_id,
+            command.requestid,
+            sorted(document_results),
+            sorted(extraction_errors),
         )
         conflicting_roles = {
             key
@@ -249,12 +301,28 @@ class OaTobaccoAutoReviewService:
         )
         rpa_started = False
         try:
+            logger.info(
+                "[OA自动审核][规则校验开始] task_id=%s requestid=%s",
+                task_id,
+                command.requestid,
+            )
             result = tobacco_license_consistency_review_use_case.review(input_context)
+            logger.info(
+                "[OA自动审核][规则校验完成] task_id=%s requestid=%s status=%s",
+                task_id,
+                command.requestid,
+                result.status.value,
+            )
             tobacco_fields = resolved_consistency_fields(
                 document_results.get("tobacco_license"), {}
             )
             certificate_no = str(tobacco_fields.get("license_no") or "").strip()
             if certificate_no:
+                logger.info(
+                    "[OA自动审核][RPA验真开始] task_id=%s requestid=%s",
+                    task_id,
+                    command.requestid,
+                )
                 rpa_payload = execute_tobacco_rpa_verification(
                     result=result,
                     task_id=task_id,
@@ -263,6 +331,18 @@ class OaTobaccoAutoReviewService:
                     requestid=str(command.requestid),
                 )
                 rpa_started = rpa_payload is not None
+                logger.info(
+                    "[OA自动审核][RPA验真完成] task_id=%s requestid=%s 是否启动=%s",
+                    task_id,
+                    command.requestid,
+                    rpa_started,
+                )
+            else:
+                logger.info(
+                    "[OA自动审核][RPA验真跳过] task_id=%s requestid=%s 原因=未识别许可证号",
+                    task_id,
+                    command.requestid,
+                )
             if not self._repository.complete_claim(claim, result):
                 return _error(
                     task_id,
@@ -270,7 +350,17 @@ class OaTobaccoAutoReviewService:
                     "自动审核任务占位已失效，结果未写入",
                     retryable=False,
                 )
+            logger.info(
+                "[OA自动审核][结果保存完成] task_id=%s requestid=%s",
+                task_id,
+                command.requestid,
+            )
         except Exception:
+            logger.exception(
+                "[OA自动审核][审核执行失败] task_id=%s requestid=%s",
+                task_id,
+                command.requestid,
+            )
             if rpa_started:
                 return _error(
                     task_id,

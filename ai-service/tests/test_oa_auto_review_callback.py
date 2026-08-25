@@ -161,14 +161,13 @@ def test_callback_client_posts_json_without_authentication(monkeypatch, caplog):
     assert kwargs["headers"] == {"Content-Type": "application/json"}
     assert "auth" not in kwargs
     assert (
-        "OA callback attempt started: workflow_id=123 requestid=584412 "
-        "store_code=0001 attempt=1/3 "
-        "target=http://47.109.76.94:8080/api/bicallback/result"
-    ) in caplog.messages
+        "[OA自动审核][回调开始] workflow_id=123 requestid=584412 "
+        "门店=0001 第1/3次 目标=http://47.109.76.94:8080/api/bicallback/result"
+        ) in caplog.messages
     assert any(
         message.startswith(
-            "OA callback delivery succeeded: workflow_id=123 requestid=584412 "
-            "store_code=0001 attempt=1/3 status_code=200 duration_ms="
+            "[OA自动审核][回调成功] workflow_id=123 requestid=584412 "
+            "门店=0001 第1/3次 HTTP状态=200 耗时="
         )
         for message in caplog.messages
     )
@@ -217,14 +216,14 @@ def test_callback_client_retries_network_and_server_errors(monkeypatch, caplog):
     assert responses == []
     assert sleeps == [1.0, 5.0]
     assert any(
-        "OA callback network error: workflow_id=123 requestid=584412 "
-        "store_code=0001 attempt=1/3 error_type=ConnectError duration_ms="
+        "[OA自动审核][回调网络异常] workflow_id=123 requestid=584412 "
+        "门店=0001 第1/3次 异常类型=ConnectError 耗时="
         in message
         for message in caplog.messages
     )
     assert any(
-        "OA callback retryable response: workflow_id=123 requestid=584412 "
-        "store_code=0001 attempt=2/3 status_code=503 duration_ms="
+        "[OA自动审核][回调可重试失败] workflow_id=123 requestid=584412 "
+        "门店=0001 第2/3次 HTTP状态=503 耗时="
         in message
         for message in caplog.messages
     )
@@ -252,7 +251,7 @@ def test_callback_logs_omit_url_query_parameters(monkeypatch, caplog):
             )
         )
 
-    assert "target=http://47.109.76.94:8080/api/bicallback/result" in caplog.text
+    assert "目标=http://47.109.76.94:8080/api/bicallback/result" in caplog.text
     assert "access_token" not in caplog.text
     assert "do-not-log" not in caplog.text
 
@@ -281,8 +280,8 @@ def test_callback_logs_non_retryable_rejection(monkeypatch, caplog):
             )
 
     assert any(
-        "OA callback rejected: workflow_id=123 requestid=584412 "
-        "store_code=0001 attempt=1/3 status_code=400 duration_ms=" in message
+        "[OA自动审核][回调被拒绝] workflow_id=123 requestid=584412 "
+        "门店=0001 第1/3次 HTTP状态=400 耗时=" in message
         for message in caplog.messages
     )
 
@@ -309,12 +308,12 @@ def test_callback_logs_all_attempts_before_retry_exhaustion(monkeypatch, caplog)
         ):
             client.send(payload)
 
-    assert sum("OA callback attempt started" in message for message in caplog.messages) == 3
+    assert sum("[OA自动审核][回调开始]" in message for message in caplog.messages) == 3
     assert (
-        sum("OA callback retryable response" in message for message in caplog.messages)
+        sum("[OA自动审核][回调可重试失败]" in message for message in caplog.messages)
         == 3
     )
-    assert any("attempt=3/3 status_code=500" in message for message in caplog.messages)
+    assert any("第3/3次 HTTP状态=500" in message for message in caplog.messages)
 
 
 def test_callback_client_requires_server_side_url(monkeypatch):

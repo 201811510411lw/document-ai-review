@@ -53,8 +53,8 @@ class HttpOaAutoReviewCallbackClient:
         for attempt in range(1, self._max_attempts + 1):
             started_at = monotonic()
             logger.info(
-                "OA callback attempt started: workflow_id=%s requestid=%s "
-                "store_code=%s attempt=%s/%s target=%s",
+                "[OA自动审核][回调开始] workflow_id=%s requestid=%s "
+                "门店=%s 第%s/%s次 目标=%s",
                 payload.workflow_id,
                 payload.requestid,
                 payload.store_code,
@@ -73,8 +73,8 @@ class HttpOaAutoReviewCallbackClient:
             except httpx.RequestError as error:
                 last_error = error
                 logger.warning(
-                    "OA callback network error: workflow_id=%s requestid=%s "
-                    "store_code=%s attempt=%s/%s error_type=%s duration_ms=%s",
+                    "[OA自动审核][回调网络异常] workflow_id=%s requestid=%s "
+                    "门店=%s 第%s/%s次 异常类型=%s 耗时=%sms",
                     payload.workflow_id,
                     payload.requestid,
                     payload.store_code,
@@ -86,8 +86,8 @@ class HttpOaAutoReviewCallbackClient:
             else:
                 if 200 <= response.status_code < 300:
                     logger.info(
-                        "OA callback delivery succeeded: workflow_id=%s requestid=%s "
-                        "store_code=%s attempt=%s/%s status_code=%s duration_ms=%s",
+                        "[OA自动审核][回调成功] workflow_id=%s requestid=%s "
+                        "门店=%s 第%s/%s次 HTTP状态=%s 耗时=%sms",
                         payload.workflow_id,
                         payload.requestid,
                         payload.store_code,
@@ -99,8 +99,8 @@ class HttpOaAutoReviewCallbackClient:
                     return
                 if response.status_code not in {408, 429} and response.status_code < 500:
                     logger.warning(
-                        "OA callback rejected: workflow_id=%s requestid=%s "
-                        "store_code=%s attempt=%s/%s status_code=%s duration_ms=%s",
+                        "[OA自动审核][回调被拒绝] workflow_id=%s requestid=%s "
+                        "门店=%s 第%s/%s次 HTTP状态=%s 耗时=%sms",
                         payload.workflow_id,
                         payload.requestid,
                         payload.store_code,
@@ -116,8 +116,8 @@ class HttpOaAutoReviewCallbackClient:
                     f"OA callback returned retryable HTTP {response.status_code}"
                 )
                 logger.warning(
-                    "OA callback retryable response: workflow_id=%s requestid=%s "
-                    "store_code=%s attempt=%s/%s status_code=%s duration_ms=%s",
+                    "[OA自动审核][回调可重试失败] workflow_id=%s requestid=%s "
+                    "门店=%s 第%s/%s次 HTTP状态=%s 耗时=%sms",
                     payload.workflow_id,
                     payload.requestid,
                     payload.store_code,
