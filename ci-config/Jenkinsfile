@@ -66,15 +66,14 @@ ${agentImagePullSecretsYaml()}  restartPolicy: Never
 """
 }
 
-def cloneProject() {
+def cloneRepository(String url, String branch, String directory) {
   withCredentials([usernamePassword(credentialsId: 'ds-gitlab', usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_PASSWORD')]) {
     script {
-      def repoUrl = params.GIT_REPO.replace('https://', '').replace('http://', '')
+      def repositoryPath = url.replace('https://', '').replace('http://', '')
       sh """#!/bin/bash
         set -e
-        git clone -b ${params.GIT_BRANCH} https://\${GIT_USERNAME}:\${GIT_PASSWORD}@${repoUrl} document-ai-review
+        git clone -b '${branch}' "https://\${GIT_USERNAME}:\${GIT_PASSWORD}@${repositoryPath}" '${directory}'
       """
-      sh 'ls -la document-ai-review'
     }
   }
 }
@@ -82,22 +81,42 @@ def cloneProject() {
 def buildImage(String imageName) {
   container('kaniko') {
     sh """
-      /kaniko/executor \
-        --context=${env.WORKSPACE}/document-ai-review \
-        --dockerfile=ci-config/Dockerfile \
-        --build-arg PYTHON_IMAGE=${pythonRuntimeImage()} \
-        --build-arg NODE_IMAGE=${nodeBuilderImage()} \
-        --destination=${imageName} \
-        --skip-tls-verify \
-        --verbosity=debug
+      /kaniko/executor \\
+        --context=${env.WORKSPACE}/document-ai-review \\
+        --dockerfile=ci-config/Dockerfile \\
+        --build-arg PYTHON_IMAGE=${pythonRuntimeImage()} \\
+        --build-arg NODE_IMAGE=${nodeBuilderImage()} \\
+        --destination=${imageName} \\
+        --label org.opencontainers.image.revision=${env.SOURCE_COMMIT} \\
+        --label org.opencontainers.image.source=${params.GIT_REPO} \\
+        --label org.opencontainers.image.version=${env.DOCUMENT_AI_REVIEW_IMAGE_TAG} \\
+        --cache=true \\
+        --cache-repo=${params.IMAGE_REGISTRY}/document-ai-review-cache \\
+        --cache-copy-layers=true \\
+        --cache-run-layers=true \\
+        --cache-ttl=168h \\
+        --skip-tls-verify \\
+        --verbosity=info
     """
   }
 }
 
 def resolveImageTag() {
-  return params.IMAGE_TAG
+  def suppliedTag = params.IMAGE_TAG
+  def requestedTag = suppliedTag.trim()
+  if (suppliedTag != requestedTag) {
+    error('IMAGE_TAG must not contain leading or trailing whitespace')
+  }
+  if (requestedTag.isEmpty()) {
+    return 'v1'
+  }
+  def imageTag = requestedTag
     .replace('${BUILD_NUMBER}', env.BUILD_NUMBER)
     .replace('$BUILD_NUMBER', env.BUILD_NUMBER)
+  if (!(imageTag ==~ /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/)) {
+    error("IMAGE_TAG is not a valid OCI tag: ${imageTag}")
+  }
+  return imageTag
 }
 
 pipeline {
@@ -107,7 +126,7 @@ pipeline {
     string(name: 'GIT_REPO', defaultValue: 'https://git.lsym.cn/datacenter/data-development/document-ai-review.git', description: 'Git仓库地址')
     string(name: 'GIT_BRANCH', defaultValue: 'main', description: 'Git分支')
     string(name: 'IMAGE_REGISTRY', defaultValue: 'prod-mirror-cn-beijing.cr.volces.com/metadata', description: '镜像仓库命名空间')
-    string(name: 'IMAGE_TAG', defaultValue: 'v1', description: '镜像Tag')
+    string(name: 'IMAGE_TAG', defaultValue: 'v1', description: '镜像 Tag；留空则使用 v1')
   }
 
   stages {
@@ -116,10 +135,45 @@ pipeline {
         script {
           podTemplate(yaml: buildKanikoPodYaml()) {
             node(POD_LABEL) {
-              cloneProject()
+              cloneRepository(params.GIT_REPO, params.GIT_BRANCH, 'document-ai-review')
+              env.SOURCE_COMMIT = sh(
+                script: 'git -C document-ai-review rev-parse HEAD',
+                returnStdout: true
+              ).trim()
+              env.SOURCE_COMMIT_SHORT = sh(
+                script: 'git -C document-ai-review rev-parse --short HEAD',
+                returnStdout: true
+              ).trim()
+              env.SOURCE_COMMIT_SUBJECT = sh(
+                script: 'git -C document-ai-review log -1 --pretty=%s',
+                returnStdout: true
+              ).trim()
+              env.SOURCE_COMMIT_AUTHOR = sh(
+                script: 'git -C document-ai-review log -1 --pretty=%an',
+                returnStdout: true
+              ).trim()
+              env.SOURCE_COMMIT_TIME = sh(
+                script: 'git -C document-ai-review log -1 --pretty=%cI',
+                returnStdout: true
+              ).trim()
+
               def imageTag = resolveImageTag()
               def imageName = "${params.IMAGE_REGISTRY}/document-ai-review:${imageTag}"
+              env.DOCUMENT_AI_REVIEW_IMAGE_TAG = imageTag
+              env.DOCUMENT_AI_REVIEW_IMAGE_NAME = imageName
+              currentBuild.displayName = "#${env.BUILD_NUMBER} ${params.GIT_BRANCH} ${env.SOURCE_COMMIT_SHORT} ${env.SOURCE_COMMIT_SUBJECT}"
+              currentBuild.description = "commit: ${env.SOURCE_COMMIT}\nbranch: ${params.GIT_BRANCH}\nimage: ${imageName}"
+
+              echo "Source repository: ${params.GIT_REPO}"
+              echo "Source branch: ${params.GIT_BRANCH}"
+              echo "Source commit: ${env.SOURCE_COMMIT}"
+              echo "Source commit subject: ${env.SOURCE_COMMIT_SUBJECT}"
+              echo "Source commit author: ${env.SOURCE_COMMIT_AUTHOR}"
+              echo "Source commit time: ${env.SOURCE_COMMIT_TIME}"
+              echo 'Source commit content:'
+              sh 'git -C document-ai-review log -1 --format=fuller --stat --no-renames'
               echo "Build image: ${imageName}"
+              echo "Kaniko cache: ${params.IMAGE_REGISTRY}/document-ai-review-cache (TTL: 168h)"
               buildImage(imageName)
             }
           }
@@ -130,8 +184,8 @@ pipeline {
 
   post {
     success {
-      echo "构建成功"
-      echo "app: ${params.IMAGE_REGISTRY}/document-ai-review:${resolveImageTag()}"
+      echo "镜像已推送: ${env.DOCUMENT_AI_REVIEW_IMAGE_NAME}"
+      echo "源码提交: ${env.SOURCE_COMMIT}"
     }
     failure {
       echo "构建失败，请检查 Jenkins 日志"
