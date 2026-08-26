@@ -209,7 +209,15 @@ class OaTobaccoAutoReviewService:
             claim = self._persist_running_stage(
                 claim,
                 summary="OA 附件已落盘，正在执行证照抽取",
-                skill_result={"source_evidence": {"source": oa_source}},
+                skill_result={
+                    "source_evidence": {
+                        "source": {
+                            "requestid": source_files[0].requestid,
+                            "workflow_id": source_files[0].workflow_id,
+                            "oa": oa_source,
+                        }
+                    }
+                },
             )
         except Exception:
             logger.exception(
