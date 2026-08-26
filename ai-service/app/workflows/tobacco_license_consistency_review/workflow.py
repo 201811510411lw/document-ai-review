@@ -93,11 +93,21 @@ def _review_rules(
     business_result=None,
     tobacco_result=None,
 ) -> list[RuleResult]:
+    type_rules = [
+        _type_rule("business_license", business_fields.get("document_type"), "营业执照类型"),
+        _type_rule("tobacco_license", tobacco_fields.get("document_type"), "烟草证类型"),
+    ]
     rules = [
         _child_review_ready_rule("BUSINESS_LICENSE", "营业执照", business_result),
         _child_review_ready_rule("TOBACCO_LICENSE", "烟草证", tobacco_result),
-        _type_rule("business_license", business_fields.get("document_type"), "营业执照类型"),
-        _type_rule("tobacco_license", tobacco_fields.get("document_type"), "烟草证类型"),
+        *type_rules,
+    ]
+    # 文档类型是后续一致性审核的前置条件。类型不合规时直接返回类型结果，
+    # 避免把另一种证照的字段误报成名称、地址或有效期问题。
+    if any(not rule.passed for rule in type_rules):
+        return rules
+
+    rules.extend([
         _required_field_rule(
             "TOBACCO_LICENSE_NO_FOR_CONSISTENCY",
             "烟草证许可证号完整",
@@ -116,7 +126,7 @@ def _review_rules(
             tobacco_fields,
             ("subject_name", "business_address", "legal_person", "license_no", "valid_to"),
         ),
-    ]
+    ])
     if review_mode == "store_in_store":
         rules.extend(_store_in_store_rules(business_fields, tobacco_fields, store_in_store))
     else:

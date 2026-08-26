@@ -193,6 +193,26 @@ def test_tobacco_license_consistency_type_errors_are_high_risk():
     assert "TOBACCO_LICENSE_TYPE_FOR_CONSISTENCY" in _failed_codes(result)
 
 
+def test_tobacco_license_consistency_stops_after_invalid_document_types():
+    rules = consistency_workflow._review_rules(
+        {**BASE_BUSINESS_FIELDS, "document_type": "food_license"},
+        {**BASE_TOBACCO_FIELDS, "document_type": "business_license"},
+        review_mode="standard",
+        store_in_store={},
+    )
+
+    assert [rule.rule_code for rule in rules] == [
+        "BUSINESS_LICENSE_CHILD_REVIEW_READY",
+        "TOBACCO_LICENSE_CHILD_REVIEW_READY",
+        "BUSINESS_LICENSE_TYPE_FOR_CONSISTENCY",
+        "TOBACCO_LICENSE_TYPE_FOR_CONSISTENCY",
+    ]
+    assert [rule.message for rule in rules[2:]] == [
+        "营业执照类型不匹配",
+        "烟草证类型不匹配",
+    ]
+
+
 def test_store_in_store_allows_franchisee_name_to_differ_when_evidence_chain_is_complete():
     result = _review(
         business_fields={
