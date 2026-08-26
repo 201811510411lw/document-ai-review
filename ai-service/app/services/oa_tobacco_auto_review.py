@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -32,6 +32,7 @@ from app.use_cases.tobacco_license_consistency_review import (
 
 
 logger = logging.getLogger(__name__)
+OA_CLAIM_TIMEOUT = timedelta(minutes=15)
 
 
 class ReviewRepository(Protocol):
@@ -199,6 +200,17 @@ class OaTobaccoAutoReviewService:
                 command.requestid,
                 sum(len(document.files) for document in stored_documents),
             )
+            oa_source = _oa_source_snapshot(
+                source_files[0],
+                source_files=source_files,
+                stored_documents=stored_documents,
+                selected_files=[],
+            )
+            claim = self._persist_running_stage(
+                claim,
+                summary="OA 附件已落盘，正在执行证照抽取",
+                skill_result={"source_evidence": {"source": oa_source}},
+            )
         except Exception:
             logger.exception(
                 "[OA自动审核][NAS文件准备失败] task_id=%s requestid=%s",
@@ -264,6 +276,34 @@ class OaTobaccoAutoReviewService:
                 details={"missing_roles": sorted(missing_roles)},
             )
 
+        extraction_snapshot = {
+            "document_extraction": {
+                role: {
+                    "task_id": result.task_id,
+                    "status": result.status.value,
+                    "document_type": result.document_type,
+                    "payload": result.model_dump(mode="json"),
+                }
+                for role, result in document_results.items()
+            },
+            "document_extraction_errors": extraction_errors,
+        }
+        try:
+            claim = self._persist_running_stage(
+                claim,
+                summary="证照抽取完成，正在执行一致性规则",
+                skill_result=extraction_snapshot,
+            )
+        except Exception:
+            logger.exception("[OA自动审核][阶段保存失败] task_id=%s stage=extraction", task_id)
+            return self._error_after_release(
+                claim,
+                task_id,
+                "RESULT_STORE_UNAVAILABLE",
+                "证照抽取阶段结果保存失败",
+                retryable=True,
+            )
+
         first = source_files[0]
         store_name = first.store_name or command.store_name or command.store_code
         oa_source = _oa_source_snapshot(
@@ -313,6 +353,19 @@ class OaTobaccoAutoReviewService:
                 task_id,
                 command.requestid,
                 result.status.value,
+            )
+            claim = self._persist_running_stage(
+                claim,
+                summary="一致性规则完成，正在保存最终审核结果",
+                skill_result={
+                    "business_license_fields": result.skill_result.get("business_license_fields", {}),
+                    "tobacco_license_fields": result.skill_result.get("tobacco_license_fields", {}),
+                    "comparison": result.skill_result.get("comparison", {}),
+                    "source_evidence": result.skill_result.get("source_evidence", {}),
+                    "extracted_fields": result.skill_result.get("extracted_fields", {}),
+                    "normalized_fields": result.skill_result.get("normalized_fields", {}),
+                    "rule_results": [rule.model_dump(mode="json") for rule in result.rule_results],
+                },
             )
             tobacco_fields = resolved_consistency_fields(
                 document_results.get("tobacco_license"), {}
@@ -385,6 +438,17 @@ class OaTobaccoAutoReviewService:
     ) -> OaAutoReviewOutcome | None:
         if existing.status != ReviewStatus.RUNNING:
             return OaAutoReviewOutcome(task_id=task_id, result=existing)
+        updated_at = existing.updated_at
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - updated_at > OA_CLAIM_TIMEOUT:
+            return self._error_after_release(
+                existing,
+                task_id,
+                "AUTO_REVIEW_TIMEOUT",
+                "自动审核超过处理时限，已转为失败并允许重试",
+                retryable=True,
+            )
         return _error(
             task_id,
             "REVIEW_IN_PROGRESS",
@@ -453,6 +517,26 @@ class OaTobaccoAutoReviewService:
             retryable=retryable,
             details=details,
         )
+
+    def _persist_running_stage(
+        self,
+        claim: ReviewResult,
+        *,
+        summary: str,
+        skill_result: dict[str, Any],
+    ) -> ReviewResult:
+        stage = claim.model_copy(
+            update={
+                "summary": summary,
+                "updated_at": datetime.now(timezone.utc),
+                "skill_result": {
+                    **(claim.skill_result if isinstance(claim.skill_result, dict) else {}),
+                    **skill_result,
+                },
+            }
+        )
+        self._repository.save(stage)
+        return stage
 
 
 def oa_auto_review_task_id(workflow_id: int, requestid: int) -> str:
