@@ -737,10 +737,9 @@ def _generate_task_id(store_identifier: str) -> str:
 def _oa_response(result: ReviewResult) -> dict[str, Any]:
     decision = oa_review_decision(result)
     failed = [rule for rule in result.rule_results if not rule.passed]
+    skill_result = result.skill_result if isinstance(result.skill_result, dict) else {}
     rpa_info = (
-        result.skill_result.get("rpa_verification")
-        if isinstance(result.skill_result, dict)
-        else None
+        skill_result.get("rpa_verification")
     )
     data: dict[str, Any] = {
         "decision": decision,
@@ -781,6 +780,10 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
             "message": "烟草证官网验真未可靠完成",
             "retryable": True,
         }
+    if decision == "exception":
+        persisted_error = skill_result.get("oa_error")
+        if isinstance(persisted_error, dict):
+            data["error"] = persisted_error
     return {"code": 0, "message": "success", "data": data}
 
 
