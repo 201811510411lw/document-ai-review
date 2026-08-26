@@ -183,6 +183,9 @@ export const tobaccoApi = {
       comment,
     })
   },
+  retryOaCallback(taskId) {
+    return http.post(`/api/v1/tobacco-license-consistency/reviews/${taskId}/oa-callback`)
+  },
 }
 
 export const contractApi = {

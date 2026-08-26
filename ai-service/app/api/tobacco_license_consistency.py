@@ -621,6 +621,9 @@ def manual_review_consistency_result(
     request: TobaccoManualReviewRequest,
     _current_user: dict[str, Any] = Depends(require_web_console_user),
     repository=Depends(get_review_repository),
+    callback_client: OaAutoReviewCallbackClient = Depends(
+        get_oa_auto_review_callback_client
+    ),
 ) -> dict[str, Any]:
     decision = {
         "APPROVE": "approved",
@@ -641,9 +644,111 @@ def manual_review_consistency_result(
     if detail is None:
         raise HTTPException(status_code=404, detail={"code": "REVIEW_NOT_FOUND", "message": "比对报告不存在"})
     payload = repository.get_by_task_id(task_id)
+    callback_state = None
+    if payload is not None:
+        callback_payload = _manual_oa_callback_payload(payload)
+        if callback_payload is not None:
+            try:
+                callback_client.send(callback_payload)
+            except Exception as error:
+                callback_state = _oa_callback_state("FAILED", error=str(error))
+                logger.exception("OA 人工审核结果回调失败: task_id=%s", task_id)
+            else:
+                callback_state = _oa_callback_state("SENT")
+            _save_oa_callback_state(repository, payload, callback_state)
     return {
         "report": detail,
         "payload": payload.model_dump(mode="json") if payload is not None else None,
+        "oa_callback": callback_state,
+    }
+
+
+@router.post("/reviews/{task_id}/oa-callback")
+def retry_oa_review_callback(
+    task_id: str,
+    _current_user: dict[str, Any] = Depends(require_web_console_user),
+    repository=Depends(get_review_repository),
+    callback_client: OaAutoReviewCallbackClient = Depends(
+        get_oa_auto_review_callback_client
+    ),
+) -> dict[str, Any]:
+    payload = repository.get_by_task_id(task_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "REVIEW_NOT_FOUND", "message": "比对结果不存在"},
+        )
+    callback_payload = _manual_oa_callback_payload(payload)
+    if callback_payload is None:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "OA_IDENTITY_MISSING", "message": "该任务不是可回调的 OA 审核任务"},
+        )
+    try:
+        callback_client.send(callback_payload)
+    except Exception as error:
+        callback_state = _oa_callback_state("FAILED", error=str(error))
+        _save_oa_callback_state(repository, payload, callback_state)
+        logger.exception("OA 审核结果手动回调失败: task_id=%s", task_id)
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "OA_CALLBACK_FAILED", "message": "OA 回调发送失败，请稍后重试"},
+        ) from error
+    callback_state = _oa_callback_state("SENT")
+    _save_oa_callback_state(repository, payload, callback_state)
+    return {"status": "SENT", "task_id": task_id}
+
+
+def _manual_oa_callback_payload(payload: ReviewResult) -> OaAutoReviewCallbackPayload | None:
+    """Build a final OA callback only for tasks claimed through the OA flow."""
+    skill_result = payload.skill_result if isinstance(payload.skill_result, dict) else {}
+    claim = skill_result.get("oa_claim")
+    if not isinstance(claim, dict):
+        return None
+    try:
+        workflow_id = int(claim.get("workflow_id") or 0)
+        requestid = int(claim.get("requestid") or 0)
+    except (TypeError, ValueError):
+        return None
+    store_code = str(claim.get("store_code") or "").strip()
+    if workflow_id <= 0 or requestid <= 0 or not store_code:
+        return None
+    return OaAutoReviewCallbackPayload(
+        workflow_id=workflow_id,
+        requestid=requestid,
+        store_code=store_code,
+        result=_oa_callback_response(payload),
+    )
+
+
+def _save_oa_callback_state(
+    repository,
+    payload: ReviewResult,
+    callback_state: dict[str, Any],
+) -> None:
+    save = getattr(repository, "save", None)
+    if not callable(save):
+        return
+    try:
+        save(
+            payload.model_copy(
+                update={
+                    "skill_result": {
+                        **(payload.skill_result or {}),
+                        "oa_callback": callback_state,
+                    }
+                }
+            )
+        )
+    except Exception:
+        logger.exception("OA 回调状态保存失败: task_id=%s", payload.task_id)
+
+
+def _oa_callback_state(status: str, *, error: str | None = None) -> dict[str, Any]:
+    return {
+        "status": status,
+        "error": error,
+        "updated_at": datetime.now().astimezone().isoformat(),
     }
 
 

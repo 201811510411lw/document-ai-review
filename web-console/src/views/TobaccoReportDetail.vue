@@ -17,6 +17,7 @@
       <section v-if="canManualReview" class="manual-actions" aria-label="人工处置">
         <div><strong>异常待处理 — 需要人工复核</strong><span>系统无法自动完成核对，请检查 OA 附件后人工确认。</span></div>
         <div class="manual-actions__buttons">
+          <van-button v-if="canRetryOaCallback" size="small" plain type="primary" icon="replay" :loading="callbackLoading" @click="retryOaCallback">重新回调 OA</van-button>
           <van-button size="small" type="primary" :loading="manualLoading" @click="submitManualReview('APPROVE')">人工通过</van-button>
           <van-button size="small" plain type="danger" :loading="manualLoading" @click="submitManualReview('REJECT')">驳回</van-button>
           <van-button size="small" plain :loading="manualLoading" @click="submitManualReview('REQUEST_MORE_INFO')">要求补件</van-button>
@@ -154,6 +155,7 @@ const route = useRoute()
 const report = ref(null)
 const loading = ref(true)
 const manualLoading = ref(false)
+const callbackLoading = ref(false)
 const rpaVerification = ref(null)
 const rpaCapability = ref(null)
 const rpaLoading = ref(false)
@@ -169,7 +171,9 @@ const resultMeta = computed(() => {
   return { label: '驳回 · 已退回申请人', tone: 'failed', icon: 'cross' }
 })
 
-const canManualReview = computed(() => report.value?.processing_status === 'manual_review')
+// 超时失败仍然是可人工处置的 OA 任务；不能只允许正常的 manual_review 状态。
+const canManualReview = computed(() => ['manual_review', 'failed'].includes(report.value?.processing_status))
+const canRetryOaCallback = computed(() => report.value?.processing_status === 'failed' && Boolean(report.value?.oa?.requestid))
 const comparisonFields = computed(() => {
   const item = report.value || {}
   return [
@@ -281,6 +285,18 @@ async function submitManualReview(decision) {
     showToast(error.message || '人工复核提交失败')
   } finally {
     manualLoading.value = false
+  }
+}
+
+async function retryOaCallback() {
+  callbackLoading.value = true
+  try {
+    await tobaccoApi.retryOaCallback(route.params.id)
+    showToast('OA 回调已重新发送')
+  } catch (error) {
+    showToast(error.message || 'OA 回调发送失败')
+  } finally {
+    callbackLoading.value = false
   }
 }
 

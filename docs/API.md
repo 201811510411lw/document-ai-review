@@ -226,6 +226,7 @@ GET /api/v1/tobacco-license/source-files/local/{relative_path}
 | `POST` | `/api/v1/tobacco-license-consistency/reviews` | 获取来源文件并执行单门店一致性审核 |
 | `POST` | `/api/v1/tobacco-license-consistency/reviews/batch` | 批量执行最多 20 个门店审核 |
 | `POST` | `/api/v1/tobacco-license-consistency/reviews/{task_id}/manual-review` | 对报告提交人工复核 |
+| `POST` | `/api/v1/tobacco-license-consistency/reviews/{task_id}/oa-callback` | 手动重发当前已持久化的 OA 审核结果 |
 | `GET` | `/api/v1/tobacco-license-consistency/reviews/{task_id}/oa-result` | 读取可供 OA 适配器使用的结果载荷 |
 
 OA 两个接口使用独立请求头 `X-OA-Token`，密钥由 `OA_AUTO_REVIEW_TOKEN` 配置。

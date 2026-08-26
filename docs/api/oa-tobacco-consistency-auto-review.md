@@ -159,7 +159,18 @@ POST /api/v1/tobacco-license-consistency/reviews/{task_id}/manual-review
 ```
 
 `decision` 支持 `APPROVE`、`REJECT` 和 `REQUEST_MORE_INFO`。报告不存在时返回 HTTP `404`
-和 `REVIEW_NOT_FOUND`。
+和 `REVIEW_NOT_FOUND`。OA 来源任务人工复核完成后会回调最终人工结论。
+
+超时或回调投递异常时，工作台可在不改变审核结论、不重新执行 OCR/RPA 的前提下重发
+当前已持久化结果：
+
+```text
+POST /api/v1/tobacco-license-consistency/reviews/{task_id}/oa-callback
+```
+
+该接口要求 Web 控制台登录态。非 OA 任务返回 HTTP `422` 和 `OA_IDENTITY_MISSING`；
+回调投递失败返回 HTTP `502` 和 `OA_CALLBACK_FAILED`。超时任务重发的仍是
+`decision=exception`、`retryable=true`，不会被改写为业务驳回。
 
 ## 6. 读取 OA 结果载荷
 

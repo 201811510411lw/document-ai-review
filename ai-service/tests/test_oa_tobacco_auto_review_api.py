@@ -12,6 +12,7 @@ from app.api.tobacco_license_consistency import (
     create_oa_auto_review,
     get_consistency_oa_result,
     manual_review_consistency_result,
+    retry_oa_review_callback,
     TobaccoManualReviewRequest,
 )
 from app.workflows.tobacco_license_consistency_review.decision import (
@@ -70,6 +71,19 @@ class ManualReviewRepository:
         )
 
 
+class CapturingCallbackClient:
+    def __init__(self):
+        self.payloads = []
+
+    def send(self, payload):
+        self.payloads.append(payload)
+
+
+class FailingCallbackClient:
+    def send(self, payload):
+        raise RuntimeError("callback unavailable")
+
+
 class NewResultRepository:
     def __init__(self):
         self.saved = []
@@ -105,6 +119,88 @@ class NewResultRepository:
                     self.saved[index] = result
                     return True
             return False
+
+
+def test_timeout_callback_can_be_retried_without_changing_review_decision():
+    result = _result().model_copy(update={
+        "status": ReviewStatus.FAILED,
+        "risk_level": RiskLevel.HIGH,
+        "needs_manual_review": True,
+        "skill_result": {
+            "oa_claim": {
+                "workflow_id": 614,
+                "requestid": 584412,
+                "store_code": "0001",
+            },
+            "oa_error": {
+                "code": "AUTO_REVIEW_TIMEOUT",
+                "message": "自动审核超过处理时限",
+                "retryable": True,
+            },
+        },
+    })
+    repository = NewResultRepository()
+    repository.saved.append(result)
+    callback_client = CapturingCallbackClient()
+
+    response = retry_oa_review_callback(
+        result.task_id,
+        _current_user={"username": "reviewer"},
+        repository=repository,
+        callback_client=callback_client,
+    )
+
+    callback = callback_client.payloads[0]
+    assert callback.workflow_id == 614
+    assert callback.requestid == 584412
+    assert callback.result["data"]["decision"] == "exception"
+    assert callback.result["data"]["error"]["code"] == "AUTO_REVIEW_TIMEOUT"
+    assert callback.result["data"]["error"]["retryable"] is True
+    assert response == {"status": "SENT", "task_id": result.task_id}
+    assert repository.saved[-1].skill_result["oa_callback"]["status"] == "SENT"
+
+
+def test_manual_callback_retry_rejects_non_oa_task():
+    repository = NewResultRepository()
+    repository.saved.append(_result())
+
+    with pytest.raises(HTTPException) as error:
+        retry_oa_review_callback(
+            "tc-oa-614-584412",
+            _current_user={"username": "reviewer"},
+            repository=repository,
+            callback_client=CapturingCallbackClient(),
+        )
+
+    assert error.value.status_code == 422
+    assert error.value.detail["code"] == "OA_IDENTITY_MISSING"
+
+
+def test_manual_callback_retry_persists_delivery_failure():
+    result = _result().model_copy(update={
+        "status": ReviewStatus.FAILED,
+        "skill_result": {
+            "oa_claim": {
+                "workflow_id": 614,
+                "requestid": 584412,
+                "store_code": "0001",
+            }
+        },
+    })
+    repository = NewResultRepository()
+    repository.saved.append(result)
+
+    with pytest.raises(HTTPException) as error:
+        retry_oa_review_callback(
+            result.task_id,
+            _current_user={"username": "reviewer"},
+            repository=repository,
+            callback_client=FailingCallbackClient(),
+        )
+
+    assert error.value.status_code == 502
+    assert error.value.detail["code"] == "OA_CALLBACK_FAILED"
+    assert repository.saved[-1].skill_result["oa_callback"]["status"] == "FAILED"
 
 
 class FailingSaveRepository(NewResultRepository):
@@ -556,17 +652,59 @@ def test_oa_polling_never_passes_a_running_claim():
 
 def test_manual_review_is_persisted_through_repository():
     repository = ManualReviewRepository()
+    callback_client = CapturingCallbackClient()
 
     response = manual_review_consistency_result(
         "tc-oa-614-584412",
         TobaccoManualReviewRequest(decision="APPROVE", comment="证据已人工确认"),
         _current_user={"username": "reviewer", "external_id": "wx-reviewer"},
         repository=repository,
+        callback_client=callback_client,
     )
 
     assert repository.call["decision"] == "approved"
     assert repository.call["reviewer_id"] == "wx-reviewer"
     assert response["payload"]["manual_review"]["action"] == "approved"
+    assert callback_client.payloads == []
+
+
+def test_manual_review_of_oa_timeout_callbacks_final_decision():
+    repository = ManualReviewRepository()
+    callback_client = CapturingCallbackClient()
+    result = _result().model_copy(update={
+        "status": ReviewStatus.FAILED,
+        "risk_level": RiskLevel.HIGH,
+        "needs_manual_review": True,
+        "skill_result": {
+            "oa_claim": {
+                "workflow_id": 614,
+                "requestid": 584412,
+                "store_code": "0001",
+            }
+        },
+    })
+
+    repository.get_by_task_id = lambda task_id: result.model_copy(update={
+        "status": ReviewStatus.MANUAL_REVIEWED,
+        "needs_manual_review": False,
+        "manual_review": ManualReview(
+            status=ManualReviewStatus.COMPLETED,
+            action=repository.call["decision"] if repository.call else "approved",
+        ),
+    })
+    response = manual_review_consistency_result(
+        result.task_id,
+        TobaccoManualReviewRequest(decision="REJECT", comment="确认不合规"),
+        _current_user={"username": "reviewer", "external_id": "wx-reviewer"},
+        repository=repository,
+        callback_client=callback_client,
+    )
+
+    assert response["oa_callback"]["status"] == "SENT"
+    assert response["oa_callback"]["error"] is None
+    assert callback_client.payloads[0].workflow_id == 614
+    assert callback_client.payloads[0].requestid == 584412
+    assert callback_client.payloads[0].result["data"]["decision"] == "reject"
 
 
 def _rule(code, *, details):
