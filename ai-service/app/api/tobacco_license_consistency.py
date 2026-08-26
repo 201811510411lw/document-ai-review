@@ -758,6 +758,7 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
                 "rule_code": rule.rule_code,
                 "rule_name": rule.rule_name,
                 "message": rule.message,
+                "details": rule.details,
             }
             for rule in failed
         ]

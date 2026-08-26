@@ -33,7 +33,13 @@ def oa_review_decision(result: ReviewResult) -> OaReviewDecision:
     failed = [rule for rule in result.rule_results if not rule.passed]
     if not failed:
         return "pass"
-    if all(_is_deterministic_rejection(rule) for rule in failed):
+    deterministic_failures = [rule for rule in failed if _is_deterministic_rejection(rule)]
+    technical_failure = any(
+        rule.rule_code.endswith("_CHILD_REVIEW_READY")
+        and rule.details.get("technical_error")
+        for rule in failed
+    )
+    if deterministic_failures and not technical_failure:
         return "reject"
     return "manual_review"
 
@@ -44,10 +50,15 @@ def _is_deterministic_rejection(rule: RuleResult) -> bool:
         "BUSINESS_TOBACCO_ADDRESS_MATCH",
         "BUSINESS_TOBACCO_PERSON_MATCH",
     }:
-        return bool(rule.details.get("expected") and rule.details.get("actual"))
+        # A missing required value is a deterministic negative for the OA flow;
+        # only infrastructure/source acquisition failures remain exceptions.
+        return not bool(rule.details.get("expected")) or not bool(rule.details.get("actual")) or (
+            rule.details.get("expected") != rule.details.get("actual")
+        )
     if rule.rule_code.endswith("_TYPE_FOR_CONSISTENCY"):
-        return bool(rule.details.get("actual"))
-    return (
-        rule.rule_code == "BUSINESS_TOBACCO_TOBACCO_VALIDITY"
-        and rule.details.get("difference") == "expired"
-    )
+        return rule.details.get("actual") != rule.details.get("expected")
+    if rule.rule_code == "TOBACCO_LICENSE_NO_FOR_CONSISTENCY":
+        return rule.details.get("difference") == "actual_missing"
+    return rule.rule_code == "BUSINESS_TOBACCO_TOBACCO_VALIDITY" and rule.details.get(
+        "difference"
+    ) in {"expired", "actual_missing", "invalid_date"}

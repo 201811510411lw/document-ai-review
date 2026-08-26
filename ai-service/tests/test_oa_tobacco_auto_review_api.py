@@ -318,10 +318,9 @@ def test_conflicting_candidates_are_persisted_for_manual_review(monkeypatch, tmp
         repository=repository,
         document_review_service=ConflictingChildReviewService(),
     )
-
-    assert response["data"]["decision"] == "exception"
-    assert response["data"]["needs_manual_review"] is True
-    assert response["data"]["error"]["code"] == "REVIEW_REQUIRES_MANUAL_REVIEW"
+    assert response["data"]["decision"] == "reject"
+    assert response["data"]["needs_manual_review"] is False
+    assert response["data"]["reject_reasons"]
     assert repository.saved[-1].needs_manual_review is True
 
 
@@ -344,9 +343,9 @@ def test_empty_child_fields_complete_parent_as_manual_review(monkeypatch, tmp_pa
         document_review_service=EmptyFieldsChildReviewService(),
     )
 
-    assert response["data"]["decision"] == "exception"
-    assert response["data"]["needs_manual_review"] is True
-    assert response["data"]["error"]["code"] == "REVIEW_REQUIRES_MANUAL_REVIEW"
+    assert response["data"]["decision"] == "reject"
+    assert response["data"]["needs_manual_review"] is False
+    assert response["data"]["reject_reasons"]
     assert repository.saved[-1].status == ReviewStatus.PENDING_MANUAL_REVIEW
     assert repository.saved[-1].needs_manual_review is True
 
