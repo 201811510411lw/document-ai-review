@@ -142,6 +142,11 @@ class MismatchingChildReviewService(ChildReviewService):
         return _child_result(use_case_name, fields)
 
 
+class EmptyFieldsChildReviewService(ChildReviewService):
+    def review(self, review_input, use_case_name=None):
+        return _child_result(use_case_name, {})
+
+
 def test_oa_token_is_required_and_compared_against_dedicated_secret(monkeypatch):
     monkeypatch.setattr(settings, "oa_auto_review_token", "oa-secret")
 
@@ -315,6 +320,30 @@ def test_conflicting_candidates_are_persisted_for_manual_review(monkeypatch, tmp
     )
 
     assert response["data"]["decision"] == "manual_review"
+    assert repository.saved[-1].needs_manual_review is True
+
+
+def test_empty_child_fields_complete_parent_as_manual_review(monkeypatch, tmp_path):
+    source_files = [_source("business_license", 1001), _source("tobacco_license", 1002)]
+    documents = [_stored(tmp_path, source) for source in source_files]
+    repository = NewResultRepository()
+    monkeypatch.setattr(
+        "app.services.oa_tobacco_auto_review.fetch_tobacco_license_source_files_by_request",
+        lambda sql_client, requestid, workflow_id: source_files,
+    )
+    monkeypatch.setattr(settings, "rpa_verification_tobacco_enabled", False)
+
+    response = create_oa_auto_review(
+        OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=614),
+        _oa_client={"client": "oa"},
+        sql_client=object(),
+        file_store=StoredDocumentsFileStore(documents),
+        repository=repository,
+        document_review_service=EmptyFieldsChildReviewService(),
+    )
+
+    assert response["data"]["decision"] == "manual_review"
+    assert repository.saved[-1].status == ReviewStatus.PENDING_MANUAL_REVIEW
     assert repository.saved[-1].needs_manual_review is True
 
 

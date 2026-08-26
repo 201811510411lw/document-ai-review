@@ -1316,6 +1316,12 @@ class MySQLReviewResultRepository:
                         extracted_fields_json,
                         normalized_fields_json,
                         rule_results_json,
+                        manual_review_status,
+                        manual_review_decision,
+                        manual_review_comment,
+                        manual_review_reviewer_id,
+                        manual_review_reviewer_username,
+                        manual_review_reviewed_at,
                         created_at,
                         updated_at
                     FROM tobacco_license_reviews
@@ -1338,6 +1344,12 @@ class MySQLReviewResultRepository:
                         needs_manual_review,
                         summary,
                         rule_results_json,
+                        manual_review_status,
+                        manual_review_decision,
+                        manual_review_comment,
+                        manual_review_reviewer_id,
+                        manual_review_reviewer_username,
+                        manual_review_reviewed_at,
                         created_at,
                         updated_at
                     FROM tobacco_consistency_reviews
@@ -2743,6 +2755,12 @@ def _qc_tobacco_consistency_row(row: dict[str, Any]) -> dict[str, Any]:
         "rule_results": loads(item.get("rule_results_json") or "[]"),
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
+        "manual_review_status": item.get("manual_review_status"),
+        "manual_review_decision": item.get("manual_review_decision"),
+        "manual_review_comment": item.get("manual_review_comment"),
+        "manual_review_reviewer_id": item.get("manual_review_reviewer_id"),
+        "manual_review_reviewer_username": item.get("manual_review_reviewer_username"),
+        "manual_review_reviewed_at": item.get("manual_review_reviewed_at"),
     }
 
 

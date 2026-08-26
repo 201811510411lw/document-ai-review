@@ -784,10 +784,11 @@ def tobacco_reports(
                 "message": f"审核结果数据库不可用: {error}",
             },
         ) from error
+    # 数据库包含人工审核后的最终状态；进程内缓存只用于补充尚未落库的即时报告。
     cached_reports = list_tobacco_reports()
     if cached_reports:
-        seen = {row["id"] for row in cached_reports}
-        records = cached_reports + [row for row in records if row["id"] not in seen]
+        seen = {row["id"] for row in records}
+        records = records + [row for row in cached_reports if row["id"] not in seen]
     return {
         "records": records,
         "stats": {
@@ -805,9 +806,6 @@ def tobacco_report_detail(
     _current_user: dict[str, Any] = Depends(get_wecom_frontend_user),
     repository: FrontendRepository = Depends(get_review_read_repository),
 ) -> dict[str, Any]:
-    cached_report = get_tobacco_report(task_id)
-    if cached_report is not None:
-        return {"report": _with_oa_fallback(cached_report)}
     try:
         detail = repository.get_qc_review_detail(task_id)
     except Exception as error:
@@ -818,9 +816,12 @@ def tobacco_report_detail(
                 "message": f"审核结果数据库不可用: {error}",
             },
         ) from error
-    if detail is None or detail.get("document_type") != "business_tobacco_consistency":
-        raise HTTPException(status_code=404, detail="烟草证比对报告不存在")
-    return {"report": _with_oa_fallback(_frontend_tobacco_report(detail, detail=True))}
+    if detail is not None and detail.get("document_type") == "business_tobacco_consistency":
+        return {"report": _with_oa_fallback(_frontend_tobacco_report(detail, detail=True))}
+    cached_report = get_tobacco_report(task_id)
+    if cached_report is not None:
+        return {"report": _with_oa_fallback(cached_report)}
+    raise HTTPException(status_code=404, detail="烟草证比对报告不存在")
 
 
 @api_router.get("/contract/reports")
@@ -893,7 +894,13 @@ def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> di
     source = dict(source_evidence.get("source") or {})
     oa = dict(row.get("oa") or source.get("oa") or {})
     failed_codes = {rule.get("rule_code") for rule in rules if not rule.get("passed")}
-    overall_result = "待校验" if row.get("needs_manual_review") else ("通过" if row.get("risk_level") == "NONE" else "不通过")
+    manual_decision = str(row.get("manual_review_decision") or "")
+    if manual_decision == "rejected":
+        overall_result = "不通过"
+    elif manual_decision == "approved":
+        overall_result = "通过"
+    else:
+        overall_result = "待校验" if row.get("needs_manual_review") else ("通过" if row.get("risk_level") == "NONE" else "不通过")
     return {
         "id": row.get("task_id"),
         "company_name": business.get("subject_name") or tobacco.get("subject_name") or row.get("supplier_name") or "未识别主体名称",

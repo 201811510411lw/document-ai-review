@@ -10,6 +10,7 @@ from app.integrations.starrocks.tobacco_license_sources import (
     fetch_tobacco_license_source_files_by_request,
 )
 from app.models import (
+    AuditEvent,
     ManualReview,
     ManualReviewStatus,
     ReviewInput,
@@ -401,9 +402,44 @@ class OaTobaccoAutoReviewService:
         retryable: bool,
         details: Any = None,
     ) -> OaAutoReviewOutcome:
+        failure = claim.model_copy(
+            update={
+                "status": ReviewStatus.FAILED,
+                "risk_level": RiskLevel.HIGH,
+                "needs_manual_review": True,
+                "summary": message,
+                "manual_review": ManualReview(
+                    status=ManualReviewStatus.PENDING,
+                    reasons=[message],
+                ),
+                "audit_events": [
+                    *claim.audit_events,
+                    AuditEvent(
+                        event_type="tobacco_license.oa.failed",
+                        message=message,
+                        occurred_at=datetime.now(timezone.utc),
+                        details={"code": code, "retryable": retryable, "details": details},
+                    ),
+                ],
+                "updated_at": datetime.now(timezone.utc),
+                "skill_result": {
+                    **(claim.skill_result if isinstance(claim.skill_result, dict) else {}),
+                    "oa_error": {
+                        "code": code,
+                        "message": message,
+                        "retryable": retryable,
+                        "details": details,
+                    },
+                },
+            }
+        )
         try:
-            self._repository.release_claim(claim)
+            self._repository.save(failure)
         except Exception:
+            try:
+                self._repository.release_claim(claim)
+            except Exception:
+                pass
             return _error(
                 task_id,
                 "RESULT_STORE_UNAVAILABLE",

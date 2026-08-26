@@ -14,6 +14,8 @@ class MySqlSettings:
     database: str | None = None
     charset: str = "utf8mb4"
     connect_timeout: int = 10
+    read_timeout: int = 30
+    write_timeout: int = 30
 
 
 class MySqlFetchClient:
@@ -53,6 +55,8 @@ class MySqlFetchClient:
             database=self.settings.database,
             charset=self.settings.charset,
             connect_timeout=self.settings.connect_timeout,
+            read_timeout=self.settings.read_timeout,
+            write_timeout=self.settings.write_timeout,
             cursorclass=pymysql.cursors.DictCursor,
         )
         return self._connection
@@ -65,6 +69,9 @@ def mysql_settings_from_env(prefix: str = "STARROCKS") -> MySqlSettings:
         user=_required_env(f"{prefix}_USER"),
         password=_required_env(f"{prefix}_PASSWORD"),
         database=os.environ.get(f"{prefix}_DATABASE"),
+        connect_timeout=int(os.environ.get(f"{prefix}_CONNECT_TIMEOUT", "10")),
+        read_timeout=int(os.environ.get(f"{prefix}_READ_TIMEOUT", "30")),
+        write_timeout=int(os.environ.get(f"{prefix}_WRITE_TIMEOUT", "30")),
     )
 
 
