@@ -219,6 +219,21 @@ class MySQLReviewResultRepository:
             return None
         return ReviewResult.model_validate_json(row["payload_json"])
 
+    def list_review_results(self) -> list[ReviewResult]:
+        """Read persisted results for recovery/补偿 jobs."""
+        self._ensure_schema_once()
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT payload_json FROM review_results")
+                rows = cursor.fetchall()
+        results = []
+        for row in rows:
+            try:
+                results.append(ReviewResult.model_validate_json(row["payload_json"]))
+            except Exception:
+                continue
+        return results
+
     def get_business_license_snapshot(self, task_id: str) -> dict | None:
         self._ensure_schema_once()
         with self._connect() as connection:

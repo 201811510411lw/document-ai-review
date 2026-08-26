@@ -23,6 +23,8 @@ from app.integrations.mysql_client import mysql_settings_from_env
 from app.repositories import build_review_result_repository_from_env
 from app.services.review_service import ReviewService
 from app.services.scheduled_review_service import DailyReviewScheduler
+from app.services.oa_auto_review_callback import HttpOaAutoReviewCallbackClient
+from app.services.oa_review_recovery import OaReviewRecoveryScheduler
 
 
 # Uvicorn 默认只显示 WARNING；OA 审核阶段日志需要以 INFO 级别输出。
@@ -35,11 +37,12 @@ app = FastAPI(
 )
 
 _scheduler: DailyReviewScheduler | None = None
+_oa_recovery_scheduler: OaReviewRecoveryScheduler | None = None
 
 
 @app.on_event("startup")
 def start_scheduler():
-    global _scheduler
+    global _scheduler, _oa_recovery_scheduler
     try:
         source_settings = mysql_settings_from_env("STARROCKS")
         review_db_settings = mysql_settings_from_env("REVIEW_RESULT_MYSQL")
@@ -51,11 +54,22 @@ def start_scheduler():
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning("定时调度器启动失败（不影响 API）: %s", e)
+    try:
+        recovery_repository = build_review_result_repository_from_env()
+        callback_client = HttpOaAutoReviewCallbackClient(settings.oa_auto_review_callback_url)
+        _oa_recovery_scheduler = OaReviewRecoveryScheduler(recovery_repository, callback_client)
+        _oa_recovery_scheduler.start()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("OA 恢复调度器启动失败（不影响 API）: %s", e)
 
 
 @app.on_event("shutdown")
 def stop_scheduler():
-    global _scheduler
+    global _scheduler, _oa_recovery_scheduler
+    if _oa_recovery_scheduler:
+        _oa_recovery_scheduler.stop()
+        _oa_recovery_scheduler = None
     if _scheduler:
         _scheduler.stop()
         _scheduler = None

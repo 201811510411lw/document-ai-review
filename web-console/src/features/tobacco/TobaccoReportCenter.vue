@@ -149,14 +149,14 @@ function scrollToTop() {
 }
 
 function resultMeta(report) {
-  if (report.review_status === 'RUNNING') return { icon: 'clock-o', tone: 'exception', label: '审核处理中' }
+  if (report.processing_status === 'processing') return { icon: 'clock-o', tone: 'exception', label: '审核处理中' }
   if (report.overall_result === '通过') return { icon: 'success', tone: 'pass', label: '自动通过' }
   if (report.overall_result === '不通过') return { icon: 'cross', tone: 'reject', label: '驳回' }
   return { icon: 'warning', tone: 'exception', label: '异常待处理' }
 }
 
 function statusLabel(report) {
-  if (report.review_status === 'RUNNING') return '审核处理中'
+  if (report.processing_status === 'processing') return '审核处理中'
   if (report.overall_result === '通过') return '自动通过'
   if (report.overall_result === '不通过') return '驳回'
   return '异常待处理'

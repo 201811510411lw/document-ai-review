@@ -51,6 +51,9 @@ class ReviewRepository(Protocol):
     def complete_claim(self, claim: ReviewResult, result: ReviewResult) -> bool:
         ...
 
+    def list_review_results(self) -> list[ReviewResult]:
+        ...
+
 
 class OaAutoReviewCommand(BaseModel):
     requestid: int = Field(gt=0)
@@ -89,6 +92,44 @@ class OaTobaccoAutoReviewService:
     def review(self, command: OaAutoReviewCommand) -> OaAutoReviewOutcome:
         task_id = oa_auto_review_task_id(command.workflow_id, command.requestid)
         return self._review_once(task_id, command)
+
+    def update_callback_state(
+        self,
+        task_id: str,
+        *,
+        status: str,
+        error: str | None = None,
+    ) -> None:
+        result = self._repository.get_by_task_id(task_id)
+        if result is None:
+            return
+        skill_result = dict(result.skill_result or {})
+        skill_result["oa_callback"] = {
+            "status": status,
+            "error": error,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self._repository.save(result.model_copy(update={"skill_result": skill_result}))
+
+    def recover_stale_claims(self) -> int:
+        recovered = 0
+        for result in self._repository.list_review_results():
+            if result.document_type != "business_tobacco_consistency" or result.status != ReviewStatus.RUNNING:
+                continue
+            updated_at = result.updated_at
+            if updated_at.tzinfo is None:
+                updated_at = updated_at.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - updated_at <= OA_CLAIM_TIMEOUT:
+                continue
+            outcome = self._error_after_release(
+                result,
+                result.task_id,
+                "AUTO_REVIEW_TIMEOUT",
+                "自动审核超过处理时限，已转为失败并允许重试",
+                retryable=True,
+            )
+            recovered += int(outcome.error is not None)
+        return recovered
 
     def _review_once(
         self,
@@ -573,6 +614,7 @@ def _claim_result(task_id: str, command: OaAutoReviewCommand) -> ReviewResult:
                 "claim_token": uuid4().hex,
                 "requestid": command.requestid,
                 "workflow_id": command.workflow_id,
+                "store_code": command.store_code,
             }
         },
     )

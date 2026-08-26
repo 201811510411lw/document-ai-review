@@ -517,10 +517,18 @@ def _run_oa_auto_review_and_callback(
         store_code=command.store_code,
         result=result,
     )
+    update_callback_state = getattr(review_service, "update_callback_state", None)
+    if update_callback_state is not None:
+        update_callback_state(task_id, status="PENDING")
     try:
         callback_client.send(payload)
-    except Exception:
+    except Exception as error:
+        if update_callback_state is not None:
+            update_callback_state(task_id, status="FAILED", error=str(error))
         logger.exception("OA 审核结果回调失败: task_id=%s", task_id)
+    else:
+        if update_callback_state is not None:
+            update_callback_state(task_id, status="SENT")
 
 
 @router.post("/reviews/batch")

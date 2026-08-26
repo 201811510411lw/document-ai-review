@@ -895,6 +895,13 @@ def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> di
     oa = dict(row.get("oa") or source.get("oa") or {})
     failed_codes = {rule.get("rule_code") for rule in rules if not rule.get("passed")}
     manual_decision = str(row.get("manual_review_decision") or "")
+    processing_status = {
+        "RUNNING": "processing",
+        "PENDING_MANUAL_REVIEW": "manual_review",
+        "FAILED": "failed",
+        "REVIEWED": "passed" if row.get("risk_level") == "NONE" else "rejected",
+        "MANUAL_REVIEWED": "rejected" if manual_decision == "rejected" else "passed",
+    }.get(str(row.get("review_status") or ""), "processing")
     if manual_decision == "rejected":
         overall_result = "不通过"
     elif manual_decision == "approved":
@@ -910,6 +917,7 @@ def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> di
         "company_name": business.get("subject_name") or tobacco.get("subject_name") or row.get("supplier_name") or "未识别主体名称",
         "overall_result": overall_result,
         "review_status": row.get("review_status"),
+        "processing_status": processing_status,
         "compare_time": row.get("created_at"),
         "unmatched_fields": [rule.get("rule_name") for rule in rules if not rule.get("passed")],
         "review_mode": comparison.get("review_mode", "standard"),
