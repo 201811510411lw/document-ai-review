@@ -53,6 +53,10 @@
       "decision": "pass",
       "task_id": "tc-oa-614-584412",
       "summary": "营业执照与烟草证一致性校验通过",
+      "mismatch_count": 0,
+      "mismatch_rejection_threshold": 3,
+      "field_differences": [],
+      "next_node_review_required": false,
       "rule_results": [],
       "needs_manual_review": false
     }
@@ -66,11 +70,18 @@
 业务接受状态和错误。历史版本未保存的请求正文不会被重建为真实发送记录。
 OA 应按 `task_id` 幂等消费可能重复的回调，并根据 `result.data.decision` 执行流程分支。
 
+字段差异阈值为 3。`0..2` 项字段不匹配时当前机器人节点仍返回 `pass`，由 OA
+流转到下一节点复核；达到 3 项时返回 `reject`。证照类型、许可证号、主体名称、经营地址、
+负责人和有效期纳入字段差异计数，过程状态和证据完整性规则不计数。`field_differences`
+逐项提供 `field`、`field_label`、`expected`、`actual`、`difference`、`rule_code`、
+`rule_name` 和 `message`，放行与驳回回调都会携带该列表。
+
 `decision` 取值：
 
-- `pass`：证据完整，确定性规则通过；OA 流转下一节点。
-- `reject`：证据完整且存在明确业务不符合；OA 退回申请人。
-- `manual_review`：证据不足、候选冲突或临近到期；OA 停留当前节点等待人工复核。
+- `pass`：没有字段差异，或字段差异少于 3 项；OA 流转下一节点。存在差异时
+  `next_node_review_required=true`，下一节点根据 `field_differences` 复核。
+- `reject`：字段差异达到 3 项，或官网真伪核验明确失败；OA 退回申请人。
+- `manual_review`：人工明确要求补件或需要停留当前节点的处置结果；OA 停留当前节点等待处理。
 - `exception`：StarRocks、NAS、OCR、LLM、持久化或 RPA 技术失败；OA 停留当前节点，可根据 `data.error.retryable` 重试。
 
 控制台人工驳回和要求补件必须填写处理说明。人工通过回调使用“人工复核通过”摘要；人工驳回

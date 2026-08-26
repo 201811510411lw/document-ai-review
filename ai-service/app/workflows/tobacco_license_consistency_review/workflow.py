@@ -102,11 +102,6 @@ def _review_rules(
         _child_review_ready_rule("TOBACCO_LICENSE", "烟草证", tobacco_result),
         *type_rules,
     ]
-    # 文档类型是后续一致性审核的前置条件。类型不合规时直接返回类型结果，
-    # 避免把另一种证照的字段误报成名称、地址或有效期问题。
-    if any(not rule.passed for rule in type_rules):
-        return rules
-
     rules.extend([
         _required_field_rule(
             "TOBACCO_LICENSE_NO_FOR_CONSISTENCY",

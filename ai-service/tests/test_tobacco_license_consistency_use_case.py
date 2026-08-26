@@ -193,7 +193,7 @@ def test_tobacco_license_consistency_type_errors_are_high_risk():
     assert "TOBACCO_LICENSE_TYPE_FOR_CONSISTENCY" in _failed_codes(result)
 
 
-def test_tobacco_license_consistency_stops_after_invalid_document_types():
+def test_tobacco_license_consistency_collects_fields_after_invalid_document_types():
     rules = consistency_workflow._review_rules(
         {**BASE_BUSINESS_FIELDS, "document_type": "food_license"},
         {**BASE_TOBACCO_FIELDS, "document_type": "business_license"},
@@ -206,10 +206,17 @@ def test_tobacco_license_consistency_stops_after_invalid_document_types():
         "TOBACCO_LICENSE_CHILD_REVIEW_READY",
         "BUSINESS_LICENSE_TYPE_FOR_CONSISTENCY",
         "TOBACCO_LICENSE_TYPE_FOR_CONSISTENCY",
+        "TOBACCO_LICENSE_NO_FOR_CONSISTENCY",
+        "BUSINESS_LICENSE_EVIDENCE_FOR_CONSISTENCY",
+        "TOBACCO_LICENSE_EVIDENCE_FOR_CONSISTENCY",
+        "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
+        "BUSINESS_TOBACCO_ADDRESS_MATCH",
+        "BUSINESS_TOBACCO_PERSON_MATCH",
+        "BUSINESS_TOBACCO_TOBACCO_VALIDITY",
     ]
-    assert [rule.message for rule in rules[2:]] == [
-        "营业执照类型不匹配",
-        "烟草证类型不匹配",
+    assert [rule.rule_code for rule in rules if not rule.passed] == [
+        "BUSINESS_LICENSE_TYPE_FOR_CONSISTENCY",
+        "TOBACCO_LICENSE_TYPE_FOR_CONSISTENCY",
     ]
 
 

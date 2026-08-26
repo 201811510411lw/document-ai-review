@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from app.api.auth import require_oa_token
 from app.api.tobacco_license_consistency import (
     OaAutoReviewRequest,
+    _oa_response,
     _run_oa_auto_review_and_callback,
     create_oa_auto_review,
     get_consistency_oa_result,
@@ -472,6 +473,7 @@ def test_conflicting_candidates_are_persisted_for_manual_review(monkeypatch, tmp
     )
     assert response["data"]["decision"] == "reject"
     assert response["data"]["needs_manual_review"] is False
+    assert response["data"]["mismatch_count"] >= 3
     assert response["data"]["reject_reasons"]
     assert repository.saved[-1].needs_manual_review is True
 
@@ -498,6 +500,7 @@ def test_empty_child_fields_complete_parent_as_manual_review(monkeypatch, tmp_pa
     assert response["data"]["decision"] == "reject"
     assert response["data"]["needs_manual_review"] is False
     assert response["data"]["reject_reasons"]
+    assert response["data"]["mismatch_count"] >= 3
     assert repository.saved[-1].status == ReviewStatus.PENDING_MANUAL_REVIEW
     assert repository.saved[-1].needs_manual_review is True
 
@@ -526,7 +529,7 @@ def test_result_save_failure_returns_exception_not_in_memory_pass(monkeypatch, t
     assert "database unavailable" not in response["data"]["error"]["message"]
 
 
-def test_deterministic_reject_still_runs_one_rpa_verification(monkeypatch, tmp_path):
+def test_small_field_mismatch_passes_to_next_node_and_runs_rpa(monkeypatch, tmp_path):
     source_files = [_source("business_license", 1001), _source("tobacco_license", 1002)]
     documents = [_stored(tmp_path, source) for source in source_files]
     repository = NewResultRepository()
@@ -552,7 +555,21 @@ def test_deterministic_reject_still_runs_one_rpa_verification(monkeypatch, tmp_p
         document_review_service=MismatchingChildReviewService(),
     )
 
-    assert response["data"]["decision"] == "reject"
+    assert response["data"]["decision"] == "pass"
+    assert response["data"]["mismatch_count"] == 1
+    assert response["data"]["next_node_review_required"] is True
+    assert response["data"]["field_differences"] == [
+        {
+            "field": "subject_name",
+            "field_label": "主体名称",
+            "expected": "示例商行",
+            "actual": "另一主体",
+            "difference": "value_mismatch",
+            "rule_code": "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
+            "rule_name": "主体名称一致",
+            "message": "主体名称一致不通过",
+        }
+    ]
     assert rpa_calls == ["510100000001"]
 
 
@@ -589,22 +606,96 @@ def test_rpa_is_not_repeated_when_final_persistence_fails(monkeypatch, tmp_path)
     assert rpa_calls == ["tc-oa-614-584412"]
 
 
-def test_incomplete_evidence_is_manual_review_not_reject():
+def test_incomplete_evidence_passes_to_next_node_not_reject():
     rule = _rule(
         "TOBACCO_LICENSE_EVIDENCE_FOR_CONSISTENCY",
         details={"missing_evidence_fields": ["license_no_evidence"]},
     )
 
-    assert _oa_decision(_result(rule)) == "manual_review"
+    assert _oa_decision(_result(rule)) == "pass"
 
 
-def test_complete_deterministic_mismatch_is_rejected():
+def test_one_field_mismatch_passes_to_next_node():
     rule = _rule(
         "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
         details={"expected": "甲公司", "actual": "乙公司", "difference": "value_mismatch"},
     )
 
-    assert _oa_decision(_result(rule)) == "reject"
+    assert _oa_decision(_result(rule)) == "pass"
+
+
+def test_two_field_mismatches_pass_with_structured_differences():
+    result = _result(
+        _rule(
+            "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
+            details={
+                "field": "subject_name",
+                "expected": "甲公司",
+                "actual": "乙公司",
+                "difference": "value_mismatch",
+            },
+        ),
+        _rule(
+            "BUSINESS_TOBACCO_PERSON_MATCH",
+            details={
+                "field": "legal_person",
+                "expected": "张三",
+                "actual": "李四",
+                "difference": "value_mismatch",
+            },
+        ),
+    )
+
+    response = _oa_response(result)["data"]
+
+    assert response["decision"] == "pass"
+    assert response["mismatch_count"] == 2
+    assert response["mismatch_rejection_threshold"] == 3
+    assert response["next_node_review_required"] is True
+    assert [item["field"] for item in response["field_differences"]] == [
+        "subject_name",
+        "legal_person",
+    ]
+
+
+def test_three_field_mismatches_are_rejected():
+    result = _result(
+        _rule(
+            "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
+            details={
+                "field": "subject_name",
+                "expected": "甲公司",
+                "actual": "乙公司",
+                "difference": "value_mismatch",
+            },
+        ),
+        _rule(
+            "BUSINESS_TOBACCO_ADDRESS_MATCH",
+            details={
+                "field": "business_address",
+                "expected": "甲地址",
+                "actual": "乙地址",
+                "difference": "value_mismatch",
+            },
+        ),
+        _rule(
+            "BUSINESS_TOBACCO_PERSON_MATCH",
+            details={
+                "field": "legal_person",
+                "expected": "张三",
+                "actual": "李四",
+                "difference": "value_mismatch",
+            },
+        ),
+    )
+
+    response = _oa_response(result)["data"]
+
+    assert response["decision"] == "reject"
+    assert response["mismatch_count"] == 3
+    assert response["mismatch_rejection_threshold"] == 3
+    assert response["next_node_review_required"] is False
+    assert len(response["field_differences"]) == 3
 
 
 def test_rpa_technical_error_is_exception():
@@ -657,6 +748,8 @@ def test_oa_polling_is_consistent_after_manual_approval():
     assert callback["decision"] == "pass"
     assert callback["review_status"] == "通过"
     assert callback["needs_manual_review"] is False
+    assert callback["mismatch_count"] == 1
+    assert callback["next_node_review_required"] is False
 
 
 def test_oa_polling_redacts_internal_rpa_error_text():

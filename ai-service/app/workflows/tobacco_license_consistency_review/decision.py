@@ -1,9 +1,35 @@
-from typing import Literal
+from typing import Any, Literal
 
-from app.models import ReviewResult, ReviewStatus, RuleResult
+from app.models import ReviewResult, ReviewStatus
 
 
 OaReviewDecision = Literal["pass", "reject", "manual_review", "exception"]
+
+FIELD_MISMATCH_REJECTION_THRESHOLD = 3
+
+_FIELD_RULES: dict[str, tuple[str, str]] = {
+    "BUSINESS_LICENSE_TYPE_FOR_CONSISTENCY": (
+        "business_license.document_type",
+        "营业执照类型",
+    ),
+    "TOBACCO_LICENSE_TYPE_FOR_CONSISTENCY": (
+        "tobacco_license.document_type",
+        "烟草证类型",
+    ),
+    "TOBACCO_LICENSE_NO_FOR_CONSISTENCY": (
+        "tobacco_license.license_no",
+        "烟草证许可证号",
+    ),
+    "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH": ("subject_name", "主体名称"),
+    "BUSINESS_TOBACCO_ADDRESS_MATCH": ("business_address", "经营地址"),
+    "BUSINESS_TOBACCO_PERSON_MATCH": ("legal_person", "法定代表人/负责人"),
+    "BUSINESS_TOBACCO_TOBACCO_VALIDITY": (
+        "tobacco_license.valid_to",
+        "烟草证有效期",
+    ),
+    "STORE_IN_STORE_HOLDER_NAME_MATCH": ("subject_name", "持证主体名称"),
+    "STORE_IN_STORE_HOLDER_PERSON_MATCH": ("legal_person", "持证主体负责人"),
+}
 
 
 def oa_review_decision(result: ReviewResult) -> OaReviewDecision:
@@ -33,32 +59,37 @@ def oa_review_decision(result: ReviewResult) -> OaReviewDecision:
     failed = [rule for rule in result.rule_results if not rule.passed]
     if not failed:
         return "pass"
-    deterministic_failures = [rule for rule in failed if _is_deterministic_rejection(rule)]
     technical_failure = any(
         rule.rule_code.endswith("_CHILD_REVIEW_READY")
         and rule.details.get("technical_error")
         for rule in failed
     )
-    if deterministic_failures and not technical_failure:
+    if technical_failure:
+        return "exception"
+    if len(oa_field_differences(result)) >= FIELD_MISMATCH_REJECTION_THRESHOLD:
         return "reject"
-    return "manual_review"
+    # 少量业务差异随回调提交给 OA 下一节点复核，当前机器人节点不直接驳回。
+    return "pass"
 
 
-def _is_deterministic_rejection(rule: RuleResult) -> bool:
-    if rule.rule_code in {
-        "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
-        "BUSINESS_TOBACCO_ADDRESS_MATCH",
-        "BUSINESS_TOBACCO_PERSON_MATCH",
-    }:
-        # A missing required value is a deterministic negative for the OA flow;
-        # only infrastructure/source acquisition failures remain exceptions.
-        return not bool(rule.details.get("expected")) or not bool(rule.details.get("actual")) or (
-            rule.details.get("expected") != rule.details.get("actual")
+def oa_field_differences(result: ReviewResult) -> list[dict[str, Any]]:
+    differences: list[dict[str, Any]] = []
+    for rule in result.rule_results:
+        metadata = _FIELD_RULES.get(rule.rule_code)
+        if rule.passed or metadata is None:
+            continue
+        field, field_label = metadata
+        details = dict(rule.details or {})
+        differences.append(
+            {
+                "field": field,
+                "field_label": field_label,
+                "expected": details.get("expected"),
+                "actual": details.get("actual"),
+                "difference": details.get("difference"),
+                "rule_code": rule.rule_code,
+                "rule_name": rule.rule_name,
+                "message": rule.message,
+            }
         )
-    if rule.rule_code.endswith("_TYPE_FOR_CONSISTENCY"):
-        return rule.details.get("actual") != rule.details.get("expected")
-    if rule.rule_code == "TOBACCO_LICENSE_NO_FOR_CONSISTENCY":
-        return rule.details.get("difference") == "actual_missing"
-    return rule.rule_code == "BUSINESS_TOBACCO_TOBACCO_VALIDITY" and rule.details.get(
-        "difference"
-    ) in {"expired", "actual_missing", "invalid_date"}
+    return differences

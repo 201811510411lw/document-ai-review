@@ -51,6 +51,8 @@ from app.use_cases.tobacco_license_consistency_review import (
     tobacco_license_consistency_review_use_case,
 )
 from app.workflows.tobacco_license_consistency_review.decision import (
+    FIELD_MISMATCH_REJECTION_THRESHOLD,
+    oa_field_differences,
     oa_review_decision,
 )
 
@@ -864,6 +866,10 @@ def get_consistency_oa_result(
         )
 
     decision = oa_review_decision(payload)
+    field_differences = oa_field_differences(payload)
+    manual_review_completed = bool(
+        payload.manual_review and payload.manual_review.status.value == "COMPLETED"
+    )
     status_label = {
         "pass": "通过",
         "reject": "不通过",
@@ -899,6 +905,14 @@ def get_consistency_oa_result(
                 "review_task_id": payload.task_id,
                 "review_mode": source_raw.get("oa", {}).get("review_mode"),
                 "decision": decision,
+                "mismatch_count": len(field_differences),
+                "mismatch_rejection_threshold": FIELD_MISMATCH_REJECTION_THRESHOLD,
+                "field_differences": field_differences,
+                "next_node_review_required": (
+                    decision == "pass"
+                    and bool(field_differences)
+                    and not manual_review_completed
+                ),
                 "review_status": status_label,
                 "risk_level": payload.risk_level.value,
                 "needs_manual_review": decision in {"manual_review", "exception"},
@@ -933,6 +947,7 @@ def _generate_task_id(store_identifier: str) -> str:
 
 def _oa_response(result: ReviewResult) -> dict[str, Any]:
     decision = oa_review_decision(result)
+    field_differences = oa_field_differences(result)
     failed = [rule for rule in result.rule_results if not rule.passed]
     skill_result = result.skill_result if isinstance(result.skill_result, dict) else {}
     rpa_info = (
@@ -951,10 +966,18 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
         summary = f"人工复核驳回：{manual_comment}" if manual_comment else "人工复核驳回"
     elif manual_action == "request_more_info":
         summary = f"要求补件：{manual_comment}"
+    elif decision == "pass" and field_differences:
+        summary = f"自动校验发现 {len(field_differences)} 项字段不匹配，已提交下一节点复核"
     data: dict[str, Any] = {
         "decision": decision,
         "task_id": result.task_id,
         "summary": "系统无法自动完成核对，需人工处理" if decision == "exception" else summary,
+        "mismatch_count": len(field_differences),
+        "mismatch_rejection_threshold": FIELD_MISMATCH_REJECTION_THRESHOLD,
+        "field_differences": field_differences,
+        "next_node_review_required": (
+            decision == "pass" and bool(field_differences) and manual_action is None
+        ),
         "rule_results": [rule.model_dump(mode="json") for rule in result.rule_results],
         "needs_manual_review": decision in {"manual_review", "exception"},
     }
