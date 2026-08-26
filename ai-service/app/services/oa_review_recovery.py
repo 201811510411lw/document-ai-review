@@ -2,7 +2,7 @@ import logging
 import threading
 import time
 
-from app.api.tobacco_license_consistency import _oa_response
+from app.api.tobacco_license_consistency import _oa_callback_response
 from app.integrations.mysql_client import MySqlFetchClient
 from app.integrations.starrocks.tobacco_license_sources import (
     OA_MYSQL_TOBACCO_SOURCE_TABLES,
@@ -62,7 +62,7 @@ class OaReviewRecoveryScheduler:
                 workflow_id=int(claim["workflow_id"]),
                 requestid=int(claim["requestid"]),
                 store_code=str(claim["store_code"]),
-                result=_oa_response(result),
+                result=_oa_callback_response(result),
             )
             service.update_callback_state(result.task_id, status="PENDING")
             try:

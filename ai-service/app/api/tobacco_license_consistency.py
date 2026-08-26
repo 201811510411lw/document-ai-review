@@ -787,9 +787,29 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
     return {"code": 0, "message": "success", "data": data}
 
 
+def _oa_callback_response(result: ReviewResult) -> dict[str, Any]:
+    """Map internal evidence-review state to OA's pass/reject/exception contract."""
+    response = _oa_response(result)
+    data = response["data"]
+    if data.get("decision") != "manual_review":
+        return response
+    data["decision"] = "exception"
+    data["summary"] = "系统无法自动完成核对，需人工处理"
+    data["needs_manual_review"] = True
+    data.setdefault(
+        "error",
+        {
+            "code": "REVIEW_REQUIRES_MANUAL_REVIEW",
+            "message": result.summary or "审核证据不足，需要人工处理",
+            "retryable": False,
+        },
+    )
+    return response
+
+
 def _oa_outcome_response(outcome: OaAutoReviewOutcome) -> dict[str, Any]:
     if outcome.result is not None:
-        return _oa_response(outcome.result)
+        return _oa_callback_response(outcome.result)
     assert outcome.error is not None
     return _oa_exception_response(
         outcome.task_id,

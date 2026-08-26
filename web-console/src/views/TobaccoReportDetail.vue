@@ -161,6 +161,9 @@ const rpaLoading = ref(false)
 const resultMeta = computed(() => {
   const result = report.value?.overall_result
   if (report.value?.processing_status === 'processing') return { label: '审核处理中', tone: 'pending', icon: 'clock-o' }
+  if (['manual_review', 'failed'].includes(report.value?.processing_status)) {
+    return { label: '待人工处理', tone: 'pending', icon: 'warning-o' }
+  }
   if (result === '通过') return { label: '自动通过 · 已流转至法务节点', tone: 'passed', icon: 'success' }
   if (result === '待校验') return { label: '异常待处理', tone: 'pending', icon: 'warning-o' }
   return { label: '驳回 · 已退回申请人', tone: 'failed', icon: 'cross' }
