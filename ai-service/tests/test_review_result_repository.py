@@ -187,12 +187,46 @@ def test_mysql_repository_old_claim_cannot_overwrite_new_owner(monkeypatch):
     repository.release_claim(first_claim)
     assert repository.claim(second_claim) is True
 
+    second_stage = second_claim.model_copy(
+        update={"skill_result": {"claim": "second", "stage": "extracting"}}
+    )
+    assert repository.advance_claim(first_claim, second_stage) is False
     assert repository.complete_claim(first_claim, final_result) is False
     assert repository.get_by_task_id(final_result.task_id).skill_result == {
         "claim": "second"
     }
     assert repository.complete_claim(second_claim, final_result) is True
     assert repository.get_by_task_id(final_result.task_id).status == ReviewStatus.REVIEWED
+
+
+def test_mysql_repository_claim_fencing_casts_bound_payload_as_json(monkeypatch):
+    storage = install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    claim = build_review_result("tc-oa-614-json-fencing").model_copy(
+        update={"status": ReviewStatus.RUNNING, "skill_result": {"stage": "claimed"}}
+    )
+    stage = claim.model_copy(update={"skill_result": {"stage": "extracting"}})
+    final_result = build_review_result(claim.task_id)
+
+    assert repository.claim(claim) is True
+    assert repository.advance_claim(claim, stage) is True
+    assert repository.complete_claim(stage, final_result) is True
+
+    release_claim = claim.model_copy(update={"task_id": "tc-oa-614-json-release"})
+    assert repository.claim(release_claim) is True
+    repository.release_claim(release_claim)
+
+    fencing_sql = [
+        " ".join(sql.lower().split())
+        for sql in storage["executed_sql"]
+        if "payload_json" in sql
+        and (
+            "update review_results" in sql.lower()
+            or "delete from review_results" in sql.lower()
+        )
+    ]
+    assert len(fencing_sql) == 3
+    assert all("payload_json = cast(%s as json)" in sql for sql in fencing_sql)
 
 
 def test_mysql_repository_save_persists_tobacco_consistency_detail_projection(monkeypatch):

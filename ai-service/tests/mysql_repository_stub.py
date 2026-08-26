@@ -20,7 +20,7 @@ class StubMySQLCursor:
             if table in self.storage:
                 row = self.storage[table].get(params[0])
                 payload_matches = (
-                    "and payload_json = %s" not in compact
+                    "and payload_json = cast(%s as json)" not in compact
                     or (row is not None and row.get("payload_json") == params[1])
                 )
                 if payload_matches:
@@ -122,7 +122,7 @@ class StubMySQLCursor:
             return
         if (
             compact.startswith("update review_results set payload_json")
-            and "and payload_json = %s" in compact
+            and "and payload_json = cast(%s as json)" in compact
         ):
             row = self.storage["review_results"].get(params[2])
             if row is not None and row["payload_json"] == params[3]:

@@ -153,11 +153,19 @@ class MySQLReviewResultRepository:
                 cursor.execute(
                     """
                     DELETE FROM review_results
-                    WHERE task_id = %s AND payload_json = %s
+                    WHERE task_id = %s AND payload_json = CAST(%s AS JSON)
                     """,
                     (review_result.task_id, review_result.model_dump_json()),
                 )
             connection.commit()
+
+    def advance_claim(
+        self,
+        claim: ReviewResult,
+        review_result: ReviewResult,
+    ) -> bool:
+        """Persist an intermediate stage only while this execution owns the claim."""
+        return self._replace_claim(claim, review_result)
 
     def complete_claim(
         self,
@@ -165,6 +173,13 @@ class MySQLReviewResultRepository:
         review_result: ReviewResult,
     ) -> bool:
         """Replace only the claim owned by this execution and save projections."""
+        return self._replace_claim(claim, review_result)
+
+    def _replace_claim(
+        self,
+        claim: ReviewResult,
+        review_result: ReviewResult,
+    ) -> bool:
         self._ensure_schema_once()
         with self._connect() as connection:
             with connection.cursor() as cursor:
@@ -172,7 +187,7 @@ class MySQLReviewResultRepository:
                     """
                     UPDATE review_results
                     SET payload_json = %s, created_at = %s
-                    WHERE task_id = %s AND payload_json = %s
+                    WHERE task_id = %s AND payload_json = CAST(%s AS JSON)
                     """,
                     (
                         review_result.model_dump_json(),

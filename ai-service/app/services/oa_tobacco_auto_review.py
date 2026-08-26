@@ -48,6 +48,9 @@ class ReviewRepository(Protocol):
     def release_claim(self, result: ReviewResult) -> None:
         ...
 
+    def advance_claim(self, claim: ReviewResult, result: ReviewResult) -> bool:
+        ...
+
     def complete_claim(self, claim: ReviewResult, result: ReviewResult) -> bool:
         ...
 
@@ -73,6 +76,10 @@ class OaAutoReviewOutcome(BaseModel):
     task_id: str
     result: ReviewResult | None = None
     error: OaAutoReviewError | None = None
+
+
+class OaReviewClaimLostError(RuntimeError):
+    pass
 
 
 class OaTobaccoAutoReviewService:
@@ -266,6 +273,8 @@ class OaTobaccoAutoReviewService:
                     }
                 },
             )
+        except OaReviewClaimLostError:
+            return _claim_lost(task_id)
         except Exception:
             logger.exception(
                 "[OA自动审核][NAS文件准备失败] task_id=%s requestid=%s",
@@ -349,6 +358,8 @@ class OaTobaccoAutoReviewService:
                 summary="证照抽取完成，正在执行一致性规则",
                 skill_result=extraction_snapshot,
             )
+        except OaReviewClaimLostError:
+            return _claim_lost(task_id)
         except Exception:
             logger.exception("[OA自动审核][阶段保存失败] task_id=%s stage=extraction", task_id)
             return self._error_after_release(
@@ -453,17 +464,14 @@ class OaTobaccoAutoReviewService:
                     command.requestid,
                 )
             if not self._repository.complete_claim(claim, result):
-                return _error(
-                    task_id,
-                    "REVIEW_CLAIM_LOST",
-                    "自动审核任务占位已失效，结果未写入",
-                    retryable=False,
-                )
+                return _claim_lost(task_id)
             logger.info(
                 "[OA自动审核][结果保存完成] task_id=%s requestid=%s",
                 task_id,
                 command.requestid,
             )
+        except OaReviewClaimLostError:
+            return _claim_lost(task_id)
         except Exception:
             logger.exception(
                 "[OA自动审核][审核执行失败] task_id=%s requestid=%s",
@@ -553,7 +561,7 @@ class OaTobaccoAutoReviewService:
             }
         )
         try:
-            self._repository.save(failure)
+            completed = self._repository.complete_claim(claim, failure)
         except Exception:
             try:
                 self._repository.release_claim(claim)
@@ -565,6 +573,8 @@ class OaTobaccoAutoReviewService:
                 "审核结果存储不可用",
                 retryable=True,
             )
+        if not completed:
+            return _claim_lost(task_id)
         return _error(
             task_id,
             code,
@@ -590,12 +600,22 @@ class OaTobaccoAutoReviewService:
                 },
             }
         )
-        self._repository.save(stage)
+        if not self._repository.advance_claim(claim, stage):
+            raise OaReviewClaimLostError(claim.task_id)
         return stage
 
 
 def oa_auto_review_task_id(workflow_id: int, requestid: int) -> str:
     return f"tc-oa-{workflow_id}-{requestid}"
+
+
+def _claim_lost(task_id: str) -> OaAutoReviewOutcome:
+    return _error(
+        task_id,
+        "REVIEW_CLAIM_LOST",
+        "自动审核任务占位已失效，结果未写入",
+        retryable=False,
+    )
 
 
 def _claim_result(task_id: str, command: OaAutoReviewCommand) -> ReviewResult:

@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from app.api.auth import require_oa_token
 from app.api.tobacco_license_consistency import (
     OaAutoReviewRequest,
+    _run_oa_auto_review_and_callback,
     create_oa_auto_review,
     get_consistency_oa_result,
     manual_review_consistency_result,
@@ -33,6 +34,11 @@ from app.services.tobacco_license_files import (
     TobaccoLicenseStoredFile,
 )
 from app.services.oa_auto_review_callback import OaAutoReviewCallbackDelivery
+from app.services.oa_tobacco_auto_review import (
+    OaAutoReviewCommand,
+    OaAutoReviewError,
+    OaAutoReviewOutcome,
+)
 
 
 class ExistingResultRepository:
@@ -93,6 +99,33 @@ class FailingCallbackClient:
         raise RuntimeError("callback unavailable")
 
 
+class ClaimLostReviewService:
+    def review(self, command):
+        return OaAutoReviewOutcome(
+            task_id="tc-oa-614-584412",
+            error=OaAutoReviewError(
+                code="REVIEW_CLAIM_LOST",
+                message="自动审核任务占位已失效，结果未写入",
+                retryable=False,
+            ),
+        )
+
+    def update_callback_state(self, *args, **kwargs):
+        raise AssertionError("claim-lost attempt unexpectedly updated callback state")
+
+
+def test_claim_lost_background_attempt_does_not_send_callback():
+    _run_oa_auto_review_and_callback(
+        command=OaAutoReviewCommand(
+            requestid=584412,
+            store_code="00001",
+            workflow_id=614,
+        ),
+        review_service=ClaimLostReviewService(),
+        callback_client=MustNotRun(),
+    )
+
+
 class NewResultRepository:
     def __init__(self):
         self.saved = []
@@ -120,6 +153,9 @@ class NewResultRepository:
                 for item in self.saved
                 if not (item.task_id == result.task_id and item.status == ReviewStatus.RUNNING)
             ]
+
+    def advance_claim(self, claim, result):
+        return self.complete_claim(claim, result)
 
     def complete_claim(self, claim, result):
         with self.lock:
@@ -221,6 +257,9 @@ def test_manual_callback_retry_persists_delivery_failure():
 
 
 class FailingSaveRepository(NewResultRepository):
+    def advance_claim(self, claim, result):
+        return NewResultRepository.complete_claim(self, claim, result)
+
     def complete_claim(self, claim, result):
         raise RuntimeError("database unavailable")
 
@@ -482,7 +521,8 @@ def test_result_save_failure_returns_exception_not_in_memory_pass(monkeypatch, t
     )
 
     assert response["data"]["decision"] == "exception"
-    assert response["data"]["error"]["code"] == "AUTO_REVIEW_FAILED"
+    assert response["data"]["error"]["code"] == "RESULT_STORE_UNAVAILABLE"
+    assert response["data"]["error"]["retryable"] is True
     assert "database unavailable" not in response["data"]["error"]["message"]
 
 

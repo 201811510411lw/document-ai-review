@@ -535,8 +535,15 @@ def _run_oa_auto_review_and_callback(
     task_id = oa_auto_review_task_id(command.workflow_id, command.requestid)
     try:
         outcome = review_service.review(command)
-        if outcome.error is not None and outcome.error.code == "REVIEW_IN_PROGRESS":
-            logger.info("OA 自动审核任务已由其他执行者处理: task_id=%s", task_id)
+        if outcome.error is not None and outcome.error.code in {
+            "REVIEW_IN_PROGRESS",
+            "REVIEW_CLAIM_LOST",
+        }:
+            logger.info(
+                "OA 自动审核任务已由其他执行者处理: task_id=%s code=%s",
+                task_id,
+                outcome.error.code,
+            )
             return
         result = _oa_outcome_response(outcome)
     except Exception:
