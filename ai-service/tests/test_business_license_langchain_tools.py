@@ -5,15 +5,32 @@ from app.capabilities.business_license.tools import (
 )
 
 
-def test_business_license_classify_tool_uses_structured_document_type():
+def test_business_license_classify_tool_requires_visible_business_license_title():
     result = business_license_classify_document.invoke(
-        {"structured_fields": {"document_type": "business_license"}}
+        {
+            "structured_fields": {
+                "document_type": "business_license",
+                "document_type_raw": "营业执照",
+            }
+        }
     )
 
     assert result == {
         "document_type": "business_license",
         "confidence": 1.0,
-        "reasons": ["视觉模型返回结构化证照类型"],
+        "reasons": ["根据证照可见标题识别类型"],
+    }
+
+
+def test_business_license_classify_tool_rejects_unsubstantiated_model_type():
+    result = business_license_classify_document.invoke(
+        {"structured_fields": {"document_type": "business_license"}}
+    )
+
+    assert result == {
+        "document_type": "unknown",
+        "confidence": 0.0,
+        "reasons": ["未检测到可见的营业执照标题"],
     }
 
 
@@ -22,7 +39,7 @@ def test_business_license_classify_tool_recognizes_prepackaged_filing_title():
         {
             "structured_fields": {
                 "document_type": "business_license",
-                "subject_name": "仅销售预包装食品经营者新办备案信息采集表",
+                "document_type_raw": "仅销售预包装食品经营者新办备案信息采集表",
             }
         }
     )

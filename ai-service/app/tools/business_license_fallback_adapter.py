@@ -2,6 +2,7 @@ import re
 import unicodedata
 from typing import Any
 
+from app.capabilities.document_type_mapping import display_to_system, match_document_type
 from app.tools.aliyun_ocr_adapter import AliyunCloudMarketOcrAdapter
 from app.tools.qwen_ocr_adapter import QwenOcrBusinessLicenseAdapter
 
@@ -87,6 +88,13 @@ def validate_business_license_ocr_result(
         failure_reasons.append(str(metadata["error_code"]))
 
     document_type = str(fields.get("document_type") or "").strip().lower()
+    visible_title = str(fields.get("document_type_raw") or "").strip()
+    detected_display_type = match_document_type(visible_title)
+    if (
+        detected_display_type
+        and display_to_system(detected_display_type) != "business_license"
+    ):
+        failure_reasons.append("document_title_conflict")
     if document_type not in {"business_license", "营业执照"}:
         failure_reasons.append("document_type_invalid")
 

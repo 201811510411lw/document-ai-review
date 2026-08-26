@@ -4,6 +4,7 @@ import re
 from io import BytesIO
 from typing import Any
 
+from app.capabilities.document_type_mapping import display_to_system, match_document_type
 from app.tools.aliyun_ocr_adapter import (
     extract_business_license_fields,
     extract_business_license_fields_from_rapidocr,
@@ -230,6 +231,7 @@ class QwenOcrBusinessLicenseAdapter:
                 if parsed_fields is None:
                     parsed_fields = extract_business_license_fields(plain_text)
                 parsed_fields = _sanitize_structured_fields(parsed_fields or {})
+                parsed_fields = _apply_visible_document_title(parsed_fields, plain_text)
                 if _is_business_license_page(parsed_fields, plain_text):
                     parsed_fields["document_type"] = "business_license"
                 page_results.append(
@@ -376,12 +378,15 @@ def qwen_ocr_parse_prompt() -> str:
         "你是营业执照 OCR 字段抽取器。只允许依据图片/PDF 页面中的可见文字抽取字段，"
         "不要使用文件名、上下文、常识或猜测补全；不要执行合规审核。\n"
         "只输出 JSON 对象，不要输出 Markdown。字段包括："
-        "document_type, subject_name, credit_code, business_address, legal_person, "
+        "document_type, document_type_raw, subject_name, credit_code, business_address, legal_person, "
         "established_date, valid_from, valid_to, issue_authority, issue_date, "
         "source_page, ignored_pages, subject_name_evidence, business_address_evidence, "
         "legal_person_evidence, credit_code_evidence, valid_to_evidence。\n"
         "规则：\n"
-        "1. document_type 如果能确认是营业执照，输出 business_license；否则输出 null。\n"
+        "1. document_type_raw 必须逐字提取证照页面顶部可见的完整标题；无法看清输出 null。"
+        "只有 document_type_raw 明确为营业执照时，document_type 才输出 business_license。"
+        "如果标题是食品生产许可证、食品经营许可证、烟草专卖零售许可证或其他证照，"
+        "document_type 不得输出 business_license。\n"
         "2. credit_code 提取统一社会信用代码，必须来自证照原文。\n"
         "3. subject_name 提取企业/主体名称本体，不要包含字段标签、类型、法定代表人或经营范围。"
         "legal_person 需提取法定代表人、负责人或个体工商户的营业者。\n"
@@ -444,8 +449,7 @@ def _structured_fields_from_ocr_response(content_text: str) -> tuple[dict[str, A
     if fields is None:
         fields = extract_business_license_fields(_ocr_response_to_plain_text(content_text))
     sanitized = _sanitize_structured_fields(fields or {})
-    if sanitized.get("document_type") == "营业执照":
-        sanitized["document_type"] = "business_license"
+    sanitized = _apply_visible_document_title(sanitized, content_text)
     return (sanitized if _has_key_fields(sanitized) else {}), used_text_fallback
 
 
@@ -581,6 +585,7 @@ def _select_business_license_page(page_results: list[dict[str, Any]]) -> dict[st
 
 
 def _is_business_license_page(fields: dict[str, Any], text: str) -> bool:
+    fields = _apply_visible_document_title(fields, text)
     compact = "".join((text or "").split())
     document_type = str(fields.get("document_type") or "").lower()
     if document_type in {"居民身份证", "identity_card", "id_card"}:
@@ -589,9 +594,29 @@ def _is_business_license_page(fields: dict[str, Any], text: str) -> bool:
         return False
     if document_type in {"business_license", "营业执照"}:
         return True
-    if "营业执照" in compact or "统一社会信用代码" in compact:
+    if "营业执照" in compact:
         return True
-    return bool(fields.get("credit_code") and fields.get("business_address"))
+    return False
+
+
+def _apply_visible_document_title(
+    fields: dict[str, Any],
+    text: str,
+) -> dict[str, Any]:
+    normalized = dict(fields)
+    raw_title = str(normalized.get("document_type_raw") or "").strip()
+    detected_display_type = match_document_type(raw_title or text)
+    if detected_display_type:
+        normalized["document_type_raw"] = raw_title or detected_display_type
+        normalized["document_type"] = display_to_system(detected_display_type)
+        return normalized
+
+    if str(normalized.get("document_type") or "").strip().lower() in {
+        "business_license",
+        "营业执照",
+    }:
+        normalized["document_type"] = None
+    return normalized
 
 
 def _business_license_score(fields: dict[str, Any], text: str) -> int:

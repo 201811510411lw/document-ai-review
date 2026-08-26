@@ -16,25 +16,19 @@ def business_license_classify_document(
 ) -> dict[str, Any]:
     """Classify whether structured OCR/vision fields describe a business license."""
     fields = structured_fields or {}
-    document_type = fields.get("document_type")
-    title_evidence = " ".join(
-        str(fields.get(key) or "")
-        for key in ("document_type_raw", "subject_name")
-    )
-    detected_display_type = match_document_type(title_evidence)
+    detected_display_type = match_document_type(fields.get("document_type_raw"))
     if detected_display_type:
         document_type = display_to_system(detected_display_type)
-    if document_type:
         classification = BusinessLicenseDocumentClassification(
             document_type=document_type,
             confidence=1.0 if document_type == "business_license" else 0.0,
-            reasons=["视觉模型返回结构化证照类型"],
+            reasons=["根据证照可见标题识别类型"],
         )
     else:
         classification = BusinessLicenseDocumentClassification(
             document_type="unknown",
             confidence=0.0,
-            reasons=["未检测到结构化营业执照字段"],
+            reasons=["未检测到可见的营业执照标题"],
         )
     return classification.model_dump(mode="json")
 

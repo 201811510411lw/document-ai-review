@@ -1,5 +1,7 @@
 from app.tools.qwen_ocr_adapter import (
     QwenOcrBusinessLicenseAdapter,
+    _is_business_license_page,
+    _structured_fields_from_ocr_response,
     qwen_ocr_parse_prompt,
 )
 from app.tools.vision_adapter import VisionInput
@@ -15,6 +17,19 @@ def test_qwen_ocr_adapter_requires_model(monkeypatch):
     assert result["metadata"]["error_code"] == "QWEN_OCR_MODEL_NOT_CONFIGURED"
 
 
+def test_qwen_ocr_adapter_rejects_food_production_license_title():
+    fields, _ = _structured_fields_from_ocr_response(
+        '{"document_type":"business_license",'
+        '"document_type_raw":"食品生产许可证",'
+        '"subject_name":"深圳市鸿祥食品有限公司",'
+        '"credit_code":"91440300MA5F20908J",'
+        '"business_address":"深圳市龙华区观澜街道君子布社区环观南路10号F901"}'
+    )
+
+    assert fields["document_type"] == "food_production_license"
+    assert _is_business_license_page(fields, "") is False
+
+
 def test_qwen_ocr_adapter_calls_openai_compatible_multimodal_api(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     calls = {}
@@ -22,6 +37,7 @@ def test_qwen_ocr_adapter_calls_openai_compatible_multimodal_api(monkeypatch):
     class StubMessage:
         content = (
             '{"document_type":"business_license",'
+            '"document_type_raw":"营业执照",'
             '"subject_name":"成都示例商贸有限公司",'
             '"credit_code":"91510100MA0000000X",'
             '"valid_to":"长期",'
@@ -79,11 +95,13 @@ def test_qwen_ocr_adapter_retries_sideways_image_and_uses_best_rotation(monkeypa
     responses = [
         (
             '{"document_type":"business_license",'
+            '"document_type_raw":"营业执照",'
             '"subject_name":"成都示例商贸有限公司",'
             '"credit_code":"91510100MA0000000X"}'
         ),
         (
             '{"document_type":"business_license",'
+            '"document_type_raw":"营业执照",'
             '"subject_name":"成都示例商贸有限公司",'
             '"credit_code":"91510100MA0000000X",'
             '"business_address":"成都市高新区天府大道 1 号",'
@@ -139,6 +157,7 @@ def test_qwen_ocr_adapter_recovers_missing_operator_from_local_ocr(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     response_content = (
         '{"document_type":"business_license",'
+        '"document_type_raw":"营业执照",'
         '"subject_name":"成都示例商贸有限公司",'
         '"credit_code":"91510100MA0000000X",'
         '"business_address":"成都市高新区天府大道 1 号"}'
@@ -451,6 +470,7 @@ def test_qwen_ocr_adapter_prefers_long_term_business_period_over_registration_da
     class StubMessage:
         content = (
             '{"document_type":"business_license",'
+            '"document_type_raw":"营业执照",'
             '"subject_name":"喀什融宏商贸有限公司",'
             '"credit_code":"91653101MA794MH24L",'
             '"valid_to":"2025-05-19",'
@@ -494,4 +514,6 @@ def test_qwen_ocr_parse_prompt_is_extraction_only():
     assert "只输出 JSON 对象" in prompt
     assert "不要执行合规审核" in prompt
     assert "credit_code" in prompt
+    assert "document_type_raw" in prompt
+    assert "食品生产许可证" in prompt
     assert "登记日期" in prompt

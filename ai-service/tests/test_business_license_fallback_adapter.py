@@ -36,6 +36,28 @@ def test_validate_business_license_ocr_result_ignores_credit_code_symbols():
     assert validation == {"passed": True, "failure_reasons": []}
 
 
+def test_validate_business_license_ocr_result_rejects_conflicting_visible_title():
+    validation = validate_business_license_ocr_result(
+        {
+            "structured_fields": {
+                "document_type": "business_license",
+                "document_type_raw": "食品生产许可证（副本）",
+                "subject_name": "深圳市鸿祥食品有限公司",
+                "credit_code": "91440300MA5F20908J",
+                "business_address": "深圳市龙华区观澜街道君子布社区环观南路10号F901",
+                "subject_name_evidence": "企业名称 深圳市鸿祥食品有限公司",
+                "credit_code_evidence": "统一社会信用代码 91440300MA5F20908J",
+            },
+            "metadata": {},
+        },
+        expected_subject_name=None,
+        expected_credit_code=None,
+    )
+
+    assert validation["passed"] is False
+    assert "document_title_conflict" in validation["failure_reasons"]
+
+
 def test_fallback_adapter_uses_qwen_result_when_validation_passes():
     primary = StubAdapter(
         {

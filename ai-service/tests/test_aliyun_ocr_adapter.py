@@ -61,6 +61,7 @@ def test_extract_business_license_fields_from_aliyun_text():
     fields = extract_business_license_fields(text)
 
     assert fields["document_type"] == "business_license"
+    assert fields["document_type_raw"] == "营业执照"
     assert fields["subject_name"] == "成都示例商贸有限公司"
     assert fields["credit_code"] == "91510100MA0000000X"
     assert fields["business_address"] == "成都市高新区天府大道 1 号"
@@ -70,6 +71,17 @@ def test_extract_business_license_fields_from_aliyun_text():
     assert fields["valid_to"] == "2030-01-01"
     assert fields["issue_authority"] == "成都市市场监督管理局"
     assert fields["issue_date"] == "2020-01-03"
+
+
+def test_extract_business_license_fields_preserves_conflicting_license_title():
+    fields = extract_business_license_fields(
+        "食品生产许可证（副本）\n"
+        "统一社会信用代码:91440300MA5F20908J\n"
+        "企业名称:深圳市鸿祥食品有限公司"
+    )
+
+    assert fields["document_type_raw"] == "食品生产许可证"
+    assert fields["document_type"] is None
 
 
 def test_business_license_provider_can_build_aliyun_adapter(monkeypatch):

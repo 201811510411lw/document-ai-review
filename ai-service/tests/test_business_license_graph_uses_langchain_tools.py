@@ -22,6 +22,7 @@ def test_business_license_field_nodes_use_langchain_tool_contract():
         ),
         "vision_structured_fields": {
             "document_type": "营业执照",
+            "document_type_raw": "营业执照",
             "subject_name": "（ 示例科技有限公司 ）",
             "credit_code": " 91310000 ma1k000000 ",
             "valid_to": "长期有效",
@@ -33,7 +34,7 @@ def test_business_license_field_nodes_use_langchain_tool_contract():
     state = extract_fields(state)
     state = normalize_fields(state)
 
-    assert state["document_classification"].document_type == "营业执照"
+    assert state["document_classification"].document_type == "business_license"
     assert state["extracted_fields"].subject_name == "（ 示例科技有限公司 ）"
     assert state["extraction_metadata"]["structured_extraction"] == {
         "source": "llm_file_extractor",

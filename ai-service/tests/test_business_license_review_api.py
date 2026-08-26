@@ -91,6 +91,7 @@ def test_business_license_review_accepts_structured_fields_from_vision_adapter(
         """
         {
           "document_type": "business_license",
+          "document_type_raw": "营业执照",
           "subject_name": "成都示例商贸有限公司",
           "credit_code": "91510100MA0000000X",
           "business_address": "成都市高新区天府大道 1 号",

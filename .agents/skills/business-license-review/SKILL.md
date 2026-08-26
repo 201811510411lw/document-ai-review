@@ -23,6 +23,7 @@ description: 营业执照单证识别与合规审核规则 Skill。用于维护�
 营业执照识别应尽量抽取：
 
 - `document_type`：证照类型，营业执照统一输出 `business_license`。
+- `document_type_raw`：逐字保留页面顶部可见的证照标题；无法看清时输出空值，不得根据企业名称、统一社会信用代码或地址推断。
 - `subject_name`：名称、企业名称或主体名称。
 - `credit_code`：统一社会信用代码。
 - `business_address`：住所或经营场所。
@@ -41,7 +42,8 @@ description: 营业执照单证识别与合规审核规则 Skill。用于维护�
 
 ### 证照类型
 
-- 若 `document_type` 为 `business_license`，通过。
+- 只有 `document_type_raw` 可见标题明确为“营业执照”，且 `document_type` 为 `business_license`，才通过。
+- 若可见标题为“食品生产许可证”“食品经营许可证”“烟草专卖零售许可证”或其他证照，即使存在企业名称、统一社会信用代码和地址，也必须判定证照类型不通过，不得按营业执照自动审核。
 - 若无法确认是营业执照，判定不通过，需要人工复核。
 
 ### 主体名称

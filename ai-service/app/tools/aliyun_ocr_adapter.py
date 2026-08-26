@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from app.capabilities.document_type_mapping import display_to_system, match_document_type
 from app.tools.vision_adapter import (
     convert_pdf_pages_to_png_data_urls,
     parse_business_license_vision_json,
@@ -351,8 +352,10 @@ def aliyun_ocr_json_to_text(payload: dict[str, Any]) -> str:
 
 def extract_business_license_fields(text: str) -> dict[str, Any]:
     normalized_text = _normalize_ocr_text(text)
+    detected_display_type = match_document_type(normalized_text)
     fields: dict[str, Any] = {
         "document_type": "business_license" if _is_business_license(normalized_text) else None,
+        "document_type_raw": detected_display_type,
         "subject_name": _extract_labeled_value(
             normalized_text,
             ("名称", "企业名称", "字号名称"),
@@ -405,11 +408,12 @@ def ocr_text_parse_prompt(document_text: str) -> str:
         "不要使用文件名、上下文、常识或猜测补全。OCR 文本可能顺序错乱、字段标签断裂、"
         "公章遮挡、标点错误。\n"
         "只输出 JSON 对象，不要输出 Markdown。字段包括："
-        "document_type, subject_name, credit_code, business_address, legal_person, "
+        "document_type, document_type_raw, subject_name, credit_code, business_address, legal_person, "
         "established_date, valid_from, valid_to, issue_authority, issue_date, "
         "subject_name_evidence, credit_code_evidence, valid_to_evidence。\n"
         "规则：\n"
-        "1. document_type 如果 OCR 文本能确认是营业执照，输出 business_license。\n"
+        "1. document_type_raw 逐字提取 OCR 文本中的证照标题。只有标题明确为营业执照时，"
+        "document_type 才输出 business_license；食品生产许可证等其他证照不得输出 business_license。\n"
         "2. credit_code 优先提取 18 位统一社会信用代码，必须来自 OCR 原文。\n"
         "3. subject_name 必须是 OCR 原文中公司名称本体，不要把“类型/法定代表人/经营范围”等标签拼进去。\n"
         "4. 如果字段标签被拆散，例如“名\\n类\\n法定代表人经营范围”，请结合附近文本判断，"
@@ -490,6 +494,10 @@ def _merge_rule_and_llm_fields(
         merged["document_type"] = rule_fields["document_type"]
     if llm_fields.get("document_type") == "营业执照":
         merged["document_type"] = "business_license"
+    detected_display_type = match_document_type(rule_fields.get("document_type_raw"))
+    if detected_display_type:
+        merged["document_type_raw"] = rule_fields["document_type_raw"]
+        merged["document_type"] = display_to_system(detected_display_type)
     return merged
 
 
@@ -647,7 +655,7 @@ def _normalize_ocr_text(text: str) -> str:
 
 def _is_business_license(text: str) -> bool:
     compact = "".join(text.split())
-    return "营业执照" in compact or "统一社会信用代码" in compact
+    return match_document_type(compact) == "营业执照"
 
 
 def _is_business_license_complete(text: str) -> bool:
