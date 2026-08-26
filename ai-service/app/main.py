@@ -25,6 +25,9 @@ from app.services.review_service import ReviewService
 from app.services.scheduled_review_service import DailyReviewScheduler
 from app.services.oa_auto_review_callback import HttpOaAutoReviewCallbackClient
 from app.services.oa_review_recovery import OaReviewRecoveryScheduler
+from app.integrations.mysql_client import MySqlFetchClient
+from app.integrations.starrocks.tobacco_license_sources import OA_MYSQL_TOBACCO_SOURCE_TABLES
+from app.services.tobacco_license_files import TobaccoLicenseFileStore
 
 
 # Uvicorn 默认只显示 WARNING；OA 审核阶段日志需要以 INFO 级别输出。
@@ -57,7 +60,14 @@ def start_scheduler():
     try:
         recovery_repository = build_review_result_repository_from_env()
         callback_client = HttpOaAutoReviewCallbackClient(settings.oa_auto_review_callback_url)
-        _oa_recovery_scheduler = OaReviewRecoveryScheduler(recovery_repository, callback_client)
+        oa_source_settings = mysql_settings_from_env("OA_SOURCE_MYSQL")
+        oa_source_client = MySqlFetchClient(oa_source_settings, source_tables=OA_MYSQL_TOBACCO_SOURCE_TABLES)
+        _oa_recovery_scheduler = OaReviewRecoveryScheduler(
+            recovery_repository,
+            callback_client,
+            source_client=oa_source_client,
+            file_store=TobaccoLicenseFileStore(),
+        )
         _oa_recovery_scheduler.start()
     except Exception as e:
         import logging
