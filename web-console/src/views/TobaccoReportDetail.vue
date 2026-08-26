@@ -18,9 +18,9 @@
         <div><strong>异常待处理 — 需要人工复核</strong><span>系统无法自动完成核对，请检查 OA 附件后人工确认。</span></div>
         <div class="manual-actions__buttons">
           <van-button v-if="canRetryOaCallback" size="small" plain type="primary" icon="replay" :loading="callbackLoading" @click="retryOaCallback">重新回调 OA</van-button>
-          <van-button size="small" type="primary" :loading="manualLoading" @click="submitManualReview('APPROVE')">人工通过</van-button>
-          <van-button size="small" plain type="danger" :loading="manualLoading" @click="submitManualReview('REJECT')">驳回</van-button>
-          <van-button size="small" plain :loading="manualLoading" @click="submitManualReview('REQUEST_MORE_INFO')">要求补件</van-button>
+          <van-button size="small" type="primary" :loading="manualLoading" @click="openManualReview('APPROVE')">人工通过</van-button>
+          <van-button size="small" plain type="danger" :loading="manualLoading" @click="openManualReview('REJECT')">驳回</van-button>
+          <van-button size="small" plain :loading="manualLoading" @click="openManualReview('REQUEST_MORE_INFO')">要求补件</van-button>
         </div>
       </section>
 
@@ -138,7 +138,82 @@
           </article>
         </div>
       </section>
+
+      <section v-if="report.oa" class="content-section callback-section">
+        <header class="section-header">
+          <div><p>投递审计</p><h2>OA 回调记录</h2></div>
+          <div class="callback-header-actions">
+            <span>{{ callbackRecordsView.length }} 次</span>
+            <van-button
+              v-if="canRetryOaCallback && !canManualReview"
+              size="small"
+              plain
+              type="primary"
+              icon="replay"
+              :loading="callbackLoading"
+              @click="retryOaCallback"
+            >重新回调 OA</van-button>
+          </div>
+        </header>
+        <van-notice-bar
+          v-if="!callbackRecordsView.length"
+          left-icon="info-o"
+          color="#526979"
+          background="#f5f8f9"
+        >尚无可查看的回调记录</van-notice-bar>
+        <div v-else class="callback-list">
+          <article v-for="(record, index) in callbackRecordsView" :key="`${record.updated_at || 'callback'}-${index}`">
+            <header>
+              <div>
+                <strong>{{ callbackTriggerLabel(record.trigger) }}</strong>
+                <span>{{ formatTime(record.updated_at) }}</span>
+              </div>
+              <van-tag :type="callbackStatusMeta(record).type" plain>{{ callbackStatusMeta(record).label }}</van-tag>
+            </header>
+            <dl>
+              <div><dt>目标地址</dt><dd>{{ record.target || '历史记录未保存' }}</dd></div>
+              <div><dt>业务决定</dt><dd>{{ callbackDecisionLabel(record) }}</dd></div>
+              <div><dt>HTTP 状态</dt><dd>{{ record.http_status || '-' }}</dd></div>
+              <div><dt>发送次数</dt><dd>{{ record.attempt_count || '-' }}</dd></div>
+            </dl>
+            <van-notice-bar
+              v-if="record.legacy"
+              left-icon="info-o"
+              color="#7a6500"
+              background="#fff8e8"
+            >该历史回调未保存请求正文和接收端响应</van-notice-bar>
+            <details v-if="record.request_payload">
+              <summary>发送 JSON</summary>
+              <pre>{{ formatAuditJson(record.request_payload) }}</pre>
+            </details>
+            <details v-if="record.response_body != null">
+              <summary>接收端响应</summary>
+              <pre>{{ formatAuditJson(record.response_body) }}</pre>
+            </details>
+            <p v-if="record.error" class="callback-error">{{ record.error }}</p>
+          </article>
+        </div>
+      </section>
     </main>
+
+    <van-dialog
+      v-model:show="manualDialogVisible"
+      :title="manualDialogConfig.title"
+      show-cancel-button
+      :confirm-button-loading="manualLoading"
+      :before-close="beforeManualDialogClose"
+    >
+      <van-field
+        v-model="manualComment"
+        type="textarea"
+        rows="3"
+        maxlength="300"
+        show-word-limit
+        :required="manualDialogConfig.commentRequired"
+        label="处理说明"
+        :placeholder="manualDialogConfig.placeholder"
+      />
+    </van-dialog>
   </div>
 </template>
 
@@ -148,6 +223,15 @@ import { useRoute, useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { tobaccoApi, rpaApi } from '@/api'
 import { openTobaccoAttachmentPreview } from '@/features/tobacco/attachmentPreview.js'
+import {
+  callbackDecisionLabel,
+  callbackRecords,
+  callbackStatusMeta,
+  callbackSuccessMessage,
+  callbackTriggerLabel,
+  formatAuditJson,
+  manualActionConfig,
+} from '@/features/tobacco/oaCallbackAudit.js'
 import { resolveRpaAction, resolveRpaCertificateNo } from '@/features/tobacco/rpaVerification'
 
 const router = useRouter()
@@ -156,6 +240,9 @@ const report = ref(null)
 const loading = ref(true)
 const manualLoading = ref(false)
 const callbackLoading = ref(false)
+const manualDialogVisible = ref(false)
+const pendingDecision = ref('APPROVE')
+const manualComment = ref('')
 const rpaVerification = ref(null)
 const rpaCapability = ref(null)
 const rpaLoading = ref(false)
@@ -173,7 +260,12 @@ const resultMeta = computed(() => {
 
 // 超时失败仍然是可人工处置的 OA 任务；不能只允许正常的 manual_review 状态。
 const canManualReview = computed(() => ['manual_review', 'failed'].includes(report.value?.processing_status))
-const canRetryOaCallback = computed(() => report.value?.processing_status === 'failed' && Boolean(report.value?.oa?.requestid))
+const canRetryOaCallback = computed(() => (
+  report.value?.processing_status !== 'processing'
+  && Boolean(report.value?.oa?.requestid)
+))
+const manualDialogConfig = computed(() => manualActionConfig(pendingDecision.value))
+const callbackRecordsView = computed(() => callbackRecords(report.value))
 const comparisonFields = computed(() => {
   const item = report.value || {}
   return [
@@ -275,14 +367,32 @@ async function triggerRpaVerification() {
   }
 }
 
-async function submitManualReview(decision) {
+function openManualReview(decision) {
+  pendingDecision.value = decision
+  manualComment.value = ''
+  manualDialogVisible.value = true
+}
+
+async function beforeManualDialogClose(action) {
+  if (action !== 'confirm') return true
+  if (manualDialogConfig.value.commentRequired && !manualComment.value.trim()) {
+    showToast('请填写处理说明')
+    return false
+  }
+  return submitManualReview()
+}
+
+async function submitManualReview() {
+  const decision = pendingDecision.value
   manualLoading.value = true
   try {
-    const response = await tobaccoApi.manualReview(route.params.id, decision)
-    report.value = response.report || report.value
-    showToast({ APPROVE: '已人工通过', REJECT: '已驳回', REQUEST_MORE_INFO: '已标记为待补件' }[decision])
+    const response = await tobaccoApi.manualReview(route.params.id, decision, manualComment.value.trim())
+    await loadReport()
+    showToast(callbackSuccessMessage(manualDialogConfig.value.success, response.oa_callback))
+    return true
   } catch (error) {
     showToast(error.message || '人工复核提交失败')
+    return false
   } finally {
     manualLoading.value = false
   }
@@ -291,8 +401,9 @@ async function submitManualReview(decision) {
 async function retryOaCallback() {
   callbackLoading.value = true
   try {
-    await tobaccoApi.retryOaCallback(route.params.id)
-    showToast('OA 回调已重新发送')
+    const response = await tobaccoApi.retryOaCallback(route.params.id)
+    await loadReport()
+    showToast(callbackSuccessMessage('OA 回调已重新发送', response.oa_callback))
   } catch (error) {
     showToast(error.message || 'OA 回调发送失败')
   } finally {
@@ -409,4 +520,7 @@ function previewOaAttachment(attachment) {
 .rpa-screenshot a { color: var(--tobacco-accent); text-decoration: none; }
 .rpa-actions { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--tobacco-line); }
 .rpa-actions > span { color: var(--tobacco-muted); font-size: 12px; }
+.callback-header-actions { display: flex; align-items: center; gap: 10px; }.callback-header-actions > span { color: var(--tobacco-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }.callback-header-actions :deep(.van-button) { border-radius: 5px; }
+.callback-list { display: grid; gap: 10px; }.callback-list article { overflow: hidden; border: 1px solid var(--tobacco-line); border-radius: 8px; background: var(--tobacco-surface); }.callback-list article > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--tobacco-line); background: var(--tobacco-surface-muted); }.callback-list article > header strong, .callback-list article > header span { display: block; }.callback-list article > header strong { color: var(--tobacco-ink); font-size: 13px; }.callback-list article > header span { margin-top: 3px; color: var(--tobacco-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }.callback-list dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; padding: 10px 14px; }.callback-list dl div { min-width: 0; padding: 5px 8px 5px 0; }.callback-list dt { color: var(--tobacco-muted); font-size: 11px; }.callback-list dd { margin: 3px 0 0; color: #30485d; font-size: 12px; overflow-wrap: anywhere; }.callback-list details { border-top: 1px solid var(--tobacco-line); }.callback-list summary { padding: 10px 14px; color: var(--tobacco-accent); cursor: pointer; font-size: 12px; font-weight: 650; }.callback-list pre { max-height: 320px; overflow: auto; margin: 0; padding: 12px 14px; background: #17232c; color: #dbe8ee; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }.callback-error { margin: 0; padding: 10px 14px; border-top: 1px solid #f0cdca; background: #fff1f0; color: #a6443d; font-size: 12px; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .callback-list dl { grid-template-columns: 1fr; } }
 </style>

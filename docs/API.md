@@ -235,6 +235,8 @@ OA 两个接口使用独立请求头 `X-OA-Token`，密钥由 `OA_AUTO_REVIEW_TO
 `manual_review`、`exception`。最终结果以无认证 JSON POST 到服务端配置的固定回调地址，
 并携带原始 `workflow_id`、`requestid` 和 `store_code`。完整请求和响应见
 [`docs/api/oa-tobacco-license-consistency.md`](api/oa-tobacco-license-consistency.md)。
+人工驳回和要求补件必须提供非空 `comment`。详情响应包含 `oa_callback` 和
+`oa_callback_history`，用于查看实际请求 JSON、目标地址、HTTP 状态、接收端响应和业务确认结果。
 
 单门店请求：
 

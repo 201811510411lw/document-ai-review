@@ -75,6 +75,9 @@ OCR/LLM 字段抽取只能依据烟草证图片、PDF 页面或 OCR 文本中的
 - 明确不一致、证照类型错误、已过期可返回 `reject`；证据缺失、候选冲突、临近到期返回 `manual_review`；数据库、NAS、OCR、LLM、RPA 故障返回 `exception`。
 - OA 重复调用必须按 `workflow_id + requestid` 幂等返回，不重复执行文件下载、OCR 或 RPA。
 - OA 触发接口受理后在后台执行审核，最终四态结果回调必须携带原始 `workflow_id`、`requestid` 和 `store_code`；回调投递失败不得改变已经形成的业务审核结论。
+- 人工通过输出 `pass`，摘要必须明确为人工复核通过；人工驳回输出 `reject`，必须携带人工填写的驳回原因；要求补件输出 `manual_review` 并携带补件要求，不得改写为技术 `exception`。
+- 回调的 HTTP 2xx 只证明传输送达。响应正文明确表示失败时必须记为失败；空响应或无法识别的 2xx 响应必须标记为业务未确认，不得宣称 OA 节点已经推进。
+- 每次新回调必须保留可审计记录，包括脱敏后的目标地址、实际请求 JSON、触发来源、尝试次数、HTTP 状态、限长响应正文、业务接受状态、错误和时间；不得保存 Authorization、token、cookie、密码或其他凭据。
 
 一致性审核支持两种互斥模式：
 

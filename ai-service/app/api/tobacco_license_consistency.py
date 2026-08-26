@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.api.auth import require_oa_token, require_web_console_user
 from app.core.config import settings
@@ -26,6 +26,7 @@ from app.repositories import build_review_result_repository_from_env
 from app.services.review_service import ReviewService
 from app.services.oa_auto_review_callback import (
     HttpOaAutoReviewCallbackClient,
+    OaAutoReviewCallbackDelivery,
     OaAutoReviewCallbackClient,
     OaAutoReviewCallbackPayload,
 )
@@ -99,6 +100,13 @@ class CreateConsistencyReviewRequest(BaseModel):
 class TobaccoManualReviewRequest(BaseModel):
     decision: Literal["APPROVE", "REJECT", "REQUEST_MORE_INFO"]
     comment: str = ""
+
+    @model_validator(mode="after")
+    def require_reason_for_negative_decisions(self):
+        self.comment = self.comment.strip()
+        if self.decision in {"REJECT", "REQUEST_MORE_INFO"} and not self.comment:
+            raise ValueError("驳回或要求补件时必须填写处理说明")
+        return self
 
 
 class BatchConsistencyReviewRequest(BaseModel):
@@ -550,14 +558,36 @@ def _run_oa_auto_review_and_callback(
     if update_callback_state is not None:
         update_callback_state(task_id, status="PENDING")
     try:
-        callback_client.send(payload)
+        delivery = callback_client.send(payload)
     except Exception as error:
+        callback_state = _oa_callback_state(
+            "FAILED",
+            error=str(error),
+            trigger="auto_review",
+            request_payload=payload,
+            delivery=getattr(error, "delivery", None),
+        )
         if update_callback_state is not None:
-            update_callback_state(task_id, status="FAILED", error=str(error))
+            update_callback_state(
+                task_id,
+                status="FAILED",
+                error=str(error),
+                callback_state=callback_state,
+            )
         logger.exception("OA 审核结果回调失败: task_id=%s", task_id)
     else:
+        callback_state = _oa_callback_state(
+            "SENT",
+            trigger="auto_review",
+            request_payload=payload,
+            delivery=delivery,
+        )
         if update_callback_state is not None:
-            update_callback_state(task_id, status="SENT")
+            update_callback_state(
+                task_id,
+                status="SENT",
+                callback_state=callback_state,
+            )
 
 
 @router.post("/reviews/batch")
@@ -648,14 +678,19 @@ def manual_review_consistency_result(
     if payload is not None:
         callback_payload = _manual_oa_callback_payload(payload)
         if callback_payload is not None:
-            try:
-                callback_client.send(callback_payload)
-            except Exception as error:
-                callback_state = _oa_callback_state("FAILED", error=str(error))
-                logger.exception("OA 人工审核结果回调失败: task_id=%s", task_id)
-            else:
-                callback_state = _oa_callback_state("SENT")
-            _save_oa_callback_state(repository, payload, callback_state)
+            callback_state, callback_error = _deliver_and_record_oa_callback(
+                repository=repository,
+                result=payload,
+                callback_client=callback_client,
+                callback_payload=callback_payload,
+                trigger="manual_review",
+            )
+            if callback_error is not None:
+                logger.error(
+                    "OA 人工审核结果回调失败: task_id=%s error=%s",
+                    task_id,
+                    callback_error,
+                )
     return {
         "report": detail,
         "payload": payload.model_dump(mode="json") if payload is not None else None,
@@ -684,19 +719,24 @@ def retry_oa_review_callback(
             status_code=422,
             detail={"code": "OA_IDENTITY_MISSING", "message": "该任务不是可回调的 OA 审核任务"},
         )
-    try:
-        callback_client.send(callback_payload)
-    except Exception as error:
-        callback_state = _oa_callback_state("FAILED", error=str(error))
-        _save_oa_callback_state(repository, payload, callback_state)
-        logger.exception("OA 审核结果手动回调失败: task_id=%s", task_id)
+    callback_state, callback_error = _deliver_and_record_oa_callback(
+        repository=repository,
+        result=payload,
+        callback_client=callback_client,
+        callback_payload=callback_payload,
+        trigger="manual_retry",
+    )
+    if callback_error is not None:
+        logger.error(
+            "OA 审核结果手动回调失败: task_id=%s error=%s",
+            task_id,
+            callback_error,
+        )
         raise HTTPException(
             status_code=502,
             detail={"code": "OA_CALLBACK_FAILED", "message": "OA 回调发送失败，请稍后重试"},
-        ) from error
-    callback_state = _oa_callback_state("SENT")
-    _save_oa_callback_state(repository, payload, callback_state)
-    return {"status": "SENT", "task_id": task_id}
+        ) from callback_error
+    return {"status": "SENT", "task_id": task_id, "oa_callback": callback_state}
 
 
 def _manual_oa_callback_payload(payload: ReviewResult) -> OaAutoReviewCallbackPayload | None:
@@ -730,12 +770,17 @@ def _save_oa_callback_state(
     if not callable(save):
         return
     try:
+        current = repository.get_by_task_id(payload.task_id) or payload
+        skill_result = dict(current.skill_result or {})
+        history = list(skill_result.get("oa_callback_history") or [])
+        history.append(callback_state)
         save(
-            payload.model_copy(
+            current.model_copy(
                 update={
                     "skill_result": {
-                        **(payload.skill_result or {}),
+                        **skill_result,
                         "oa_callback": callback_state,
+                        "oa_callback_history": history[-50:],
                     }
                 }
             )
@@ -744,12 +789,52 @@ def _save_oa_callback_state(
         logger.exception("OA 回调状态保存失败: task_id=%s", payload.task_id)
 
 
-def _oa_callback_state(status: str, *, error: str | None = None) -> dict[str, Any]:
-    return {
+def _deliver_and_record_oa_callback(
+    *,
+    repository,
+    result: ReviewResult,
+    callback_client: OaAutoReviewCallbackClient,
+    callback_payload: OaAutoReviewCallbackPayload,
+    trigger: str,
+) -> tuple[dict[str, Any], Exception | None]:
+    delivery = None
+    callback_error = None
+    try:
+        delivery = callback_client.send(callback_payload)
+    except Exception as error:
+        callback_error = error
+        delivery = getattr(error, "delivery", None)
+    state = _oa_callback_state(
+        "FAILED" if callback_error is not None else "SENT",
+        error=str(callback_error) if callback_error is not None else None,
+        trigger=trigger,
+        request_payload=callback_payload,
+        delivery=delivery,
+    )
+    _save_oa_callback_state(repository, result, state)
+    return state, callback_error
+
+
+def _oa_callback_state(
+    status: str,
+    *,
+    error: str | None = None,
+    trigger: str | None = None,
+    request_payload: OaAutoReviewCallbackPayload | None = None,
+    delivery: OaAutoReviewCallbackDelivery | None = None,
+) -> dict[str, Any]:
+    state = {
         "status": status,
         "error": error,
         "updated_at": datetime.now().astimezone().isoformat(),
     }
+    if trigger is not None:
+        state["trigger"] = trigger
+    if request_payload is not None:
+        state["request_payload"] = request_payload.model_dump(mode="json")
+    if delivery is not None:
+        state.update(delivery.model_dump(mode="json"))
+    return state
 
 
 @router.get("/reviews/{task_id}/oa-result")
@@ -846,14 +931,23 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
     rpa_info = (
         skill_result.get("rpa_verification")
     )
+    manual_action = (
+        result.manual_review.action
+        if result.manual_review and result.manual_review.status.value == "COMPLETED"
+        else None
+    )
+    manual_comment = str(result.manual_review.comment or "").strip()
+    summary = result.summary
+    if manual_action == "approved":
+        summary = f"人工复核通过：{manual_comment}" if manual_comment else "人工复核通过"
+    elif manual_action == "rejected":
+        summary = f"人工复核驳回：{manual_comment}" if manual_comment else "人工复核驳回"
+    elif manual_action == "request_more_info":
+        summary = f"要求补件：{manual_comment}"
     data: dict[str, Any] = {
         "decision": decision,
         "task_id": result.task_id,
-        "summary": (
-            "系统无法自动完成核对，需人工处理"
-            if decision == "exception"
-            else result.summary
-        ),
+        "summary": "系统无法自动完成核对，需人工处理" if decision == "exception" else summary,
         "rule_results": [rule.model_dump(mode="json") for rule in result.rule_results],
         "needs_manual_review": decision in {"manual_review", "exception"},
     }
@@ -879,6 +973,14 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
                     "message": "烟草证官网验真未通过",
                 }
             )
+        if manual_action == "rejected":
+            reject_reasons.append(
+                {
+                    "rule_code": "MANUAL_REVIEW_REJECTED",
+                    "rule_name": "人工复核结论",
+                    "message": manual_comment or "人工复核确认不合规",
+                }
+            )
         data["reject_reasons"] = reject_reasons
     if decision == "exception" and isinstance(rpa_info, dict):
         data["error"] = {
@@ -895,22 +997,7 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
 
 def _oa_callback_response(result: ReviewResult) -> dict[str, Any]:
     """Map internal evidence-review state to OA's pass/reject/exception contract."""
-    response = _oa_response(result)
-    data = response["data"]
-    if data.get("decision") != "manual_review":
-        return response
-    data["decision"] = "exception"
-    data["summary"] = "系统无法自动完成核对，需人工处理"
-    data["needs_manual_review"] = True
-    data.setdefault(
-        "error",
-        {
-            "code": "REVIEW_REQUIRES_MANUAL_REVIEW",
-            "message": result.summary or "审核证据不足，需要人工处理",
-            "retryable": False,
-        },
-    )
-    return response
+    return _oa_response(result)
 
 
 def _oa_outcome_response(outcome: OaAutoReviewOutcome) -> dict[str, Any]:

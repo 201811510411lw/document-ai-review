@@ -208,6 +208,42 @@ def test_mysql_repository_save_persists_tobacco_consistency_detail_projection(mo
     assert detail["document_type"] == "business_tobacco_consistency"
 
 
+def test_tobacco_consistency_detail_includes_callback_audit_from_result(monkeypatch):
+    install_mysql_repository_stub(monkeypatch)
+    repository = _repository()
+    result = build_tobacco_consistency_result("tobacco-consistency-callback").model_copy(
+        update={
+            "skill_result": {
+                **build_tobacco_consistency_result("unused").skill_result,
+                "oa_callback": {
+                    "status": "SENT",
+                    "business_accepted": True,
+                    "updated_at": "2026-08-26T15:00:00+08:00",
+                },
+                "oa_callback_history": [
+                    {
+                        "status": "SENT",
+                        "trigger": "manual_review",
+                        "target": "https://oa.lsym.cn:8080/api/bicallback/result",
+                        "request_payload": {"requestid": 584412},
+                        "http_status": 200,
+                        "response_body": {"code": 0},
+                        "business_accepted": True,
+                        "updated_at": "2026-08-26T15:00:00+08:00",
+                    }
+                ],
+            }
+        }
+    )
+
+    repository.save(result)
+    detail = repository.get_qc_review_detail(result.task_id)
+
+    assert detail["oa_callback"]["status"] == "SENT"
+    assert detail["oa_callback_history"][0]["request_payload"]["requestid"] == 584412
+    assert detail["oa_callback_history"][0]["response_body"] == {"code": 0}
+
+
 def test_mysql_repository_complete_claim_persists_tobacco_consistency_detail_projection(monkeypatch):
     install_mysql_repository_stub(monkeypatch)
     repository = _repository()

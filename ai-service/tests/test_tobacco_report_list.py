@@ -88,6 +88,35 @@ def test_tobacco_report_does_not_mark_empty_comparison_fields_as_matching():
     assert report["person_match"] == "待校验"
 
 
+def test_tobacco_report_detail_exposes_callback_audit():
+    history = [
+        {
+            "status": "SENT",
+            "target": "https://oa.lsym.cn:8080/api/bicallback/result",
+            "request_payload": {"requestid": 584412},
+            "http_status": 200,
+            "response_body": {"code": 0},
+            "business_accepted": True,
+        }
+    ]
+
+    report = wecom_frontend._frontend_tobacco_report(
+        {
+            "task_id": "tc-oa-callback",
+            "document_type": "business_tobacco_consistency",
+            "review_status": "FAILED",
+            "risk_level": "HIGH",
+            "needs_manual_review": True,
+            "oa_callback": history[0],
+            "oa_callback_history": history,
+        },
+        detail=True,
+    )
+
+    assert report["oa_callback"] == history[0]
+    assert report["oa_callback_history"] == history
+
+
 def test_tobacco_reports_returns_empty_records_for_empty_repository(monkeypatch):
     monkeypatch.setattr(wecom_frontend, "list_tobacco_reports", lambda: [])
 

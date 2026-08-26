@@ -99,16 +99,22 @@ class OaTobaccoAutoReviewService:
         *,
         status: str,
         error: str | None = None,
+        callback_state: dict[str, Any] | None = None,
     ) -> None:
         result = self._repository.get_by_task_id(task_id)
         if result is None:
             return
         skill_result = dict(result.skill_result or {})
-        skill_result["oa_callback"] = {
+        state = callback_state or {
             "status": status,
             "error": error,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
+        skill_result["oa_callback"] = state
+        if callback_state is not None:
+            history = list(skill_result.get("oa_callback_history") or [])
+            history.append(state)
+            skill_result["oa_callback_history"] = history[-50:]
         self._repository.save(result.model_copy(update={"skill_result": skill_result}))
 
     def recover_stale_claims(self) -> int:

@@ -2,7 +2,7 @@ import logging
 import threading
 import time
 
-from app.api.tobacco_license_consistency import _oa_callback_response
+from app.api.tobacco_license_consistency import _oa_callback_response, _oa_callback_state
 from app.integrations.mysql_client import MySqlFetchClient
 from app.integrations.starrocks.tobacco_license_sources import (
     OA_MYSQL_TOBACCO_SOURCE_TABLES,
@@ -66,12 +66,32 @@ class OaReviewRecoveryScheduler:
             )
             service.update_callback_state(result.task_id, status="PENDING")
             try:
-                self._callback_client.send(payload)
+                delivery = self._callback_client.send(payload)
             except Exception as error:
-                service.update_callback_state(result.task_id, status="FAILED", error=str(error))
+                service.update_callback_state(
+                    result.task_id,
+                    status="FAILED",
+                    error=str(error),
+                    callback_state=_oa_callback_state(
+                        "FAILED",
+                        error=str(error),
+                        trigger="recovery",
+                        request_payload=payload,
+                        delivery=getattr(error, "delivery", None),
+                    ),
+                )
                 logger.exception("[OA恢复][回调失败] task_id=%s", result.task_id)
             else:
-                service.update_callback_state(result.task_id, status="SENT")
+                service.update_callback_state(
+                    result.task_id,
+                    status="SENT",
+                    callback_state=_oa_callback_state(
+                        "SENT",
+                        trigger="recovery",
+                        request_payload=payload,
+                        delivery=delivery,
+                    ),
+                )
 
     def _backfill_source_evidence(self, service: OaTobaccoAutoReviewService) -> None:
         if self._source_client is None or self._file_store is None:

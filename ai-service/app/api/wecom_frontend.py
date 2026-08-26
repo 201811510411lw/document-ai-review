@@ -947,6 +947,8 @@ def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> di
     "needs_manual_review": bool(row.get("needs_manual_review")),
         "risk_level": row.get("risk_level"),
         "oa": oa if detail and oa else None,
+        "oa_callback": row.get("oa_callback") if detail else None,
+        "oa_callback_history": row.get("oa_callback_history") if detail else None,
     }
 
 

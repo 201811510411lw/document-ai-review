@@ -1026,7 +1026,7 @@ class MySQLReviewResultRepository:
                 payload.document_type,
             )
             if detail is not None:
-                return detail
+                return _with_oa_callback_audit(detail, payload)
         business_license = self.get_business_license_snapshot(task_id)
         if business_license is not None:
             return _qc_business_license_detail(business_license)
@@ -1048,7 +1048,10 @@ class MySQLReviewResultRepository:
         if payload is not None and payload.document_type == "batch_report":
             return _qc_review_result_detail(payload)
         if payload is not None and payload.document_type == "business_tobacco_consistency":
-            return _qc_tobacco_consistency_detail_from_result(payload)
+            return _with_oa_callback_audit(
+                _qc_tobacco_consistency_detail_from_result(payload),
+                payload,
+            )
         return None
 
     def _get_qc_review_detail_by_document_type(
@@ -2959,6 +2962,18 @@ def _qc_tobacco_consistency_detail_from_result(review_result: ReviewResult) -> d
             "reasons": review_result.manual_review.reasons,
         },
         "raw_payload": review_result.model_dump(mode="json"),
+    }
+
+
+def _with_oa_callback_audit(
+    detail: dict[str, Any],
+    review_result: ReviewResult,
+) -> dict[str, Any]:
+    skill_result = _skill_result_dict(review_result)
+    return {
+        **detail,
+        "oa_callback": skill_result.get("oa_callback"),
+        "oa_callback_history": list(skill_result.get("oa_callback_history") or []),
     }
 
 

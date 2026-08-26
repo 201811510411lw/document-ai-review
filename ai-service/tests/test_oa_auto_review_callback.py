@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.models import ManualReview, ManualReviewStatus, ReviewResult, ReviewStatus, RiskLevel
 from app.services.oa_auto_review_callback import (
     HttpOaAutoReviewCallbackClient,
+    OaAutoReviewCallbackDelivery,
     OaAutoReviewCallbackError,
     OaAutoReviewCallbackPayload,
 )
@@ -138,7 +139,11 @@ def test_callback_client_posts_json_without_authentication(monkeypatch, caplog):
 
     def post(url, **kwargs):
         calls.append((url, kwargs))
-        return httpx.Response(200, request=httpx.Request("POST", url))
+        return httpx.Response(
+            200,
+            json={"code": 0, "message": "received"},
+            request=httpx.Request("POST", url),
+        )
 
     monkeypatch.setattr("app.services.oa_auto_review_callback.httpx.post", post)
     client = HttpOaAutoReviewCallbackClient(
@@ -153,13 +158,20 @@ def test_callback_client_posts_json_without_authentication(monkeypatch, caplog):
     )
 
     with caplog.at_level(logging.INFO, logger="app.services.oa_auto_review_callback"):
-        client.send(payload)
+        delivery = client.send(payload)
 
     url, kwargs = calls[0]
     assert url == "http://47.109.76.94:8080/api/bicallback/result"
     assert kwargs["json"]["workflow_id"] == 123
     assert kwargs["headers"] == {"Content-Type": "application/json"}
     assert "auth" not in kwargs
+    assert delivery == OaAutoReviewCallbackDelivery(
+        target="http://47.109.76.94:8080/api/bicallback/result",
+        attempt_count=1,
+        http_status=200,
+        response_body={"code": 0, "message": "received"},
+        business_accepted=True,
+    )
     assert (
         "[OA自动审核][回调开始] workflow_id=123 requestid=584412 "
         "门店=0001 第1/3次 目标=http://47.109.76.94:8080/api/bicallback/result"
@@ -324,6 +336,63 @@ def test_callback_client_requires_server_side_url(monkeypatch):
 
     assert error.value.status_code == 503
     assert error.value.detail["code"] == "OA_CALLBACK_NOT_CONFIGURED"
+
+
+def test_callback_client_records_unconfirmed_empty_2xx_response(monkeypatch):
+    callback_url = "http://47.109.76.94:8080/api/bicallback/result"
+
+    def post(url, **kwargs):
+        return httpx.Response(200, content=b"", request=httpx.Request("POST", url))
+
+    monkeypatch.setattr("app.services.oa_auto_review_callback.httpx.post", post)
+    delivery = HttpOaAutoReviewCallbackClient(
+        callback_url, sleep=lambda _: None
+    ).send(
+        OaAutoReviewCallbackPayload(
+            workflow_id=614,
+            requestid=584412,
+            store_code="0001",
+            result={"code": 0, "message": "success", "data": {}},
+        )
+    )
+
+    assert delivery.http_status == 200
+    assert delivery.response_body is None
+    assert delivery.business_accepted is None
+
+
+def test_callback_client_rejects_explicit_business_failure_in_http_2xx(monkeypatch):
+    callback_url = "http://47.109.76.94:8080/api/bicallback/result"
+
+    def post(url, **kwargs):
+        return httpx.Response(
+            200,
+            json={"code": 500, "message": "OA node not found"},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr("app.services.oa_auto_review_callback.httpx.post", post)
+    client = HttpOaAutoReviewCallbackClient(callback_url, sleep=lambda _: None)
+
+    with pytest.raises(
+        OaAutoReviewCallbackError,
+        match="OA callback business response rejected payload",
+    ) as captured:
+        client.send(
+            OaAutoReviewCallbackPayload(
+                workflow_id=614,
+                requestid=584412,
+                store_code="0001",
+                result={"code": 0, "message": "success", "data": {}},
+            )
+        )
+
+    assert captured.value.delivery.http_status == 200
+    assert captured.value.delivery.response_body == {
+        "code": 500,
+        "message": "OA node not found",
+    }
+    assert captured.value.delivery.business_accepted is False
 
 
 def _review_result(command):

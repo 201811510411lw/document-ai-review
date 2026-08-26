@@ -32,6 +32,7 @@ from app.services.tobacco_license_files import (
     TobaccoLicenseStoredDocument,
     TobaccoLicenseStoredFile,
 )
+from app.services.oa_auto_review_callback import OaAutoReviewCallbackDelivery
 
 
 class ExistingResultRepository:
@@ -65,6 +66,7 @@ class ManualReviewRepository:
                 "manual_review": ManualReview(
                     status=ManualReviewStatus.COMPLETED,
                     action=self.call["decision"],
+                    comment=self.call["comment"],
                     reviewer=self.call["reviewer_id"],
                 ),
             }
@@ -77,6 +79,13 @@ class CapturingCallbackClient:
 
     def send(self, payload):
         self.payloads.append(payload)
+        return OaAutoReviewCallbackDelivery(
+            target="http://oa.example.test/api/bicallback/result",
+            attempt_count=1,
+            http_status=200,
+            response_body={"code": 0, "message": "received"},
+            business_accepted=True,
+        )
 
 
 class FailingCallbackClient:
@@ -156,8 +165,16 @@ def test_timeout_callback_can_be_retried_without_changing_review_decision():
     assert callback.result["data"]["decision"] == "exception"
     assert callback.result["data"]["error"]["code"] == "AUTO_REVIEW_TIMEOUT"
     assert callback.result["data"]["error"]["retryable"] is True
-    assert response == {"status": "SENT", "task_id": result.task_id}
+    assert response["status"] == "SENT"
+    assert response["task_id"] == result.task_id
     assert repository.saved[-1].skill_result["oa_callback"]["status"] == "SENT"
+    audit = repository.saved[-1].skill_result["oa_callback_history"][-1]
+    assert audit["trigger"] == "manual_retry"
+    assert audit["target"] == "http://oa.example.test/api/bicallback/result"
+    assert audit["request_payload"]["requestid"] == 584412
+    assert audit["http_status"] == 200
+    assert audit["response_body"] == {"code": 0, "message": "received"}
+    assert audit["business_accepted"] is True
 
 
 def test_manual_callback_retry_rejects_non_oa_task():
@@ -690,6 +707,7 @@ def test_manual_review_of_oa_timeout_callbacks_final_decision():
         "manual_review": ManualReview(
             status=ManualReviewStatus.COMPLETED,
             action=repository.call["decision"] if repository.call else "approved",
+            comment=repository.call["comment"] if repository.call else "",
         ),
     })
     response = manual_review_consistency_result(
@@ -705,6 +723,63 @@ def test_manual_review_of_oa_timeout_callbacks_final_decision():
     assert callback_client.payloads[0].workflow_id == 614
     assert callback_client.payloads[0].requestid == 584412
     assert callback_client.payloads[0].result["data"]["decision"] == "reject"
+    assert callback_client.payloads[0].result["data"]["summary"] == "人工复核驳回：确认不合规"
+    assert callback_client.payloads[0].result["data"]["reject_reasons"] == [
+        {
+            "rule_code": "MANUAL_REVIEW_REJECTED",
+            "rule_name": "人工复核结论",
+            "message": "确认不合规",
+        }
+    ]
+
+
+def test_manual_review_requires_comment_for_reject_and_more_info():
+    for decision in ("REJECT", "REQUEST_MORE_INFO"):
+        with pytest.raises(ValidationError):
+            TobaccoManualReviewRequest(decision=decision, comment="  ")
+
+
+def test_request_more_info_callbacks_manual_review_with_reason():
+    repository = ManualReviewRepository()
+    callback_client = CapturingCallbackClient()
+    result = _result().model_copy(update={
+        "status": ReviewStatus.FAILED,
+        "risk_level": RiskLevel.HIGH,
+        "needs_manual_review": True,
+        "skill_result": {
+            "oa_claim": {
+                "workflow_id": 614,
+                "requestid": 584412,
+                "store_code": "0001",
+            }
+        },
+    })
+    repository.get_by_task_id = lambda task_id: result.model_copy(update={
+        "status": ReviewStatus.PENDING_MANUAL_REVIEW,
+        "needs_manual_review": True,
+        "manual_review": ManualReview(
+            status=ManualReviewStatus.COMPLETED,
+            action="request_more_info",
+            comment="请补充清晰的烟草证原件",
+        ),
+    })
+
+    manual_review_consistency_result(
+        result.task_id,
+        TobaccoManualReviewRequest(
+            decision="REQUEST_MORE_INFO",
+            comment="请补充清晰的烟草证原件",
+        ),
+        _current_user={"username": "reviewer"},
+        repository=repository,
+        callback_client=callback_client,
+    )
+
+    data = callback_client.payloads[0].result["data"]
+    assert data["decision"] == "manual_review"
+    assert data["summary"] == "要求补件：请补充清晰的烟草证原件"
+    assert data["needs_manual_review"] is True
+    assert "error" not in data
 
 
 def _rule(code, *, details):
