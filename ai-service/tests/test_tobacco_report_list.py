@@ -23,6 +23,7 @@ def test_tobacco_reports_maps_repository_items(monkeypatch):
                 "task_id": "prod-review-1",
                 "document_type": "business_tobacco_consistency",
                 "supplier_name": "生产门店",
+                "review_status": "REVIEWED",
                 "risk_level": "NONE",
                 "needs_manual_review": False,
             }
@@ -36,6 +37,27 @@ def test_tobacco_reports_maps_repository_items(monkeypatch):
 
     assert [record["id"] for record in result["records"]] == ["prod-review-1"]
     assert result["stats"] == {"total": 1, "passed": 1, "failed": 0, "pending": 0}
+
+
+def test_tobacco_reports_does_not_treat_running_parent_as_pass(monkeypatch):
+    monkeypatch.setattr(wecom_frontend, "list_tobacco_reports", lambda: [])
+    result = wecom_frontend.tobacco_reports(
+        _current_user={"username": "reviewer"},
+        repository=StubRepository(
+            items=[
+                {
+                    "task_id": "tc-oa-running",
+                    "document_type": "business_tobacco_consistency",
+                    "review_status": "RUNNING",
+                    "risk_level": "NONE",
+                    "needs_manual_review": False,
+                }
+            ]
+        ),
+    )
+
+    assert result["records"][0]["overall_result"] == "待校验"
+    assert result["stats"] == {"total": 1, "passed": 0, "failed": 0, "pending": 1}
 
 
 def test_tobacco_reports_returns_empty_records_for_empty_repository(monkeypatch):

@@ -899,8 +899,12 @@ def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> di
         overall_result = "不通过"
     elif manual_decision == "approved":
         overall_result = "通过"
+    elif row.get("review_status") == "REVIEWED" and not row.get("needs_manual_review"):
+        overall_result = "通过" if row.get("risk_level") == "NONE" else "不通过"
+    elif row.get("review_status") == "FAILED":
+        overall_result = "不通过"
     else:
-        overall_result = "待校验" if row.get("needs_manual_review") else ("通过" if row.get("risk_level") == "NONE" else "不通过")
+        overall_result = "待校验"
     return {
         "id": row.get("task_id"),
         "company_name": business.get("subject_name") or tobacco.get("subject_name") or row.get("supplier_name") or "未识别主体名称",
