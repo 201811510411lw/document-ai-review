@@ -60,6 +60,34 @@ def test_tobacco_reports_does_not_treat_running_parent_as_pass(monkeypatch):
     assert result["stats"] == {"total": 1, "passed": 0, "failed": 0, "pending": 1}
 
 
+def test_tobacco_report_does_not_mark_empty_comparison_fields_as_matching():
+    report = wecom_frontend._frontend_tobacco_report(
+        {
+            "task_id": "tc-oa-empty-fields",
+            "document_type": "business_tobacco_consistency",
+            "review_status": "PENDING_MANUAL_REVIEW",
+            "risk_level": "MEDIUM",
+            "needs_manual_review": True,
+            "business_license_fields": {
+                "subject_name": None,
+                "business_address": None,
+                "legal_person": None,
+            },
+            "tobacco_license_fields": {
+                "subject_name": None,
+                "business_address": None,
+                "legal_person": None,
+            },
+            "rule_results": [],
+        },
+        detail=True,
+    )
+
+    assert report["name_match"] == "待校验"
+    assert report["address_match"] == "待校验"
+    assert report["person_match"] == "待校验"
+
+
 def test_tobacco_reports_returns_empty_records_for_empty_repository(monkeypatch):
     monkeypatch.setattr(wecom_frontend, "list_tobacco_reports", lambda: [])
 

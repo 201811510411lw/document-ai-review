@@ -64,6 +64,20 @@ REQUIRED_CONSISTENCY_DOCUMENT_ROLES = frozenset(
 )
 
 
+def _comparison_verdict(
+    rules: list[Any], code_fragment: str, expected: Any, actual: Any
+) -> str:
+    failed = any(
+        not getattr(rule, "passed", False) and code_fragment in str(getattr(rule, "rule_code", ""))
+        for rule in rules
+    )
+    if failed:
+        return "不匹配"
+    if not str(expected or "").strip() or not str(actual or "").strip():
+        return "待校验"
+    return "匹配"
+
+
 def _missing_required_document_roles(source_files: list[Any]) -> list[str]:
     available_roles = {
         source.document_role
@@ -376,9 +390,24 @@ def create_consistency_review(
         "overall_result": "待校验" if result.needs_manual_review else ("通过" if result.risk_level.value == "NONE" else "不通过"),
         "compare_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "unmatched_fields": unmatched,
-        "name_match": "不匹配" if any(not rule.passed and "SUBJECT_NAME" in (rule.rule_code or "") for rule in rule_results) else "匹配",
-        "address_match": "不匹配" if any(not rule.passed and "ADDRESS" in (rule.rule_code or "") for rule in rule_results) else "匹配",
-        "person_match": "不匹配" if any(not rule.passed and "PERSON" in (rule.rule_code or "") for rule in rule_results) else "匹配",
+        "name_match": _comparison_verdict(
+            rule_results,
+            "SUBJECT_NAME",
+            business_fields.get("subject_name"),
+            tobacco_fields.get("subject_name"),
+        ),
+        "address_match": _comparison_verdict(
+            rule_results,
+            "ADDRESS",
+            business_fields.get("business_address"),
+            tobacco_fields.get("business_address"),
+        ),
+        "person_match": _comparison_verdict(
+            rule_results,
+            "PERSON",
+            business_fields.get("legal_person"),
+            tobacco_fields.get("legal_person"),
+        ),
         "type_match": "正确",
         "validity_status": "已过期" if has_validity_issue else "未过期",
         "business_license_name": business_fields.get("subject_name"),

@@ -912,6 +912,15 @@ def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> di
         overall_result = "不通过"
     else:
         overall_result = "待校验"
+    name_match = _tobacco_comparison_verdict(
+        failed_codes, "NAME_MATCH", business.get("subject_name"), tobacco.get("subject_name")
+    )
+    address_match = _tobacco_comparison_verdict(
+        failed_codes, "ADDRESS_MATCH", business.get("business_address"), tobacco.get("business_address")
+    )
+    person_match = _tobacco_comparison_verdict(
+        failed_codes, "PERSON_MATCH", business.get("legal_person"), tobacco.get("legal_person")
+    )
     return {
         "id": row.get("task_id"),
         "company_name": business.get("subject_name") or tobacco.get("subject_name") or row.get("supplier_name") or "未识别主体名称",
@@ -921,9 +930,9 @@ def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> di
         "compare_time": row.get("created_at"),
         "unmatched_fields": [rule.get("rule_name") for rule in rules if not rule.get("passed")],
         "review_mode": comparison.get("review_mode", "standard"),
-        "name_match": "不匹配" if any("NAME_MATCH" in str(code) for code in failed_codes) else "匹配",
-        "address_match": "不匹配" if any("ADDRESS" in str(code) for code in failed_codes) else "匹配",
-        "person_match": "不匹配" if any("PERSON_MATCH" in str(code) for code in failed_codes) else "匹配",
+        "name_match": name_match,
+        "address_match": address_match,
+        "person_match": person_match,
         "type_match": "不正确" if any("TYPE_FOR_CONSISTENCY" in str(code) for code in failed_codes) else "正确",
         "validity_status": "已过期" if "BUSINESS_TOBACCO_TOBACCO_VALIDITY" in failed_codes else "未过期",
         "business_license_name": business.get("subject_name"),
@@ -939,6 +948,17 @@ def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> di
         "risk_level": row.get("risk_level"),
         "oa": oa if detail and oa else None,
     }
+
+
+def _tobacco_comparison_verdict(
+    failed_codes: set[Any], code_fragment: str, expected: Any, actual: Any
+) -> str:
+    """缺值不能冒充匹配；只有双方都有值且没有失败规则才显示匹配。"""
+    if any(code_fragment in str(code) for code in failed_codes):
+        return "不匹配"
+    if not str(expected or "").strip() or not str(actual or "").strip():
+        return "待校验"
+    return "匹配"
 
 
 def _with_oa_fallback(report: dict[str, Any]) -> dict[str, Any]:
