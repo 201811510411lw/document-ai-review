@@ -909,6 +909,7 @@ def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> di
         "id": row.get("task_id"),
         "company_name": business.get("subject_name") or tobacco.get("subject_name") or row.get("supplier_name") or "未识别主体名称",
         "overall_result": overall_result,
+        "review_status": row.get("review_status"),
         "compare_time": row.get("created_at"),
         "unmatched_fields": [rule.get("rule_name") for rule in rules if not rule.get("passed")],
         "review_mode": comparison.get("review_mode", "standard"),
@@ -926,7 +927,7 @@ def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> di
         "tobacco_license_person": tobacco.get("legal_person"),
         "comparison": comparison if detail else None,
         "rule_results": rules if detail else None,
-        "needs_manual_review": bool(row.get("needs_manual_review")),
+    "needs_manual_review": bool(row.get("needs_manual_review")),
         "risk_level": row.get("risk_level"),
         "oa": oa if detail and oa else None,
     }

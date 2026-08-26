@@ -1032,6 +1032,8 @@ class MySQLReviewResultRepository:
             return _qc_product_report_detail(product_report)
         if payload is not None and payload.document_type == "batch_report":
             return _qc_review_result_detail(payload)
+        if payload is not None and payload.document_type == "business_tobacco_consistency":
+            return _qc_tobacco_consistency_detail_from_result(payload)
         return None
 
     def _get_qc_review_detail_by_document_type(
@@ -2908,6 +2910,40 @@ def _qc_tobacco_consistency_detail(snapshot: dict[str, Any]) -> dict[str, Any]:
             "reviewed_at": snapshot.get("manual_review_reviewed_at"),
             "reasons": [],
         },
+    }
+
+
+def _qc_tobacco_consistency_detail_from_result(review_result: ReviewResult) -> dict[str, Any]:
+    """Return a readable detail while the final consistency projection is pending."""
+    skill_result = _skill_result_dict(review_result)
+    business_fields = dict(skill_result.get("business_license_fields") or {})
+    tobacco_fields = dict(skill_result.get("tobacco_license_fields") or {})
+    comparison = dict(skill_result.get("comparison") or {})
+    source_evidence = dict(skill_result.get("source_evidence") or {})
+    return {
+        **_qc_review_result_row(review_result),
+        "comparison": comparison,
+        "business_license_fields": business_fields,
+        "tobacco_license_fields": tobacco_fields,
+        "extracted_fields": {
+            "business_license": business_fields,
+            "tobacco_license": tobacco_fields,
+        },
+        "normalized_fields": comparison,
+        "source_evidence": source_evidence,
+        "manual_review": {
+            "status": review_result.manual_review.status.value,
+            "decision": review_result.manual_review.action,
+            "comment": review_result.manual_review.comment,
+            "reviewer_id": review_result.manual_review.reviewer,
+            "reviewer_username": review_result.manual_review.reviewer,
+            "reviewed_at": (
+                review_result.manual_review.reviewed_at.isoformat()
+                if review_result.manual_review.reviewed_at else None
+            ),
+            "reasons": review_result.manual_review.reasons,
+        },
+        "raw_payload": review_result.model_dump(mode="json"),
     }
 
 

@@ -160,12 +160,13 @@ const rpaLoading = ref(false)
 
 const resultMeta = computed(() => {
   const result = report.value?.overall_result
+  if (report.value?.review_status === 'RUNNING') return { label: '审核处理中', tone: 'pending', icon: 'clock-o' }
   if (result === '通过') return { label: '自动通过 · 已流转至法务节点', tone: 'passed', icon: 'success' }
   if (result === '待校验') return { label: '异常待处理', tone: 'pending', icon: 'warning-o' }
   return { label: '驳回 · 已退回申请人', tone: 'failed', icon: 'cross' }
 })
 
-const canManualReview = computed(() => report.value?.overall_result === '待校验')
+const canManualReview = computed(() => report.value?.overall_result === '待校验' && report.value?.review_status !== 'RUNNING')
 const comparisonFields = computed(() => {
   const item = report.value || {}
   return [
