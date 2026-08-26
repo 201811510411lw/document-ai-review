@@ -695,6 +695,7 @@ def _oa_source_snapshot(
     return {
         "requestid": first.requestid,
         "workflow_id": first.workflow_id,
+        "store_code": first.store_code,
         "request_name": first.request_name,
         "summary_title": first.summary_title,
         "content_summary": first.content_summary,

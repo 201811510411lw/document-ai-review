@@ -49,10 +49,14 @@ class OaReviewRecoveryScheduler:
             if result.document_type != "business_tobacco_consistency" or result.status == "RUNNING":
                 continue
             callback = dict((result.skill_result or {}).get("oa_callback") or {})
-            if callback.get("status") not in {"PENDING", "FAILED"}:
+            if callback.get("status") not in {None, "PENDING", "FAILED"}:
                 continue
             claim = dict((result.skill_result or {}).get("oa_claim") or {})
             if not claim.get("requestid") or not claim.get("workflow_id") or not claim.get("store_code"):
+                logger.warning(
+                    "[OA恢复][回调跳过] task_id=%s 缺少完整 OA claim",
+                    result.task_id,
+                )
                 continue
             payload = OaAutoReviewCallbackPayload(
                 workflow_id=int(claim["workflow_id"]),
@@ -60,6 +64,7 @@ class OaReviewRecoveryScheduler:
                 store_code=str(claim["store_code"]),
                 result=_oa_response(result),
             )
+            service.update_callback_state(result.task_id, status="PENDING")
             try:
                 self._callback_client.send(payload)
             except Exception as error:
@@ -72,9 +77,15 @@ class OaReviewRecoveryScheduler:
         if self._source_client is None or self._file_store is None:
             return
         for result in self._repository.list_review_results():
-            if result.document_type != "business_tobacco_consistency" or result.status.value != "RUNNING":
+            if result.document_type != "business_tobacco_consistency":
                 continue
-            claim = dict((result.skill_result or {}).get("oa_claim") or {})
+            skill_result = dict(result.skill_result or {})
+            claim = dict(skill_result.get("oa_claim") or {})
+            source = dict((skill_result.get("source_evidence") or {}).get("source") or {})
+            oa_snapshot = dict(source.get("oa") or {})
+            attachments = list(oa_snapshot.get("attachments") or [])
+            if claim.get("store_code") and any(item.get("relative_path") for item in attachments):
+                continue
             if not claim.get("requestid") or not claim.get("workflow_id"):
                 continue
             try:
@@ -92,7 +103,16 @@ class OaReviewRecoveryScheduler:
                     stored_documents=stored,
                     selected_files=[],
                 )
-                skill_result = dict(result.skill_result or {})
+                store_code = str(source_files[0].store_code or "").strip()
+                if not store_code:
+                    logger.warning(
+                        "[OA恢复][来源补偿跳过] task_id=%s requestid=%s 缺少 store_code",
+                        result.task_id,
+                        claim["requestid"],
+                    )
+                    continue
+                claim["store_code"] = store_code
+                skill_result["oa_claim"] = claim
                 skill_result["source_evidence"] = {
                     "source": {
                         "requestid": source_files[0].requestid,
