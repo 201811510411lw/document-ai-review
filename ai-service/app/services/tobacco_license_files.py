@@ -1,4 +1,5 @@
 import mimetypes
+import os
 import re
 import shutil
 import zipfile
@@ -9,8 +10,11 @@ from pydantic import BaseModel
 from app.integrations.starrocks.tobacco_license_sources import TobaccoLicenseSourceFile
 
 
-DEFAULT_TOBACCO_LICENSE_DATA_DIR = (
-    Path(__file__).resolve().parents[2] / "data" / "tobacco_license"
+DEFAULT_TOBACCO_LICENSE_DATA_DIR = Path(
+    os.getenv(
+        "TOBACCO_LICENSE_DATA_DIR",
+        "/document-ai-review/tobacco_license",
+    )
 )
 DEFAULT_NAS_ROOT = Path("/data")
 
