@@ -214,6 +214,41 @@ def test_timeout_callback_can_be_retried_without_changing_review_decision():
     assert audit["business_accepted"] is True
 
 
+def test_manual_review_callback_keeps_legacy_rules_with_non_null_suggestions():
+    rule = _rule(
+        "TOBACCO_LICENSE_EVIDENCE_FOR_CONSISTENCY",
+        details={"missing_evidence_fields": ["license_no_evidence"]},
+    )
+    result = _result(rule).model_copy(update={
+        "skill_result": {
+            "oa_claim": {
+                "workflow_id": 614,
+                "requestid": 584412,
+                "store_code": "0001",
+            },
+        },
+    })
+    repository = NewResultRepository()
+    repository.saved.append(result)
+    callback_client = CapturingCallbackClient()
+
+    response = retry_oa_review_callback(
+        result.task_id,
+        _current_user={"username": "reviewer"},
+        repository=repository,
+        callback_client=callback_client,
+    )
+
+    assert response["status"] == "SENT"
+    data = callback_client.payloads[0].result["data"]
+    assert data["decision"] == "manual_review"
+    assert data["manual_review_reason_text"] == "未通过"
+    assert data["manual_review_reasons"][0]["suggestion"]
+    assert data["rule_results"][0]["rule_code"] == rule.rule_code
+    assert data["rule_results"][0]["passed"] is False
+    assert data["rule_results"][0]["suggestion"]
+
+
 def test_manual_callback_retry_rejects_non_oa_task():
     repository = NewResultRepository()
     repository.saved.append(_result())
@@ -1097,7 +1132,7 @@ def test_manual_review_of_oa_timeout_callbacks_final_decision():
     assert callback_data["decision"] == "reject"
     assert callback_data["summary"] == "人工复核驳回：确认不合规"
     assert callback_data["reject_reason_text"] == "确认不合规"
-    assert "rule_results" not in callback_data
+    assert callback_data["rule_results"] == []
     assert callback_data["reject_reasons"] == [
         {
             "rule_code": "MANUAL_REVIEW_REJECTED",

@@ -1068,9 +1068,17 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
 
 
 def _oa_callback_response(result: ReviewResult) -> dict[str, Any]:
-    """Map internal evidence-review state to OA's pass/reject/exception contract."""
+    """Map internal evidence-review state to the backward-compatible OA contract."""
     response = _oa_response(result)
-    response["data"].pop("rule_results", None)
+    decision = str(response["data"].get("decision") or "")
+    for rule in response["data"].get("rule_results", []):
+        if rule.get("passed") is not False:
+            continue
+        rule["suggestion"] = (
+            _oa_manual_review_suggestion(str(rule.get("rule_code") or ""))
+            if decision == "manual_review"
+            else _oa_reject_suggestion(rule)
+        )
     return response
 
 

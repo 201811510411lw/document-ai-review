@@ -238,8 +238,9 @@ OA 两个接口使用独立请求头 `X-OA-Token`，密钥由 `OA_AUTO_REVIEW_TO
 证据可靠且字段差异少于 3 项时当前机器人节点返回 `pass` 并流转下一节点，达到 3 项时返回
 `reject`；子审核未就绪或关键证据缺失时优先返回 `manual_review`。回调通过 `mismatch_count`
 和 `field_differences` 携带具体差异字段及两侧值，使用 `reject_reason_text` 或
-`manual_review_reason_text` 提供可直接写入 OA 流转意见的原因文本；完整 `rule_results` 不在
-callback 中重复发送，仍可通过结果轮询和系统详情查看。
+`manual_review_reason_text` 提供可直接写入 OA 流转意见的原因文本。为兼容现有 OA 接收端，
+callback 暂时保留完整 `rule_results`，其中失败规则带非空 `suggestion`；原始完整规则仍可通过
+结果轮询和系统详情查看。
 人工驳回和要求补件必须提供非空 `comment`。详情响应包含 `oa_callback` 和
 `oa_callback_history`，用于查看实际请求 JSON、目标地址、HTTP 状态、接收端响应和业务确认结果。
 

@@ -57,6 +57,21 @@
       "mismatch_rejection_threshold": 3,
       "field_differences": [],
       "next_node_review_required": false,
+      "rule_results": [
+        {
+          "rule_code": "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
+          "rule_name": "主体名称一致",
+          "passed": true,
+          "risk_level_on_failure": "MEDIUM",
+          "message": "主体名称一致通过",
+          "details": {
+            "field": "subject_name",
+            "expected": "成都示例商贸有限公司",
+            "actual": "成都示例商贸有限公司",
+            "difference": null
+          }
+        }
+      ],
       "needs_manual_review": false
     }
   }
@@ -68,10 +83,11 @@
 审核详情保存并展示回调目标、实际请求 JSON、尝试次数、HTTP 状态、脱敏且限长的响应正文、
 业务接受状态和错误。历史版本未保存的请求正文不会被重建为真实发送记录。
 OA 应按 `task_id` 幂等消费可能重复的回调，并根据 `result.data.decision` 执行流程分支。
-callback 是面向 OA 的精简投影，不重复发送完整 `rule_results`；完整规则执行结果保存在审核
-结果中，并可通过轮询/详情接口查看。OA 退回时必须把 `reject_reason_text` 写入流转意见，
-人工处理时写入 `manual_review_reason_text`；“建议”字段读取对应原因项的 `suggestion`，不得
-读取未定义字段或把空值拼成 `null`。
+callback 是面向 OA 的兼容投影；兼容期内继续发送完整 `rule_results`，并为其中所有失败规则
+补充非空 `suggestion`，避免现有 OA 接收端读取旧字段时异常或显示 `null`。完整原始规则执行
+结果仍保存在审核结果中，并可通过轮询/详情接口查看。OA 退回时必须把
+`reject_reason_text` 写入流转意见，人工处理时写入 `manual_review_reason_text`；“建议”字段
+优先读取对应原因项的 `suggestion`，旧实现可从失败规则的 `suggestion` 兼容读取。
 
 字段差异阈值为 3。证据可靠时，`0..2` 项普通字段不匹配由当前机器人节点返回 `pass`，
 由 OA 流转到下一节点复核；达到 3 项时返回 `reject`。子审核未就绪、关键证据缺失或候选
