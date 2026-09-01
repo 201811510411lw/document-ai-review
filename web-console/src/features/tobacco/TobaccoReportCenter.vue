@@ -51,7 +51,7 @@
             <van-icon :name="resultMeta(report).icon" :size="20" />
           </div>
           <div class="report-row__main">
-            <div class="report-row__name">{{ report.company_name || '未识别主体名称' }}</div>
+            <div class="report-row__name">{{ reportSubjectLabel(report) }}</div>
             <div class="report-row__meta">
               <span>{{ modeLabel(report.review_mode) }}</span>
               <span>{{ formatTime(report.compare_time || report.created_at) }}</span>
@@ -86,6 +86,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { reportSubjectLabel } from '@/features/tobacco/reportPresentation.js'
 
 const props = defineProps({
   records: { type: Array, default: () => [] },

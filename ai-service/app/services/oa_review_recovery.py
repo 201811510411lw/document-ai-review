@@ -8,6 +8,7 @@ from app.integrations.starrocks.tobacco_license_sources import (
     OA_MYSQL_TOBACCO_SOURCE_TABLES,
     fetch_tobacco_license_source_files_by_request,
 )
+from app.models import ReviewStatus
 from app.repositories.review_result_repository import MySQLReviewResultRepository
 from app.services.oa_auto_review_callback import OaAutoReviewCallbackPayload, OaAutoReviewCallbackClient
 from app.services.oa_tobacco_auto_review import OaTobaccoAutoReviewService, _oa_source_snapshot
@@ -46,7 +47,10 @@ class OaReviewRecoveryScheduler:
         if recovered:
             logger.warning("[OA恢复] 回收超时任务数量=%s", recovered)
         for result in self._repository.list_review_results():
-            if result.document_type != "business_tobacco_consistency" or result.status == "RUNNING":
+            if (
+                result.document_type != "business_tobacco_consistency"
+                or result.status == ReviewStatus.RUNNING
+            ):
                 continue
             callback = dict((result.skill_result or {}).get("oa_callback") or {})
             if callback.get("status") not in {None, "PENDING", "FAILED"}:
@@ -97,7 +101,10 @@ class OaReviewRecoveryScheduler:
         if self._source_client is None or self._file_store is None:
             return
         for result in self._repository.list_review_results():
-            if result.document_type != "business_tobacco_consistency":
+            if (
+                result.document_type != "business_tobacco_consistency"
+                or result.status == ReviewStatus.RUNNING
+            ):
                 continue
             skill_result = dict(result.skill_result or {})
             claim = dict(skill_result.get("oa_claim") or {})

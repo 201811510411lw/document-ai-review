@@ -8,7 +8,7 @@
       <section class="decision-summary" :class="resultMeta.tone">
         <div>
           <p>审核结论</p>
-          <h1>{{ report.company_name || '未识别主体名称' }}</h1>
+          <h1>{{ reportSubjectLabel(report) }}</h1>
           <span>{{ modeLabel(report.review_mode) }}<b>{{ formatTime(report.compare_time || report.created_at) }}</b></span>
         </div>
         <div class="result-badge"><van-icon :name="resultMeta.icon" /><strong>{{ resultMeta.label }}</strong></div>
@@ -25,8 +25,14 @@
       </section>
 
       <section class="content-section">
-        <header class="section-header"><div><p>审核证据</p><h2>字段核对</h2></div><span>{{ mismatchCount }} 项异常</span></header>
-        <div class="comparison-grid">
+        <header class="section-header"><div><p>审核证据</p><h2>字段核对</h2></div><span>{{ isReportProcessing(report) ? '等待识别' : `${mismatchCount} 项异常` }}</span></header>
+        <van-notice-bar
+          v-if="isReportProcessing(report)"
+          left-icon="clock-o"
+          color="#526979"
+          background="#f5f8f9"
+        >证照字段正在识别，完成后展示主体名称、经营场所和负责人核对结果。</van-notice-bar>
+        <div v-else class="comparison-grid">
           <article v-for="field in comparisonFields" :key="field.key" class="comparison-card" :class="field.passed ? 'passed' : 'failed'">
             <header><div><van-icon :name="field.passed ? 'success' : 'cross'" /><strong>{{ field.label }}</strong></div><van-tag :type="field.passed ? 'success' : 'danger'" plain>{{ field.verdict }}</van-tag></header>
             <dl>
@@ -223,6 +229,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { tobaccoApi, rpaApi } from '@/api'
 import { openTobaccoAttachmentPreview } from '@/features/tobacco/attachmentPreview.js'
+import { isReportProcessing, reportSubjectLabel } from '@/features/tobacco/reportPresentation.js'
 import {
   callbackDecisionLabel,
   callbackRecords,
