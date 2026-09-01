@@ -547,7 +547,7 @@ def _run_oa_auto_review_and_callback(
                 outcome.error.code,
             )
             return
-        result = _oa_outcome_response(outcome)
+        result = _oa_callback_outcome_response(outcome)
     except Exception:
         logger.exception("OA 自动审核后台执行失败: task_id=%s", task_id)
         result = _oa_exception_response(
@@ -981,6 +981,39 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
         "rule_results": [rule.model_dump(mode="json") for rule in result.rule_results],
         "needs_manual_review": decision in {"manual_review", "exception"},
     }
+    if decision == "manual_review":
+        manual_review_reasons = [
+            {
+                "rule_code": rule.rule_code,
+                "rule_name": rule.rule_name,
+                "message": rule.message,
+                "details": rule.details,
+                "suggestion": _oa_manual_review_suggestion(rule.rule_code),
+            }
+            for rule in failed
+            if (
+                (
+                    rule.rule_code.endswith("_CHILD_REVIEW_READY")
+                    and rule.details.get("needs_manual_review")
+                )
+                or rule.rule_code.endswith("_EVIDENCE_FOR_CONSISTENCY")
+            )
+        ]
+        if manual_action == "request_more_info":
+            manual_review_reasons.append(
+                {
+                    "rule_code": "MANUAL_REVIEW_MORE_INFO_REQUIRED",
+                    "rule_name": "人工复核补件要求",
+                    "message": manual_comment,
+                    "suggestion": "请按补件要求完善材料后重新提交",
+                }
+            )
+        data["manual_review_reasons"] = manual_review_reasons
+        data["manual_review_reason_text"] = "；".join(
+            str(reason.get("message") or "").strip()
+            for reason in manual_review_reasons
+            if str(reason.get("message") or "").strip()
+        )
     if decision == "reject":
         reject_reasons = [
             {
@@ -1011,9 +1044,16 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
                     "message": manual_comment or "人工复核确认不合规",
                 }
             )
+        for reason in reject_reasons:
+            reason["suggestion"] = _oa_reject_suggestion(reason)
         if manual_action is None:
             data["summary"] = f"一致性核对未通过，共 {len(reject_reasons)} 项问题"
         data["reject_reasons"] = reject_reasons
+        data["reject_reason_text"] = "；".join(
+            str(reason.get("message") or "").strip()
+            for reason in reject_reasons
+            if str(reason.get("message") or "").strip()
+        )
     if decision == "exception" and isinstance(rpa_info, dict):
         data["error"] = {
             "code": "RPA_VERIFICATION_FAILED",
@@ -1029,10 +1069,54 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
 
 def _oa_callback_response(result: ReviewResult) -> dict[str, Any]:
     """Map internal evidence-review state to OA's pass/reject/exception contract."""
-    return _oa_response(result)
+    response = _oa_response(result)
+    response["data"].pop("rule_results", None)
+    return response
+
+
+def _oa_reject_suggestion(reason: dict[str, Any]) -> str:
+    rule_code = str(reason.get("rule_code") or "")
+    details = (
+        reason.get("details") if isinstance(reason.get("details"), dict) else {}
+    )
+    field_label = {
+        "subject_name": "主体名称",
+        "business_address": "经营地址",
+        "legal_person": "法定代表人/负责人",
+        "license_no": "许可证号",
+        "valid_to": "有效期",
+    }.get(str(details.get("field") or ""))
+    if rule_code == "MANUAL_REVIEW_REJECTED":
+        return "请根据人工复核意见处理后重新提交"
+    if rule_code == "TOBACCO_LICENSE_RPA_VERIFICATION":
+        return "请核实烟草证真伪并补充有效证照后重新提交"
+    if details.get("difference") == "expired":
+        return "请提供有效期内的烟草证后重新提交"
+    if field_label:
+        return f"请核对营业执照与烟草证的{field_label}，确认一致后重新提交"
+    return "请核对相关证照材料，确认无误后重新提交"
+
+
+def _oa_manual_review_suggestion(rule_code: str) -> str:
+    if rule_code.endswith("_CHILD_REVIEW_READY"):
+        return "请人工核对子审核结论及原始证照"
+    return "请核对原始证照并补充缺失字段的可追溯证据"
 
 
 def _oa_outcome_response(outcome: OaAutoReviewOutcome) -> dict[str, Any]:
+    if outcome.result is not None:
+        return _oa_response(outcome.result)
+    assert outcome.error is not None
+    return _oa_exception_response(
+        outcome.task_id,
+        outcome.error.code,
+        outcome.error.message,
+        retryable=outcome.error.retryable,
+        details=outcome.error.details,
+    )
+
+
+def _oa_callback_outcome_response(outcome: OaAutoReviewOutcome) -> dict[str, Any]:
     if outcome.result is not None:
         return _oa_callback_response(outcome.result)
     assert outcome.error is not None

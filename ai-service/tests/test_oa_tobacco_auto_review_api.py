@@ -313,6 +313,30 @@ class RejectingChildReviewService(ChildReviewService):
         return _child_result(use_case_name, fields)
 
 
+class UnreliableRejectingChildReviewService(RejectingChildReviewService):
+    def review(self, review_input, use_case_name=None):
+        result = super().review(review_input, use_case_name)
+        fields = dict(result.skill_result["normalized_fields"])
+        for field in (
+            "subject_name_evidence",
+            "business_address_evidence",
+            "legal_person_evidence",
+            "license_no_evidence",
+            "valid_to_evidence",
+        ):
+            fields.pop(field, None)
+        updates = {"skill_result": {"normalized_fields": fields}}
+        if use_case_name == "business_license":
+            updates.update(
+                {
+                    "status": ReviewStatus.PENDING_MANUAL_REVIEW,
+                    "needs_manual_review": True,
+                    "manual_review": ManualReview(status=ManualReviewStatus.PENDING),
+                }
+            )
+        return result.model_copy(update=updates)
+
+
 class EmptyFieldsChildReviewService(ChildReviewService):
     def review(self, review_input, use_case_name=None):
         return _child_result(use_case_name, {})
@@ -523,10 +547,11 @@ def test_conflicting_candidates_are_persisted_for_manual_review(monkeypatch, tmp
         repository=repository,
         document_review_service=ConflictingChildReviewService(),
     )
-    assert response["data"]["decision"] == "reject"
-    assert response["data"]["needs_manual_review"] is False
+    assert response["data"]["decision"] == "manual_review"
+    assert response["data"]["needs_manual_review"] is True
     assert response["data"]["mismatch_count"] >= 3
-    assert response["data"]["reject_reasons"]
+    assert response["data"]["manual_review_reasons"]
+    assert "reject_reasons" not in response["data"]
     assert repository.saved[-1].needs_manual_review is True
 
 
@@ -552,9 +577,10 @@ def test_empty_child_fields_complete_parent_as_manual_review(monkeypatch, tmp_pa
         document_review_service=EmptyFieldsChildReviewService(),
     )
 
-    assert response["data"]["decision"] == "reject"
-    assert response["data"]["needs_manual_review"] is False
-    assert response["data"]["reject_reasons"]
+    assert response["data"]["decision"] == "manual_review"
+    assert response["data"]["needs_manual_review"] is True
+    assert response["data"]["manual_review_reasons"]
+    assert "reject_reasons" not in response["data"]
     assert response["data"]["mismatch_count"] >= 3
     assert repository.saved[-1].status == ReviewStatus.PENDING_MANUAL_REVIEW
     assert repository.saved[-1].needs_manual_review is True
@@ -670,6 +696,52 @@ def test_rejected_consistency_result_skips_rpa_and_preserves_reject_reasons(
     ]
 
 
+def test_unreliable_child_reviews_do_not_automatically_reject_oa_request(
+    monkeypatch,
+    tmp_path,
+):
+    source_files = [
+        _source("business_license", 1001),
+        _source("tobacco_license", 1002),
+    ]
+    documents = [_stored(tmp_path, source) for source in source_files]
+    repository = NewResultRepository()
+    monkeypatch.setattr(
+        "app.services.oa_tobacco_auto_review.fetch_tobacco_license_source_files_by_request",
+        lambda sql_client, requestid, workflow_id: source_files,
+    )
+
+    response = create_oa_auto_review(
+        OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=614),
+        _oa_client={"client": "oa"},
+        sql_client=object(),
+        file_store=StoredDocumentsFileStore(documents),
+        repository=repository,
+        document_review_service=UnreliableRejectingChildReviewService(),
+    )
+
+    assert response["data"]["decision"] == "manual_review"
+    assert response["data"]["needs_manual_review"] is True
+    assert response["data"]["mismatch_count"] == 3
+    assert "reject_reasons" not in response["data"]
+    assert [
+        reason["rule_code"] for reason in response["data"]["manual_review_reasons"]
+    ] == [
+        "BUSINESS_LICENSE_CHILD_REVIEW_READY",
+        "BUSINESS_LICENSE_EVIDENCE_FOR_CONSISTENCY",
+        "TOBACCO_LICENSE_EVIDENCE_FOR_CONSISTENCY",
+    ]
+    assert response["data"]["manual_review_reason_text"] == (
+        "营业执照子审核未形成可靠自动结论；"
+        "营业执照关键字段证据完整不足；"
+        "烟草证关键字段证据完整不足"
+    )
+    assert all(
+        reason["suggestion"]
+        for reason in response["data"]["manual_review_reasons"]
+    )
+
+
 def test_rpa_is_not_repeated_when_final_persistence_fails(monkeypatch, tmp_path):
     source_files = [_source("business_license", 1001), _source("tobacco_license", 1002)]
     documents = [_stored(tmp_path, source) for source in source_files]
@@ -703,13 +775,13 @@ def test_rpa_is_not_repeated_when_final_persistence_fails(monkeypatch, tmp_path)
     assert rpa_calls == ["tc-oa-614-584412"]
 
 
-def test_incomplete_evidence_passes_to_next_node_not_reject():
+def test_incomplete_evidence_requires_manual_review():
     rule = _rule(
         "TOBACCO_LICENSE_EVIDENCE_FOR_CONSISTENCY",
         details={"missing_evidence_fields": ["license_no_evidence"]},
     )
 
-    assert _oa_decision(_result(rule)) == "pass"
+    assert _oa_decision(_result(rule)) == "manual_review"
 
 
 def test_one_field_mismatch_passes_to_next_node():
@@ -798,6 +870,30 @@ def test_expired_tobacco_license_is_rejected_with_detailed_reasons():
     assert response["reject_reasons"][0]["details"]["actual"] == "乙便利店有限公司"
     assert response["reject_reasons"][1]["details"]["actual"] == "2026-06-30"
     assert response["reject_reasons"][1]["details"]["difference"] == "expired"
+
+
+def test_expired_tobacco_license_remains_hard_reject_when_other_evidence_is_missing():
+    result = _result(
+        _rule(
+            "TOBACCO_LICENSE_EVIDENCE_FOR_CONSISTENCY",
+            details={"missing_evidence_fields": ["subject_name_evidence"]},
+        ),
+        RuleResult(
+            rule_code="BUSINESS_TOBACCO_TOBACCO_VALIDITY",
+            rule_name="烟草证有效期",
+            passed=False,
+            risk_level_on_failure=RiskLevel.HIGH,
+            message="烟草证已过期",
+            details={
+                "field": "valid_to",
+                "actual": "2026-06-30",
+                "difference": "expired",
+                "evidence": {"actual_source": "tobacco_license"},
+            },
+        ),
+    )
+
+    assert _oa_decision(result) == "reject"
 
 
 def test_three_field_mismatches_are_rejected():
@@ -997,13 +1093,17 @@ def test_manual_review_of_oa_timeout_callbacks_final_decision():
     assert response["oa_callback"]["error"] is None
     assert callback_client.payloads[0].workflow_id == 614
     assert callback_client.payloads[0].requestid == 584412
-    assert callback_client.payloads[0].result["data"]["decision"] == "reject"
-    assert callback_client.payloads[0].result["data"]["summary"] == "人工复核驳回：确认不合规"
-    assert callback_client.payloads[0].result["data"]["reject_reasons"] == [
+    callback_data = callback_client.payloads[0].result["data"]
+    assert callback_data["decision"] == "reject"
+    assert callback_data["summary"] == "人工复核驳回：确认不合规"
+    assert callback_data["reject_reason_text"] == "确认不合规"
+    assert "rule_results" not in callback_data
+    assert callback_data["reject_reasons"] == [
         {
             "rule_code": "MANUAL_REVIEW_REJECTED",
             "rule_name": "人工复核结论",
             "message": "确认不合规",
+            "suggestion": "请根据人工复核意见处理后重新提交",
         }
     ]
 

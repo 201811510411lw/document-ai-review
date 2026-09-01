@@ -57,76 +57,6 @@
       "mismatch_rejection_threshold": 3,
       "field_differences": [],
       "next_node_review_required": false,
-      "rule_results": [
-        {
-          "rule_code": "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
-          "rule_name": "主体名称一致",
-          "passed": true,
-          "risk_level_on_failure": "MEDIUM",
-          "message": "主体名称一致通过",
-          "details": {
-            "field": "subject_name",
-            "expected": "成都示例商贸有限公司",
-            "actual": "成都示例商贸有限公司",
-            "difference": null,
-            "evidence": {
-              "expected_source": "business_license",
-              "actual_source": "tobacco_license"
-            }
-          }
-        },
-        {
-          "rule_code": "BUSINESS_TOBACCO_ADDRESS_MATCH",
-          "rule_name": "经营地址一致",
-          "passed": true,
-          "risk_level_on_failure": "MEDIUM",
-          "message": "经营地址一致通过",
-          "details": {
-            "field": "business_address",
-            "expected": "成都市高新区示例路1号",
-            "actual": "成都市高新区示例路1号",
-            "difference": null,
-            "evidence": {
-              "expected_source": "business_license",
-              "actual_source": "tobacco_license"
-            }
-          }
-        },
-        {
-          "rule_code": "BUSINESS_TOBACCO_PERSON_MATCH",
-          "rule_name": "法定代表人/负责人一致",
-          "passed": true,
-          "risk_level_on_failure": "MEDIUM",
-          "message": "法定代表人/负责人一致通过",
-          "details": {
-            "field": "legal_person",
-            "expected": "张三",
-            "actual": "张三",
-            "difference": null,
-            "evidence": {
-              "expected_source": "business_license",
-              "actual_source": "tobacco_license"
-            }
-          }
-        },
-        {
-          "rule_code": "BUSINESS_TOBACCO_TOBACCO_VALIDITY",
-          "rule_name": "烟草证有效期",
-          "passed": true,
-          "risk_level_on_failure": "HIGH",
-          "message": "烟草证在有效期内",
-          "details": {
-            "field": "valid_to",
-            "expected": "not_expired",
-            "actual": "2028-12-31",
-            "difference": null,
-            "days_until_expiry": 852,
-            "evidence": {
-              "actual_source": "tobacco_license"
-            }
-          }
-        }
-      ],
       "needs_manual_review": false
     }
   }
@@ -138,12 +68,14 @@
 审核详情保存并展示回调目标、实际请求 JSON、尝试次数、HTTP 状态、脱敏且限长的响应正文、
 业务接受状态和错误。历史版本未保存的请求正文不会被重建为真实发送记录。
 OA 应按 `task_id` 幂等消费可能重复的回调，并根据 `result.data.decision` 执行流程分支。
-`rule_results` 保留完整规则执行结果。每项至少包含规则编码、规则名称、是否通过、失败风险、
-结果说明和 `details`；字段比对规则的 `details` 同时包含营业执照侧 `expected`、烟草证侧
-`actual`、`difference` 及证据来源，OA 可直接逐项展示，不需要根据摘要反推审核过程。
+callback 是面向 OA 的精简投影，不重复发送完整 `rule_results`；完整规则执行结果保存在审核
+结果中，并可通过轮询/详情接口查看。OA 退回时必须把 `reject_reason_text` 写入流转意见，
+人工处理时写入 `manual_review_reason_text`；“建议”字段读取对应原因项的 `suggestion`，不得
+读取未定义字段或把空值拼成 `null`。
 
-字段差异阈值为 3。`0..2` 项普通字段不匹配时当前机器人节点仍返回 `pass`，由 OA
-流转到下一节点复核；达到 3 项时返回 `reject`。烟草证明确已过期属于硬性拒绝条件，
+字段差异阈值为 3。证据可靠时，`0..2` 项普通字段不匹配由当前机器人节点返回 `pass`，
+由 OA 流转到下一节点复核；达到 3 项时返回 `reject`。子审核未就绪、关键证据缺失或候选
+冲突时优先返回 `manual_review`，不得用不可靠字段触发自动驳回。烟草证明确已过期属于硬性拒绝条件，
 即使总差异少于 3 项也返回 `reject`。证照类型、许可证号、主体名称、经营地址、
 负责人和有效期纳入字段差异计数，过程状态和证据完整性规则不计数。`field_differences`
 逐项提供 `field`、`field_label`、`expected`、`actual`、`difference`、`rule_code`、
@@ -159,8 +91,10 @@ OA 应按 `task_id` 幂等消费可能重复的回调，并根据 `result.data.d
   `next_node_review_required=true`，下一节点根据 `field_differences` 复核。
 - `reject`：字段差异达到 3 项、烟草证明确已过期，或官网真伪核验明确失败；OA 退回申请人。
   自动拒绝摘要使用“`一致性核对未通过，共 N 项问题`”，`reject_reasons` 逐项保留
-  `rule_code`、`rule_name`、`message` 和完整 `details`。
-- `manual_review`：人工明确要求补件或需要停留当前节点的处置结果；OA 停留当前节点等待处理。
+  `rule_code`、`rule_name`、`message`、`suggestion` 和完整 `details`，`reject_reason_text`
+  提供可直接写入 OA 流转意见的合并文本。
+- `manual_review`：子审核未就绪、关键证据缺失、候选冲突、人工明确要求补件或其他需要停留
+  当前节点的处置结果；OA 使用 `manual_review_reasons` 和 `manual_review_reason_text` 展示原因。
 - `exception`：StarRocks、NAS、OCR、LLM、持久化或 RPA 技术失败；OA 停留当前节点，可根据 `data.error.retryable` 重试。
 
 控制台人工驳回和要求补件必须填写处理说明。人工通过回调使用“人工复核通过”摘要；人工驳回

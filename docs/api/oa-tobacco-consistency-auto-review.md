@@ -212,4 +212,5 @@ GET /api/tobacco/reports/{task_id}
 
 - 没有独立的烟草一致性详情 V1 路由；详情由 Web Console 报告接口提供。
 - OA 专用入口立即返回 `processing`；后台审核完成后向固定地址回调 `pass`、`reject`、`manual_review` 或 `exception`，由 OA 自身执行流程流转。
+- OA callback 使用精简结果，不重复发送完整 `rule_results`；OA 使用 `reject_reason_text` 或 `manual_review_reason_text` 写入流转意见，并从原因项的 `suggestion` 展示处理建议。
 - 后台任务为进程内任务，不是持久化队列；Pod 重启后的结果恢复依赖 `oa-result` 轮询。

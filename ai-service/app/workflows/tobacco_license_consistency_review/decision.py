@@ -9,6 +9,10 @@ FIELD_MISMATCH_REJECTION_THRESHOLD = 3
 _HARD_REJECTION_DIFFERENCES = {
     ("BUSINESS_TOBACCO_TOBACCO_VALIDITY", "expired"),
 }
+_EVIDENCE_RULE_CODES = {
+    "BUSINESS_LICENSE_EVIDENCE_FOR_CONSISTENCY",
+    "TOBACCO_LICENSE_EVIDENCE_FOR_CONSISTENCY",
+}
 
 _FIELD_RULES: dict[str, tuple[str, str]] = {
     "BUSINESS_LICENSE_TYPE_FOR_CONSISTENCY": (
@@ -75,6 +79,16 @@ def oa_review_decision(result: ReviewResult) -> OaReviewDecision:
         for rule in failed
     ):
         return "reject"
+    unreliable_evidence = any(
+        (
+            rule.rule_code.endswith("_CHILD_REVIEW_READY")
+            and rule.details.get("needs_manual_review")
+        )
+        or rule.rule_code in _EVIDENCE_RULE_CODES
+        for rule in failed
+    )
+    if unreliable_evidence:
+        return "manual_review"
     if len(oa_field_differences(result)) >= FIELD_MISMATCH_REJECTION_THRESHOLD:
         return "reject"
     # 少量业务差异随回调提交给 OA 下一节点复核，当前机器人节点不直接驳回。
