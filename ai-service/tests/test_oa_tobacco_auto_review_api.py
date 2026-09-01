@@ -394,6 +394,37 @@ def test_oa_auto_review_executes_current_project_review_chain(monkeypatch, tmp_p
 
     assert response["data"]["decision"] == "pass"
     assert response["data"]["task_id"] == "tc-oa-123-584412"
+    assert response["data"]["mismatch_count"] == 0
+    assert response["data"]["field_differences"] == []
+    rules_by_code = {
+        rule["rule_code"]: rule for rule in response["data"]["rule_results"]
+    }
+    for rule_code, field in (
+        ("BUSINESS_TOBACCO_SUBJECT_NAME_MATCH", "subject_name"),
+        ("BUSINESS_TOBACCO_ADDRESS_MATCH", "business_address"),
+        ("BUSINESS_TOBACCO_PERSON_MATCH", "legal_person"),
+    ):
+        rule = rules_by_code[rule_code]
+        assert rule["passed"] is True
+        assert rule["message"].endswith("通过")
+        assert rule["details"] == {
+            "field": field,
+            "expected": _business_fields()[field],
+            "actual": _tobacco_fields()[field],
+            "difference": None,
+            "evidence": {
+                "expected_source": "business_license",
+                "actual_source": "tobacco_license",
+            },
+        }
+    validity_rule = rules_by_code["BUSINESS_TOBACCO_TOBACCO_VALIDITY"]
+    assert validity_rule["passed"] is True
+    assert validity_rule["message"] == "烟草证在有效期内"
+    assert validity_rule["details"]["actual"] == "2099-12-31"
+    assert validity_rule["details"]["difference"] is None
+    assert validity_rule["details"]["evidence"] == {
+        "actual_source": "tobacco_license"
+    }
     assert repository.saved[-1].task_id == "tc-oa-123-584412"
 
 
@@ -567,7 +598,7 @@ def test_small_field_mismatch_passes_to_next_node_and_runs_rpa(monkeypatch, tmp_
             "difference": "value_mismatch",
             "rule_code": "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
             "rule_name": "主体名称一致",
-            "message": "主体名称一致不通过",
+            "message": "营业执照主体名称与烟草证主体名称不一致",
         }
     ]
     assert rpa_calls == ["510100000001"]
@@ -656,6 +687,51 @@ def test_two_field_mismatches_pass_with_structured_differences():
         "subject_name",
         "legal_person",
     ]
+
+
+def test_expired_tobacco_license_is_rejected_with_detailed_reasons():
+    result = _result(
+        _rule(
+            "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
+            details={
+                "field": "subject_name",
+                "expected": "甲便利店有限公司",
+                "actual": "乙便利店有限公司",
+                "difference": "value_mismatch",
+            },
+        ),
+        RuleResult(
+            rule_code="BUSINESS_TOBACCO_TOBACCO_VALIDITY",
+            rule_name="烟草证有效期",
+            passed=False,
+            risk_level_on_failure=RiskLevel.HIGH,
+            message="烟草证已过期",
+            details={
+                "field": "valid_to",
+                "expected": "not_expired",
+                "actual": "2026-06-30",
+                "difference": "expired",
+                "days_until_expiry": -63,
+                "evidence": {"actual_source": "tobacco_license"},
+            },
+        ),
+    )
+
+    response = _oa_response(result)["data"]
+
+    assert response["decision"] == "reject"
+    assert response["summary"] == "一致性核对未通过，共 2 项问题"
+    assert response["mismatch_count"] == 2
+    assert response["next_node_review_required"] is False
+    assert response["needs_manual_review"] is False
+    assert [reason["rule_code"] for reason in response["reject_reasons"]] == [
+        "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
+        "BUSINESS_TOBACCO_TOBACCO_VALIDITY",
+    ]
+    assert response["reject_reasons"][0]["details"]["expected"] == "甲便利店有限公司"
+    assert response["reject_reasons"][0]["details"]["actual"] == "乙便利店有限公司"
+    assert response["reject_reasons"][1]["details"]["actual"] == "2026-06-30"
+    assert response["reject_reasons"][1]["details"]["difference"] == "expired"
 
 
 def test_three_field_mismatches_are_rejected():

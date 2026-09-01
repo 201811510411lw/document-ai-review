@@ -1011,6 +1011,8 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
                     "message": manual_comment or "人工复核确认不合规",
                 }
             )
+        if manual_action is None:
+            data["summary"] = f"一致性核对未通过，共 {len(reject_reasons)} 项问题"
         data["reject_reasons"] = reject_reasons
     if decision == "exception" and isinstance(rpa_info, dict):
         data["error"] = {

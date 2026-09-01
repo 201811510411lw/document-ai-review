@@ -57,7 +57,76 @@
       "mismatch_rejection_threshold": 3,
       "field_differences": [],
       "next_node_review_required": false,
-      "rule_results": [],
+      "rule_results": [
+        {
+          "rule_code": "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
+          "rule_name": "主体名称一致",
+          "passed": true,
+          "risk_level_on_failure": "MEDIUM",
+          "message": "主体名称一致通过",
+          "details": {
+            "field": "subject_name",
+            "expected": "成都示例商贸有限公司",
+            "actual": "成都示例商贸有限公司",
+            "difference": null,
+            "evidence": {
+              "expected_source": "business_license",
+              "actual_source": "tobacco_license"
+            }
+          }
+        },
+        {
+          "rule_code": "BUSINESS_TOBACCO_ADDRESS_MATCH",
+          "rule_name": "经营地址一致",
+          "passed": true,
+          "risk_level_on_failure": "MEDIUM",
+          "message": "经营地址一致通过",
+          "details": {
+            "field": "business_address",
+            "expected": "成都市高新区示例路1号",
+            "actual": "成都市高新区示例路1号",
+            "difference": null,
+            "evidence": {
+              "expected_source": "business_license",
+              "actual_source": "tobacco_license"
+            }
+          }
+        },
+        {
+          "rule_code": "BUSINESS_TOBACCO_PERSON_MATCH",
+          "rule_name": "法定代表人/负责人一致",
+          "passed": true,
+          "risk_level_on_failure": "MEDIUM",
+          "message": "法定代表人/负责人一致通过",
+          "details": {
+            "field": "legal_person",
+            "expected": "张三",
+            "actual": "张三",
+            "difference": null,
+            "evidence": {
+              "expected_source": "business_license",
+              "actual_source": "tobacco_license"
+            }
+          }
+        },
+        {
+          "rule_code": "BUSINESS_TOBACCO_TOBACCO_VALIDITY",
+          "rule_name": "烟草证有效期",
+          "passed": true,
+          "risk_level_on_failure": "HIGH",
+          "message": "烟草证在有效期内",
+          "details": {
+            "field": "valid_to",
+            "expected": "not_expired",
+            "actual": "2028-12-31",
+            "difference": null,
+            "days_until_expiry": 852,
+            "evidence": {
+              "actual_source": "tobacco_license"
+            }
+          }
+        }
+      ],
       "needs_manual_review": false
     }
   }
@@ -69,9 +138,13 @@
 审核详情保存并展示回调目标、实际请求 JSON、尝试次数、HTTP 状态、脱敏且限长的响应正文、
 业务接受状态和错误。历史版本未保存的请求正文不会被重建为真实发送记录。
 OA 应按 `task_id` 幂等消费可能重复的回调，并根据 `result.data.decision` 执行流程分支。
+`rule_results` 保留完整规则执行结果。每项至少包含规则编码、规则名称、是否通过、失败风险、
+结果说明和 `details`；字段比对规则的 `details` 同时包含营业执照侧 `expected`、烟草证侧
+`actual`、`difference` 及证据来源，OA 可直接逐项展示，不需要根据摘要反推审核过程。
 
-字段差异阈值为 3。`0..2` 项字段不匹配时当前机器人节点仍返回 `pass`，由 OA
-流转到下一节点复核；达到 3 项时返回 `reject`。证照类型、许可证号、主体名称、经营地址、
+字段差异阈值为 3。`0..2` 项普通字段不匹配时当前机器人节点仍返回 `pass`，由 OA
+流转到下一节点复核；达到 3 项时返回 `reject`。烟草证明确已过期属于硬性拒绝条件，
+即使总差异少于 3 项也返回 `reject`。证照类型、许可证号、主体名称、经营地址、
 负责人和有效期纳入字段差异计数，过程状态和证据完整性规则不计数。`field_differences`
 逐项提供 `field`、`field_label`、`expected`、`actual`、`difference`、`rule_code`、
 `rule_name` 和 `message`，放行与驳回回调都会携带该列表。
@@ -80,7 +153,9 @@ OA 应按 `task_id` 幂等消费可能重复的回调，并根据 `result.data.d
 
 - `pass`：没有字段差异，或字段差异少于 3 项；OA 流转下一节点。存在差异时
   `next_node_review_required=true`，下一节点根据 `field_differences` 复核。
-- `reject`：字段差异达到 3 项，或官网真伪核验明确失败；OA 退回申请人。
+- `reject`：字段差异达到 3 项、烟草证明确已过期，或官网真伪核验明确失败；OA 退回申请人。
+  自动拒绝摘要使用“`一致性核对未通过，共 N 项问题`”，`reject_reasons` 逐项保留
+  `rule_code`、`rule_name`、`message` 和完整 `details`。
 - `manual_review`：人工明确要求补件或需要停留当前节点的处置结果；OA 停留当前节点等待处理。
 - `exception`：StarRocks、NAS、OCR、LLM、持久化或 RPA 技术失败；OA 停留当前节点，可根据 `data.error.retryable` 重试。
 

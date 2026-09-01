@@ -330,12 +330,21 @@ def _same_field_rule(
     expected_norm = _normalize_comparison_value(field, expected)
     actual_norm = _normalize_comparison_value(field, actual)
     passed = bool(expected_norm) and expected_norm == actual_norm
+    field_label = {
+        "subject_name": "主体名称",
+        "business_address": "经营地址",
+        "legal_person": "法定代表人/负责人",
+    }.get(field, name.removesuffix("一致"))
     return RuleResult(
         rule_code=code,
         rule_name=name,
         passed=passed,
         risk_level_on_failure=RiskLevel.MEDIUM,
-        message=f"{name}通过" if passed else f"{name}不通过",
+        message=(
+            f"{name}通过"
+            if passed
+            else f"营业执照{field_label}与烟草证{field_label}不一致"
+        ),
         details={
             "field": field,
             "expected": expected,

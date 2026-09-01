@@ -6,6 +6,9 @@ from app.models import ReviewResult, ReviewStatus
 OaReviewDecision = Literal["pass", "reject", "manual_review", "exception"]
 
 FIELD_MISMATCH_REJECTION_THRESHOLD = 3
+_HARD_REJECTION_DIFFERENCES = {
+    ("BUSINESS_TOBACCO_TOBACCO_VALIDITY", "expired"),
+}
 
 _FIELD_RULES: dict[str, tuple[str, str]] = {
     "BUSINESS_LICENSE_TYPE_FOR_CONSISTENCY": (
@@ -66,6 +69,12 @@ def oa_review_decision(result: ReviewResult) -> OaReviewDecision:
     )
     if technical_failure:
         return "exception"
+    if any(
+        (rule.rule_code, rule.details.get("difference"))
+        in _HARD_REJECTION_DIFFERENCES
+        for rule in failed
+    ):
+        return "reject"
     if len(oa_field_differences(result)) >= FIELD_MISMATCH_REJECTION_THRESHOLD:
         return "reject"
     # 少量业务差异随回调提交给 OA 下一节点复核，当前机器人节点不直接驳回。
