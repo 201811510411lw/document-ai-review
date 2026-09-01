@@ -91,8 +91,8 @@ def oa_review_decision(result: ReviewResult) -> OaReviewDecision:
         return "manual_review"
     if len(oa_field_differences(result)) >= FIELD_MISMATCH_REJECTION_THRESHOLD:
         return "reject"
-    # 少量业务差异随回调提交给 OA 下一节点复核，当前机器人节点不直接驳回。
-    return "pass"
+    # 少量、证据可靠的业务差异仍需人工判断；OA transport 再负责路由到下一节点。
+    return "manual_review"
 
 
 def oa_field_differences(result: ReviewResult) -> list[dict[str, Any]]:

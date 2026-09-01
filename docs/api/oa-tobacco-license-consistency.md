@@ -88,12 +88,16 @@ callback 是面向 OA 的兼容投影；兼容期内继续发送完整 `rule_res
 结果仍保存在审核结果中，并可通过轮询/详情接口查看。OA 退回时必须把
 `reject_reason_text` 写入流转意见，人工处理时写入 `manual_review_reason_text`；“建议”字段
 优先读取对应原因项的 `suggestion`，旧实现可从失败规则的 `suggestion` 兼容读取。
-领域结果和轮询接口保留四态；当前 OA callback 接收端只支持三态，所以内部
-`manual_review` 在 callback 中映射为 `decision=exception`，同时携带
-`error.code=REVIEW_REQUIRES_MANUAL_REVIEW`、`retryable=false` 以及完整人工处理原因。
+领域结果和轮询接口保留四态；当前 OA callback 接收端只支持三态。自动审核产生的
+`manual_review` 在 callback 中使用 `decision=pass` 作为进入下一人工节点的 transport
+路由动作，同时携带 `review_decision=manual_review`、`next_node_review_required=true`
+以及完整人工处理原因；该 transport `pass` 不表示业务自动通过。人工明确要求补件时才映射为
+`decision=exception`，并携带 `error.code=REVIEW_REQUIRES_MANUAL_REVIEW`、
+`retryable=false`。
 
-字段差异阈值为 3。证据可靠时，`0..2` 项普通字段不匹配由当前机器人节点返回 `pass`，
-由 OA 流转到下一节点复核；达到 3 项时返回 `reject`。子审核未就绪、关键证据缺失或候选
+字段差异阈值为 3。证据可靠时，0 项普通字段不匹配返回 `pass`，1..2 项返回
+`manual_review` 并由 callback transport `pass` 流转到下一人工节点；`>=3` 项返回
+`reject`。子审核未就绪、关键证据缺失或候选
 冲突时优先返回 `manual_review`，不得用不可靠字段触发自动驳回。烟草证明确已过期属于硬性拒绝条件，
 即使总差异少于 3 项也返回 `reject`。证照类型、许可证号、主体名称、经营地址、
 负责人和有效期纳入字段差异计数，过程状态和证据完整性规则不计数。`field_differences`
@@ -106,19 +110,19 @@ callback 是面向 OA 的兼容投影；兼容期内继续发送完整 `rule_res
 
 `decision` 取值：
 
-- `pass`：没有字段差异，或字段差异少于 3 项；OA 流转下一节点。存在差异时
-  `next_node_review_required=true`，下一节点根据 `field_differences` 复核。
+- `pass`：证据可靠且没有字段差异，表示自动审核通过。
 - `reject`：字段差异达到 3 项、烟草证明确已过期，或官网真伪核验明确失败；OA 退回申请人。
   自动拒绝摘要使用“`一致性核对未通过，共 N 项问题`”，`reject_reasons` 逐项保留
   `rule_code`、`rule_name`、`message`、`suggestion` 和完整 `details`，`reject_reason_text`
   提供可直接写入 OA 流转意见的合并文本。
-- `manual_review`：子审核未就绪、关键证据缺失、候选冲突、人工明确要求补件或其他需要停留
-  当前节点的领域结果；轮询和详情保持该值，callback 按上述三态兼容规则映射。
+- `manual_review`：证据可靠但存在 1..2 项普通字段差异，或子审核未就绪、关键证据缺失、
+  候选冲突、人工明确要求补件等不能自动形成结论的领域结果。自动审核产生的人工复核由
+  callback transport `pass` 路由下一人工节点；明确要求补件使用非重试 `exception` 退回补件。
 - `exception`：StarRocks、NAS、OCR、LLM、持久化或 RPA 技术失败；OA 停留当前节点，可根据 `data.error.retryable` 重试。
 
 控制台人工驳回和要求补件必须填写处理说明。人工通过回调使用“人工复核通过”摘要；人工驳回
 使用“人工复核驳回”摘要并包含 `MANUAL_REVIEW_REJECTED` 原因；要求补件的持久化结果保持
-`decision=manual_review`，callback 仅作带专用错误码的三态协议映射。
+`decision=manual_review`，callback 使用带专用错误码的非重试 `exception` 退回补件。
 
 触发请求已被正常受理时 `code` 为 `0`；鉴权失败返回 HTTP 401，参数校验失败返回
 HTTP 422，回调地址未配置返回 HTTP 503。最终 `exception` 作为回调业务结果发送。

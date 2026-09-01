@@ -214,7 +214,7 @@ def test_timeout_callback_can_be_retried_without_changing_review_decision():
     assert audit["business_accepted"] is True
 
 
-def test_manual_review_callback_uses_three_state_oa_transport_and_keeps_reasons():
+def test_automatic_manual_review_callback_routes_to_next_node_and_keeps_reasons():
     rule = _rule(
         "TOBACCO_LICENSE_EVIDENCE_FOR_CONSISTENCY",
         details={"missing_evidence_fields": ["license_no_evidence"]},
@@ -241,12 +241,11 @@ def test_manual_review_callback_uses_three_state_oa_transport_and_keeps_reasons(
 
     assert response["status"] == "SENT"
     data = callback_client.payloads[0].result["data"]
-    assert data["decision"] == "exception"
-    assert data["error"] == {
-        "code": "REVIEW_REQUIRES_MANUAL_REVIEW",
-        "message": "未通过",
-        "retryable": False,
-    }
+    assert data["decision"] == "pass"
+    assert data["review_decision"] == "manual_review"
+    assert data["next_node_review_required"] is True
+    assert data["needs_manual_review"] is True
+    assert "error" not in data
     assert data["manual_review_reason_text"] == "未通过"
     assert data["manual_review_reasons"][0]["suggestion"]
     assert data["rule_results"][0]["rule_code"] == rule.rule_code
@@ -254,6 +253,45 @@ def test_manual_review_callback_uses_three_state_oa_transport_and_keeps_reasons(
     assert data["rule_results"][0]["suggestion"]
     assert repository.saved[-1].status == ReviewStatus.PENDING_MANUAL_REVIEW
     assert repository.saved[-1].needs_manual_review is True
+
+
+def test_small_confirmed_mismatch_callback_routes_to_next_manual_review_node():
+    rule = _rule(
+        "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
+        details={
+            "expected": "甲公司",
+            "actual": "乙公司",
+            "difference": "value_mismatch",
+        },
+    )
+    result = _result(rule).model_copy(
+        update={
+            "skill_result": {
+                "oa_claim": {
+                    "workflow_id": 614,
+                    "requestid": 584412,
+                    "store_code": "0001",
+                },
+            },
+        }
+    )
+    repository = NewResultRepository()
+    repository.saved.append(result)
+    callback_client = CapturingCallbackClient()
+
+    retry_oa_review_callback(
+        result.task_id,
+        _current_user={"username": "reviewer"},
+        repository=repository,
+        callback_client=callback_client,
+    )
+
+    data = callback_client.payloads[0].result["data"]
+    assert data["decision"] == "pass"
+    assert data["review_decision"] == "manual_review"
+    assert data["next_node_review_required"] is True
+    assert data["mismatch_count"] == 1
+    assert data["manual_review_reasons"][0]["rule_code"] == rule.rule_code
 
 
 def test_manual_callback_retry_rejects_non_oa_task():
@@ -652,7 +690,7 @@ def test_result_save_failure_returns_exception_not_in_memory_pass(monkeypatch, t
     assert "database unavailable" not in response["data"]["error"]["message"]
 
 
-def test_small_field_mismatch_passes_to_next_node_and_runs_rpa(monkeypatch, tmp_path):
+def test_small_field_mismatch_requires_next_node_review_without_rpa(monkeypatch, tmp_path):
     source_files = [_source("business_license", 1001), _source("tobacco_license", 1002)]
     documents = [_stored(tmp_path, source) for source in source_files]
     repository = NewResultRepository()
@@ -678,9 +716,10 @@ def test_small_field_mismatch_passes_to_next_node_and_runs_rpa(monkeypatch, tmp_
         document_review_service=MismatchingChildReviewService(),
     )
 
-    assert response["data"]["decision"] == "pass"
+    assert response["data"]["decision"] == "manual_review"
     assert response["data"]["mismatch_count"] == 1
     assert response["data"]["next_node_review_required"] is True
+    assert response["data"]["needs_manual_review"] is True
     assert response["data"]["field_differences"] == [
         {
             "field": "subject_name",
@@ -693,7 +732,7 @@ def test_small_field_mismatch_passes_to_next_node_and_runs_rpa(monkeypatch, tmp_
             "message": "营业执照主体名称与烟草证主体名称不一致",
         }
     ]
-    assert rpa_calls == ["510100000001"]
+    assert rpa_calls == []
 
 
 def test_rejected_consistency_result_skips_rpa_and_preserves_reject_reasons(
@@ -826,16 +865,16 @@ def test_incomplete_evidence_requires_manual_review():
     assert _oa_decision(_result(rule)) == "manual_review"
 
 
-def test_one_field_mismatch_passes_to_next_node():
+def test_one_field_mismatch_requires_manual_review():
     rule = _rule(
         "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
         details={"expected": "甲公司", "actual": "乙公司", "difference": "value_mismatch"},
     )
 
-    assert _oa_decision(_result(rule)) == "pass"
+    assert _oa_decision(_result(rule)) == "manual_review"
 
 
-def test_two_field_mismatches_pass_with_structured_differences():
+def test_two_field_mismatches_require_manual_review_with_structured_differences():
     result = _result(
         _rule(
             "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
@@ -859,10 +898,15 @@ def test_two_field_mismatches_pass_with_structured_differences():
 
     response = _oa_response(result)["data"]
 
-    assert response["decision"] == "pass"
+    assert response["decision"] == "manual_review"
     assert response["mismatch_count"] == 2
     assert response["mismatch_rejection_threshold"] == 3
     assert response["next_node_review_required"] is True
+    assert response["needs_manual_review"] is True
+    assert [item["rule_code"] for item in response["manual_review_reasons"]] == [
+        "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
+        "BUSINESS_TOBACCO_PERSON_MATCH",
+    ]
     assert [item["field"] for item in response["field_differences"]] == [
         "subject_name",
         "legal_person",
