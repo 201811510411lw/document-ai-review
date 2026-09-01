@@ -94,8 +94,10 @@ POST /api/v1/tobacco-license-consistency/reviews
 }
 ```
 
-当 RPA 能力已启用且抽取到许可证号时，创建审核会继续执行官网验真并把结果写入同一个
-Review Result。RPA 技术异常不会被转换成假证结论。
+一致性规则完成后先形成 OA 预判。只有预判为 `pass`、RPA 能力已启用且抽取到许可证号时，
+创建审核才继续执行官网验真并把结果写入同一个 Review Result。预判为 `reject`、
+`manual_review` 或 `exception` 时直接返回并跳过 RPA，RPA 技术异常不会覆盖已形成的业务
+拒绝原因，也不会被转换成假证结论。
 
 常见错误：
 

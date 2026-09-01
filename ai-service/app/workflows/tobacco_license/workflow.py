@@ -181,7 +181,7 @@ def _build_rpa_client():
         access_key_secret=os.environ.get("RPA_YINDAO_ACCESS_KEY_SECRET", ""),
         robot_uuid=settings.rpa_verification_yindao_robot_uuid,
         account_name=settings.rpa_verification_yindao_account_name,
-        run_timeout_seconds=min(settings.rpa_verification_yindao_run_timeout_seconds, 30),
+        run_timeout_seconds=settings.rpa_verification_yindao_run_timeout_seconds,
         wait_timeout_seconds=settings.rpa_verification_yindao_wait_timeout_seconds,
         poll_interval=settings.rpa_verification_yindao_poll_interval,
     )
@@ -190,7 +190,7 @@ def _build_rpa_client():
 def rpa_verify_node(state: TobaccoLicenseWorkflowState) -> TobaccoLicenseWorkflowState:
     """RPA 官网验真节点：调用 RPA 平台查询烟草证真伪。
 
-    同步调用，超时 30s，超时或异常时不阻断主流程。
+    同步调用，使用配置的执行超时，超时或异常时不阻断主流程。
     验真结果为 FAILED/SUSPECTED/NOT_FOUND 时追加一条审核规则。
     """
     ctx = state.get("input_context")

@@ -28,9 +28,7 @@ def execute_tobacco_rpa_verification(
             access_key_secret=os.environ.get("RPA_YINDAO_ACCESS_KEY_SECRET", ""),
             robot_uuid=settings.rpa_verification_yindao_robot_uuid,
             account_name=settings.rpa_verification_yindao_account_name,
-            run_timeout_seconds=min(
-                settings.rpa_verification_yindao_run_timeout_seconds, 30
-            ),
+            run_timeout_seconds=settings.rpa_verification_yindao_run_timeout_seconds,
             wait_timeout_seconds=settings.rpa_verification_yindao_wait_timeout_seconds,
             poll_interval=settings.rpa_verification_yindao_poll_interval,
         )

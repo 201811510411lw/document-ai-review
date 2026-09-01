@@ -72,6 +72,8 @@ class YindaoRpaClient:
         wait_timeout_seconds: int = 600,
         poll_interval: float = 3.0,
     ) -> None:
+        if run_timeout_seconds < 60:
+            raise ValueError("影刀 RPA runTimeout 不能小于 60 秒")
         self._base_url = api_base_url.rstrip("/")
         self._access_key_id = access_key_id
         self._access_key_secret = access_key_secret

@@ -29,6 +29,9 @@ from app.services.tobacco_rpa_verification import execute_tobacco_rpa_verificati
 from app.use_cases.tobacco_license_consistency_review import (
     tobacco_license_consistency_review_use_case,
 )
+from app.workflows.tobacco_license_consistency_review.decision import (
+    oa_review_decision,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -437,7 +440,8 @@ class OaTobaccoAutoReviewService:
                 document_results.get("tobacco_license"), {}
             )
             certificate_no = str(tobacco_fields.get("license_no") or "").strip()
-            if certificate_no:
+            consistency_decision = oa_review_decision(result)
+            if consistency_decision == "pass" and certificate_no:
                 logger.info(
                     "[OA自动审核][RPA验真开始] task_id=%s requestid=%s",
                     task_id,
@@ -456,6 +460,13 @@ class OaTobaccoAutoReviewService:
                     task_id,
                     command.requestid,
                     rpa_started,
+                )
+            elif consistency_decision != "pass":
+                logger.info(
+                    "[OA自动审核][RPA验真跳过] task_id=%s requestid=%s 原因=一致性决策%s",
+                    task_id,
+                    command.requestid,
+                    consistency_decision,
                 )
             else:
                 logger.info(

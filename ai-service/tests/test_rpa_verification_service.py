@@ -1,8 +1,19 @@
+from datetime import datetime, timezone
+
 import httpx
 import pytest
 
+from app.core.config import settings
+from app.models import (
+    ManualReview,
+    ManualReviewStatus,
+    ReviewResult,
+    ReviewStatus,
+    RiskLevel,
+)
 from app.models.rpa import RpaVerificationStatus
 from app.services.rpa_verification import YindaoRpaClient
+from app.services.tobacco_rpa_verification import execute_tobacco_rpa_verification
 
 
 def _client() -> YindaoRpaClient:
@@ -68,6 +79,76 @@ def test_start_job_surfaces_yindao_business_error(monkeypatch):
             certificate_no="652328100481",
             store_name="测试门店",
         )
+
+
+def test_oa_rpa_verification_sends_configured_run_timeout(monkeypatch):
+    captured_start_body = {}
+
+    monkeypatch.setattr(settings, "rpa_verification_tobacco_enabled", True)
+    monkeypatch.setattr(settings, "rpa_verification_yindao_run_timeout_seconds", 300)
+    monkeypatch.setattr(settings, "rpa_verification_yindao_poll_interval", 0)
+    monkeypatch.setattr(
+        "app.services.rpa_verification.httpx.get",
+        lambda *args, **kwargs: _response(
+            {"success": True, "data": {"accessToken": "token"}}
+        ),
+    )
+
+    def fake_post(url, **kwargs):
+        if url.endswith("/job/start"):
+            captured_start_body.update(kwargs["json"])
+            return _response(
+                {"success": True, "data": {"jobUuid": "job-123"}}
+            )
+        if url.endswith("/job/query"):
+            return _response(
+                {
+                    "success": True,
+                    "data": {
+                        "jobUuid": "job-123",
+                        "status": "finish",
+                        "result": [
+                            {
+                                "name": "verify_status",
+                                "type": "String",
+                                "value": "AUTHENTIC",
+                            }
+                        ],
+                    },
+                }
+            )
+        raise AssertionError(f"unexpected URL: {url}")
+
+    monkeypatch.setattr("app.services.rpa_verification.httpx.post", fake_post)
+    now = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    review_result = ReviewResult(
+        task_id="tc-oa-614-584412",
+        use_case_name="tobacco_license_consistency_review",
+        use_case_version="v1",
+        skill_name="tobacco_license_consistency_review",
+        skill_version="v1",
+        ruleset_version="v1",
+        document_type="business_tobacco_consistency",
+        status=ReviewStatus.REVIEWED,
+        risk_level=RiskLevel.NONE,
+        needs_manual_review=False,
+        summary="审核完成",
+        manual_review=ManualReview(status=ManualReviewStatus.NOT_REQUIRED),
+        created_at=now,
+        updated_at=now,
+        skill_result={},
+    )
+
+    result = execute_tobacco_rpa_verification(
+        result=review_result,
+        task_id=review_result.task_id,
+        certificate_no="510100000001",
+        store_name="测试门店",
+        requestid="584412",
+    )
+
+    assert captured_start_body["runTimeout"] == 300
+    assert result["status"] == "AUTHENTIC"
 
 
 def test_query_job_returns_nested_response_data(monkeypatch):

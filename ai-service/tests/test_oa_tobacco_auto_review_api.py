@@ -295,6 +295,24 @@ class MismatchingChildReviewService(ChildReviewService):
         return _child_result(use_case_name, fields)
 
 
+class RejectingChildReviewService(ChildReviewService):
+    def review(self, review_input, use_case_name=None):
+        fields = (
+            _business_fields()
+            if use_case_name == "business_license"
+            else _tobacco_fields()
+        )
+        if use_case_name == "tobacco_license":
+            fields.update(
+                {
+                    "subject_name": "另一主体",
+                    "business_address": "成都市另一地址",
+                    "legal_person": "李四",
+                }
+            )
+        return _child_result(use_case_name, fields)
+
+
 class EmptyFieldsChildReviewService(ChildReviewService):
     def review(self, review_input, use_case_name=None):
         return _child_result(use_case_name, {})
@@ -429,7 +447,10 @@ def test_oa_auto_review_executes_current_project_review_chain(monkeypatch, tmp_p
 
 
 def test_concurrent_repeated_request_executes_source_chain_once(monkeypatch, tmp_path):
-    source_files = [_source("business_license", 1001), _source("tobacco_license", 1002)]
+    source_files = [
+        _source("business_license", 1001),
+        _source("tobacco_license", 1002),
+    ]
     documents = [_stored(tmp_path, source) for source in source_files]
     repository = NewResultRepository()
     calls = {"source": 0}
@@ -510,7 +531,10 @@ def test_conflicting_candidates_are_persisted_for_manual_review(monkeypatch, tmp
 
 
 def test_empty_child_fields_complete_parent_as_manual_review(monkeypatch, tmp_path):
-    source_files = [_source("business_license", 1001), _source("tobacco_license", 1002)]
+    source_files = [
+        _source("business_license", 1001),
+        _source("tobacco_license", 1002),
+    ]
     documents = [_stored(tmp_path, source) for source in source_files]
     repository = NewResultRepository()
     monkeypatch.setattr(
@@ -602,6 +626,48 @@ def test_small_field_mismatch_passes_to_next_node_and_runs_rpa(monkeypatch, tmp_
         }
     ]
     assert rpa_calls == ["510100000001"]
+
+
+def test_rejected_consistency_result_skips_rpa_and_preserves_reject_reasons(
+    monkeypatch,
+    tmp_path,
+):
+    source_files = [
+        _source("business_license", 1001),
+        _source("tobacco_license", 1002),
+    ]
+    documents = [_stored(tmp_path, source) for source in source_files]
+    repository = NewResultRepository()
+    monkeypatch.setattr(
+        "app.services.oa_tobacco_auto_review.fetch_tobacco_license_source_files_by_request",
+        lambda sql_client, requestid, workflow_id: source_files,
+    )
+
+    def unexpected_rpa(**kwargs):
+        raise AssertionError("business rejection must short-circuit RPA verification")
+
+    monkeypatch.setattr(
+        "app.services.oa_tobacco_auto_review.execute_tobacco_rpa_verification",
+        unexpected_rpa,
+    )
+
+    response = create_oa_auto_review(
+        OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=614),
+        _oa_client={"client": "oa"},
+        sql_client=object(),
+        file_store=StoredDocumentsFileStore(documents),
+        repository=repository,
+        document_review_service=RejectingChildReviewService(),
+    )
+
+    assert response["data"]["decision"] == "reject"
+    assert response["data"]["summary"] == "一致性核对未通过，共 3 项问题"
+    assert response["data"]["mismatch_count"] == 3
+    assert [reason["rule_code"] for reason in response["data"]["reject_reasons"]] == [
+        "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
+        "BUSINESS_TOBACCO_ADDRESS_MATCH",
+        "BUSINESS_TOBACCO_PERSON_MATCH",
+    ]
 
 
 def test_rpa_is_not_repeated_when_final_persistence_fails(monkeypatch, tmp_path):

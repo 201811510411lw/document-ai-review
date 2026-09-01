@@ -13,6 +13,7 @@ def pytest_configure():
     os.environ.setdefault("REVIEW_RESULT_MYSQL_DATABASE", "document_ai_review")
 
 
+from app.core.config import settings
 from app.models import RiskLevel, RuleResult
 from app.tools.vision_adapter import FakeVisionAdapter
 from app.workflows.business_license import nodes as business_license_nodes
@@ -23,9 +24,10 @@ from app.workflows.qc_document import workflow as qc_document_workflow
 
 @pytest.fixture(autouse=True)
 def use_fake_review_adapters(monkeypatch):
-    # 确保 LLM 提取不会真实调用（测试环境不依赖真实 API）
+    # 测试环境不依赖真实 LLM 或外部 RPA。
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("BUSINESS_LICENSE_SKILL_REVIEW_MODEL", raising=False)
+    monkeypatch.setattr(settings, "rpa_verification_tobacco_enabled", False)
     adapter = DynamicSkillRuleReviewAdapter()
     monkeypatch.setattr(
         business_license_nodes,

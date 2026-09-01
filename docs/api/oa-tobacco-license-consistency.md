@@ -149,6 +149,10 @@ OA 应按 `task_id` 幂等消费可能重复的回调，并根据 `result.data.d
 逐项提供 `field`、`field_label`、`expected`、`actual`、`difference`、`rule_code`、
 `rule_name` 和 `message`，放行与驳回回调都会携带该列表。
 
+一致性规则完成后先形成 OA 预判。预判为 `reject`、`manual_review` 或 `exception` 时立即
+保存并回调，不调用 RPA；只有预判为 `pass` 且已识别许可证号时才执行官网验真。因此字段
+差异达到拒绝阈值时，RPA 技术异常不会覆盖已经形成的 `reject_reasons`。
+
 `decision` 取值：
 
 - `pass`：没有字段差异，或字段差异少于 3 项；OA 流转下一节点。存在差异时
