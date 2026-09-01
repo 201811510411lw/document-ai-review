@@ -88,6 +88,9 @@ callback 是面向 OA 的兼容投影；兼容期内继续发送完整 `rule_res
 结果仍保存在审核结果中，并可通过轮询/详情接口查看。OA 退回时必须把
 `reject_reason_text` 写入流转意见，人工处理时写入 `manual_review_reason_text`；“建议”字段
 优先读取对应原因项的 `suggestion`，旧实现可从失败规则的 `suggestion` 兼容读取。
+领域结果和轮询接口保留四态；当前 OA callback 接收端只支持三态，所以内部
+`manual_review` 在 callback 中映射为 `decision=exception`，同时携带
+`error.code=REVIEW_REQUIRES_MANUAL_REVIEW`、`retryable=false` 以及完整人工处理原因。
 
 字段差异阈值为 3。证据可靠时，`0..2` 项普通字段不匹配由当前机器人节点返回 `pass`，
 由 OA 流转到下一节点复核；达到 3 项时返回 `reject`。子审核未就绪、关键证据缺失或候选
@@ -110,12 +113,12 @@ callback 是面向 OA 的兼容投影；兼容期内继续发送完整 `rule_res
   `rule_code`、`rule_name`、`message`、`suggestion` 和完整 `details`，`reject_reason_text`
   提供可直接写入 OA 流转意见的合并文本。
 - `manual_review`：子审核未就绪、关键证据缺失、候选冲突、人工明确要求补件或其他需要停留
-  当前节点的处置结果；OA 使用 `manual_review_reasons` 和 `manual_review_reason_text` 展示原因。
+  当前节点的领域结果；轮询和详情保持该值，callback 按上述三态兼容规则映射。
 - `exception`：StarRocks、NAS、OCR、LLM、持久化或 RPA 技术失败；OA 停留当前节点，可根据 `data.error.retryable` 重试。
 
 控制台人工驳回和要求补件必须填写处理说明。人工通过回调使用“人工复核通过”摘要；人工驳回
-使用“人工复核驳回”摘要并包含 `MANUAL_REVIEW_REJECTED` 原因；要求补件保持
-`decision=manual_review`，不得改写为技术异常。
+使用“人工复核驳回”摘要并包含 `MANUAL_REVIEW_REJECTED` 原因；要求补件的持久化结果保持
+`decision=manual_review`，callback 仅作带专用错误码的三态协议映射。
 
 触发请求已被正常受理时 `code` 为 `0`；鉴权失败返回 HTTP 401，参数校验失败返回
 HTTP 422，回调地址未配置返回 HTTP 503。最终 `exception` 作为回调业务结果发送。

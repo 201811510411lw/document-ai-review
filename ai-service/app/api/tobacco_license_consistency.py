@@ -1070,8 +1070,9 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
 def _oa_callback_response(result: ReviewResult) -> dict[str, Any]:
     """Map internal evidence-review state to the backward-compatible OA contract."""
     response = _oa_response(result)
-    decision = str(response["data"].get("decision") or "")
-    for rule in response["data"].get("rule_results", []):
+    data = response["data"]
+    decision = str(data.get("decision") or "")
+    for rule in data.get("rule_results", []):
         if rule.get("passed") is not False:
             continue
         rule["suggestion"] = (
@@ -1079,6 +1080,21 @@ def _oa_callback_response(result: ReviewResult) -> dict[str, Any]:
             if decision == "manual_review"
             else _oa_reject_suggestion(rule)
         )
+    if decision == "manual_review":
+        reason_text = str(
+            data.get("manual_review_reason_text")
+            or data.get("summary")
+            or result.summary
+            or "审核证据不足，需要人工处理"
+        ).strip()
+        data["decision"] = "exception"
+        data["summary"] = "系统无法自动完成核对，需人工处理"
+        data["needs_manual_review"] = True
+        data["error"] = {
+            "code": "REVIEW_REQUIRES_MANUAL_REVIEW",
+            "message": reason_text,
+            "retryable": False,
+        }
     return response
 
 

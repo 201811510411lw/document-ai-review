@@ -214,7 +214,7 @@ def test_timeout_callback_can_be_retried_without_changing_review_decision():
     assert audit["business_accepted"] is True
 
 
-def test_manual_review_callback_keeps_legacy_rules_with_non_null_suggestions():
+def test_manual_review_callback_uses_three_state_oa_transport_and_keeps_reasons():
     rule = _rule(
         "TOBACCO_LICENSE_EVIDENCE_FOR_CONSISTENCY",
         details={"missing_evidence_fields": ["license_no_evidence"]},
@@ -241,12 +241,19 @@ def test_manual_review_callback_keeps_legacy_rules_with_non_null_suggestions():
 
     assert response["status"] == "SENT"
     data = callback_client.payloads[0].result["data"]
-    assert data["decision"] == "manual_review"
+    assert data["decision"] == "exception"
+    assert data["error"] == {
+        "code": "REVIEW_REQUIRES_MANUAL_REVIEW",
+        "message": "未通过",
+        "retryable": False,
+    }
     assert data["manual_review_reason_text"] == "未通过"
     assert data["manual_review_reasons"][0]["suggestion"]
     assert data["rule_results"][0]["rule_code"] == rule.rule_code
     assert data["rule_results"][0]["passed"] is False
     assert data["rule_results"][0]["suggestion"]
+    assert repository.saved[-1].status == ReviewStatus.PENDING_MANUAL_REVIEW
+    assert repository.saved[-1].needs_manual_review is True
 
 
 def test_manual_callback_retry_rejects_non_oa_task():
@@ -1149,7 +1156,7 @@ def test_manual_review_requires_comment_for_reject_and_more_info():
             TobaccoManualReviewRequest(decision=decision, comment="  ")
 
 
-def test_request_more_info_callbacks_manual_review_with_reason():
+def test_request_more_info_uses_three_state_callback_with_reason():
     repository = ManualReviewRepository()
     callback_client = CapturingCallbackClient()
     result = _result().model_copy(update={
@@ -1186,10 +1193,16 @@ def test_request_more_info_callbacks_manual_review_with_reason():
     )
 
     data = callback_client.payloads[0].result["data"]
-    assert data["decision"] == "manual_review"
-    assert data["summary"] == "要求补件：请补充清晰的烟草证原件"
+    assert data["decision"] == "exception"
+    assert data["summary"] == "系统无法自动完成核对，需人工处理"
     assert data["needs_manual_review"] is True
-    assert "error" not in data
+    assert data["manual_review_reason_text"] == "请补充清晰的烟草证原件"
+    assert data["manual_review_reasons"][-1]["suggestion"]
+    assert data["error"] == {
+        "code": "REVIEW_REQUIRES_MANUAL_REVIEW",
+        "message": "请补充清晰的烟草证原件",
+        "retryable": False,
+    }
 
 
 def _rule(code, *, details):

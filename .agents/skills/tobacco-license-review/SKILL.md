@@ -74,10 +74,11 @@ OCR/LLM 字段抽取只能依据烟草证图片、PDF 页面或 OCR 文本中的
 - 两类证照子审核完成且业务字段均一致时可无差异流转；存在少量字段差异时按下述阈值携带明细流转到 OA 下一节点复核。
 - 自动一致性审核通常按字段差异数量决定 OA 流转：证据可靠时，`0..2` 项普通字段不匹配由当前机器人节点返回 `pass` 并进入下一节点复核，`>=3` 项时返回 `reject`。字段差异只统计证照类型、许可证号、主体名称、经营地址、负责人和有效期等业务字段；子审核状态、证据完整性等过程规则不计入字段差异数量。烟草证明确已过期属于硬性拒绝条件，即使总差异少于 3 项也返回 `reject`。
 - 子审核未形成可靠自动结论、关键字段缺少 OCR 原文证据或候选材料冲突时必须优先返回 `manual_review`，不得使用这些不可靠字段触发差异阈值自动驳回。数据库、NAS、OCR、LLM、持久化或 RPA 技术故障返回 `exception`。官网真伪核验明确失败仍可直接返回 `reject`，不参与字段差异阈值计算。
-- `pass`、`reject` 回调均必须包含 `mismatch_count`、阈值和结构化 `field_differences`，逐项给出字段名、字段中文名、营业执照侧/期望值、烟草证侧/实际值、差异类型和规则信息，供 OA 下一节点展示和复核。`reject` 回调还必须包含决定性 `reject_reasons`、非空 `suggestion` 和可直接写入 OA 流转意见的 `reject_reason_text`；`manual_review` 回调使用 `manual_review_reasons` 和 `manual_review_reason_text` 说明人工处理原因。兼容期内 callback 保留完整 `rule_results`，并为其中的失败规则补充非空 `suggestion`；审核结果和轮询详情继续保留原始完整规则。
+- 领域结果、持久化和轮询接口保留 `pass`、`reject`、`manual_review`、`exception` 四态；当前 OA 接收端只支持 `pass`、`reject`、`exception` 三态，因此 callback 传输投影将内部 `manual_review` 映射为非重试 `exception`，并使用 `error.code=REVIEW_REQUIRES_MANUAL_REVIEW` 明确表示人工处理，而不是技术故障或业务驳回。该投影必须继续携带 `manual_review_reasons` 和 `manual_review_reason_text`。
+- `pass`、`reject` 回调均必须包含 `mismatch_count`、阈值和结构化 `field_differences`，逐项给出字段名、字段中文名、营业执照侧/期望值、烟草证侧/实际值、差异类型和规则信息，供 OA 下一节点展示和复核。`reject` 回调还必须包含决定性 `reject_reasons`、非空 `suggestion` 和可直接写入 OA 流转意见的 `reject_reason_text`。兼容期内 callback 保留完整 `rule_results`，并为其中的失败规则补充非空 `suggestion`；审核结果和轮询详情继续保留原始完整规则。
 - OA 重复调用必须按 `workflow_id + requestid` 幂等返回，不重复执行文件下载、OCR 或 RPA。
-- OA 触发接口受理后在后台执行审核，最终四态结果回调必须携带原始 `workflow_id`、`requestid` 和 `store_code`；回调投递失败不得改变已经形成的业务审核结论。
-- 人工通过输出 `pass`，摘要必须明确为人工复核通过；人工驳回输出 `reject`，必须携带人工填写的驳回原因；要求补件输出 `manual_review` 并携带补件要求，不得改写为技术 `exception`。
+- OA 触发接口受理后在后台执行审核，最终三态 callback 传输投影必须携带原始 `workflow_id`、`requestid` 和 `store_code`；回调投递失败或三态映射不得改变已经形成并持久化的四态业务审核结论。
+- 人工通过的领域结果为 `pass`，摘要必须明确为人工复核通过；人工驳回为 `reject`，必须携带人工填写的驳回原因；要求补件的领域结果必须保持 `manual_review` 并携带补件要求，只允许在 OA 三态 callback 投影中映射为专用、非重试的 `exception`。
 - 回调的 HTTP 2xx 只证明传输送达。响应正文明确表示失败时必须记为失败；空响应或无法识别的 2xx 响应必须标记为业务未确认，不得宣称 OA 节点已经推进。
 - 每次新回调必须保留可审计记录，包括脱敏后的目标地址、实际请求 JSON、触发来源、尝试次数、HTTP 状态、限长响应正文、业务接受状态、错误和时间；不得保存 Authorization、token、cookie、密码或其他凭据。
 
