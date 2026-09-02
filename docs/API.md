@@ -245,7 +245,8 @@ OA 两个接口使用独立请求头 `X-OA-Token`，密钥由 `OA_AUTO_REVIEW_TO
 和 `field_differences` 携带具体差异字段及两侧值，使用 `reject_reason_text` 或
 `manual_review_reason_text` 提供可直接写入 OA 流转意见的原因文本。为兼容现有 OA 接收端，
 callback 暂时保留完整 `rule_results`，其中失败规则带非空 `suggestion`；原始完整规则仍可通过
-结果轮询和系统详情查看。
+结果轮询和系统详情查看。OA 流转意见和 `suggestion` 使用面向申请人的业务处理建议；子审核状态、
+证据完整性等内部诊断只保留在原始规则结果中，不直接向申请人展示。
 人工驳回和要求补件必须提供非空 `comment`。详情响应包含 `oa_callback` 和
 `oa_callback_history`，用于查看实际请求 JSON、目标地址、HTTP 状态、接收端响应和业务确认结果。
 

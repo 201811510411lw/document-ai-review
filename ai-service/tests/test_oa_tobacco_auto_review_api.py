@@ -247,10 +247,16 @@ def test_automatic_manual_review_callback_uses_exception_and_keeps_reasons():
     assert data["needs_manual_review"] is True
     assert data["error"] == {
         "code": "REVIEW_REQUIRES_MANUAL_REVIEW",
-        "message": "未通过",
+        "message": (
+            "请重新上传清晰、完整的烟草证原件，确保企业名称、负责人、经营地址、"
+            "许可证号、有效期及对应原文清晰可见。"
+        ),
         "retryable": False,
     }
-    assert data["manual_review_reason_text"] == "未通过"
+    assert data["manual_review_reason_text"] == (
+        "请重新上传清晰、完整的烟草证原件，确保企业名称、负责人、经营地址、"
+        "许可证号、有效期及对应原文清晰可见。"
+    )
     assert data["manual_review_reasons"][0]["suggestion"]
     assert data["rule_results"][0]["rule_code"] == rule.rule_code
     assert data["rule_results"][0]["passed"] is False
@@ -296,9 +302,15 @@ def test_small_confirmed_mismatch_callback_uses_manual_review_exception():
     assert data["next_node_review_required"] is True
     assert data["error"] == {
         "code": "REVIEW_REQUIRES_MANUAL_REVIEW",
-        "message": "未通过",
+        "message": (
+            "按照法律规定，用于办理烟草证的营业执照与烟草证上的企业名称、"
+            "负责人和经营地址应保持一致。现企业名称不一致，请先办理变更并确认一致后重新提交；"
+            "如未变更被执法机关查到，可能面临限期整改、罚款或烟草证被取消等后果，"
+            "并可能对我司品牌造成不良影响。"
+        ),
         "retryable": False,
     }
+    assert data["manual_review_reason_text"] == data["error"]["message"]
     assert data["mismatch_count"] == 1
     assert data["manual_review_reasons"][0]["rule_code"] == rule.rule_code
 
@@ -919,11 +931,25 @@ def test_unreliable_child_reviews_do_not_automatically_reject_oa_request(
         "BUSINESS_LICENSE_EVIDENCE_FOR_CONSISTENCY",
         "TOBACCO_LICENSE_EVIDENCE_FOR_CONSISTENCY",
     ]
-    assert response["data"]["manual_review_reason_text"] == (
-        "持证主体营业执照子审核未形成可靠自动结论；"
-        "营业执照关键字段证据完整不足；"
-        "烟草证关键字段证据完整不足"
+    assert [
+        reason["message"] for reason in response["data"]["manual_review_reasons"]
+    ] == [
+        "营业执照识别结果暂时无法支持自动核验",
+        "营业执照关键字段原文证据不完整",
+        "烟草证关键字段原文证据不完整",
+    ]
+    assert response["data"]["manual_review_reason_text"] == "\n\n".join(
+        [
+            "请人工核对营业执照识别结果；如证照图片模糊、缺页或非原件，"
+            "请重新上传清晰、完整的营业执照原件。",
+            "请重新上传清晰、完整的营业执照原件，确保企业名称、负责人、"
+            "经营地址及对应原文清晰可见。",
+            "请重新上传清晰、完整的烟草证原件，确保企业名称、负责人、"
+            "经营地址、许可证号、有效期及对应原文清晰可见。",
+        ]
     )
+    assert "子审核" not in response["data"]["manual_review_reason_text"]
+    assert "证据完整不足" not in response["data"]["manual_review_reason_text"]
     assert all(
         reason["suggestion"]
         for reason in response["data"]["manual_review_reasons"]
@@ -1068,6 +1094,9 @@ def test_expired_tobacco_license_is_rejected_with_detailed_reasons():
     assert response["reject_reasons"][0]["details"]["actual"] == "乙便利店有限公司"
     assert response["reject_reasons"][1]["details"]["actual"] == "2026-06-30"
     assert response["reject_reasons"][1]["details"]["difference"] == "expired"
+    assert "按照法律规定" in response["reject_reason_text"]
+    assert "请前往当地烟草专卖局办理续期" in response["reject_reason_text"]
+    assert response["reject_reason_text"] != "烟草证已过期"
 
 
 def test_expired_tobacco_license_remains_hard_reject_when_other_evidence_is_missing():

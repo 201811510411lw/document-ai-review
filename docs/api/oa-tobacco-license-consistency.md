@@ -96,7 +96,9 @@ callback 是面向 OA 的兼容投影；兼容期内继续发送完整 `rule_res
 补充非空 `suggestion`，避免现有 OA 接收端读取旧字段时异常或显示 `null`。完整原始规则执行
 结果仍保存在审核结果中，并可通过轮询/详情接口查看。OA 退回时必须把
 `reject_reason_text` 写入流转意见，人工处理时写入 `manual_review_reason_text`；“建议”字段
-优先读取对应原因项的 `suggestion`，旧实现可从失败规则的 `suggestion` 兼容读取。
+优先读取对应原因项的 `suggestion`，旧实现可从失败规则的 `suggestion` 兼容读取。这三个面向 OA
+的文本位置统一使用可执行的业务处理建议，不得直接展示“子审核未形成可靠自动结论”或
+“证据完整不足”等内部诊断；内部诊断继续保留在完整 `rule_results` 中供审计排障。
 领域结果和轮询接口保留四态；当前 OA callback 接收端只支持三态。自动审核产生的
 `manual_review` 在 callback 中映射为 `decision=exception`，并携带
 `error.code=REVIEW_REQUIRES_MANUAL_REVIEW`、`retryable=false`、

@@ -117,6 +117,33 @@ def test_tobacco_report_detail_exposes_callback_audit():
     assert report["oa_callback_history"] == history
 
 
+def test_tobacco_report_detail_exposes_backend_rule_suggestion():
+    report = wecom_frontend._frontend_tobacco_report(
+        {
+            "task_id": "tc-oa-evidence",
+            "document_type": "business_tobacco_consistency",
+            "review_status": "PENDING_MANUAL_REVIEW",
+            "risk_level": "MEDIUM",
+            "needs_manual_review": True,
+            "rule_results": [
+                {
+                    "rule_code": "TOBACCO_LICENSE_EVIDENCE_FOR_CONSISTENCY",
+                    "rule_name": "烟草证关键字段证据完整",
+                    "passed": False,
+                    "message": "烟草证关键字段证据完整不足",
+                    "details": {},
+                }
+            ],
+        },
+        detail=True,
+    )
+
+    assert report["rule_results"][0]["suggestion"] == (
+        "请重新上传清晰、完整的烟草证原件，确保企业名称、负责人、经营地址、"
+        "许可证号、有效期及对应原文清晰可见。"
+    )
+
+
 def test_tobacco_reports_returns_empty_records_for_empty_repository(monkeypatch):
     monkeypatch.setattr(wecom_frontend, "list_tobacco_reports", lambda: [])
 

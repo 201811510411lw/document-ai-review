@@ -52,7 +52,7 @@
               <span>{{ rule.message }}</span>
               <!-- 失败规则展示解决方案 -->
               <div v-if="!rule.passed" class="rule-solution">
-                <van-icon name="info-o" /> {{ ruleSolution(rule.rule_code) }}
+                <van-icon name="info-o" /> {{ ruleSolution(rule) }}
               </div>
             </div>
           </article>
@@ -424,57 +424,8 @@ function modeLabel(mode) { return mode === 'store_in_store' ? '店中店核对' 
 function formatTime(value) { return value ? String(value).replace('T', ' ').slice(0, 19) : '-' }
 function attachmentRoleLabel(role) { return { tobacco_license: '烟草证', business_license: '烟草持证主体营业执照', franchisee_business_license: '加盟店营业执照', selected_attachment: '核对选用附件' }[role] || 'OA 附件' }
 
-const RULE_SUGGESTIONS = {
-  BUSINESS_TOBACCO_SUBJECT_NAME_MATCH:
-    '按照法律规定，用于办理烟证的营业执照与烟证上的三信息（企业名称、负责人、经营地址）一致，'
-    + '现企业名称不一致，按照法律规定需要变更为一致，若未变更被执法机关查到，'
-    + '轻则限期整改，重则被罚款、取消烟草证等，同时会对我司品牌造成不良影响。'
-    + '建议加盟商变更后经营。\n'
-    + '店中店模式仅要求烟草持证主体营业执照与烟草证名称一致，不要求加盟店营业执照与持证主体同名。\n'
-    + '如无法变更但坚持售卖，需要在 OA 流程写：'
-    + '已确认和接受因企业名称、地址、负责人不一致，未变更被执法机关查到，'
-    + '轻则限期整改，重则被罚款、取消烟草证等，同时会对我司品牌造成不良影响的风险。',
-  BUSINESS_TOBACCO_ADDRESS_MATCH:
-    '按照法律规定，用于办理烟证的营业执照与烟证上的三信息（企业名称、负责人、经营地址）一致，'
-    + '现地址不一致，按照法律规定需要变更为一致，若未变更被执法机关查到，'
-    + '轻则限期整改，重则被罚款、取消烟草证等，同时会对我司品牌造成不良影响。\n'
-    + '按照法律规定，一定要在烟证上的地址上卖烟，如果在零食有鸣店铺上卖烟，那么烟证地址需在零食有鸣店铺上。\n'
-    + '请选择以下方式之一处理：\n'
-    + '1. 变更地址使两证一致；\n'
-    + '2. 上传烟证上的地址是用于经营零食有鸣的照片（照片上要显示烟证上的门牌号 + 实际用于经营零食有鸣）；\n'
-    + '3. 上传政府部门（如当地派出所/房管局等出具的地址名称一致证明文件）。\n'
-    + '如无法变更但坚持售卖，需要在 OA 流程写：'
-    + '已确认和接受因企业名称、地址、负责人不一致，未变更被执法机关查到，'
-    + '轻则限期整改，重则被罚款、取消烟草证等，同时会对我司品牌造成不良影响的风险。',
-  BUSINESS_TOBACCO_PERSON_MATCH:
-    '单店模式：经营零食有鸣营业执照上的负责人与烟草证上的负责人需要一致，'
-    + '现经营零食有鸣营业执照上的负责人与烟草证上的负责人不一致，'
-    + '请联系招商处理是否需要补签三方协议还是门店模式填写错误。\n'
-    + '按照法律规定，用于办理烟证的营业执照与烟证上的三信息（企业名称、负责人、经营地址）一致，'
-    + '现负责人不一致，按照法律规定需要变更为一致，若未变更被执法机关查到，'
-    + '轻则限期整改，重则被罚款、取消烟草证等，同时会对我司品牌造成不良影响。'
-    + '建议加盟商变更后经营。\n'
-    + '如无法变更但坚持售卖，需要在 OA 流程写：'
-    + '已确认和接受因企业名称、地址、负责人不一致，未变更被执法机关查到，'
-    + '轻则限期整改，重则被罚款、取消烟草证等，同时会对我司品牌造成不良影响的风险。',
-  BUSINESS_TOBACCO_TOBACCO_VALIDITY:
-    '烟草证已过期或临近过期，请前往当地烟草专卖局办理续期后重新提交。',
-  STORE_IN_STORE_HOLDER_NAME_MATCH:
-    '店中店模式下，烟草持证主体营业执照与烟草证的企业名称必须一致，请核对两份证照或办理变更。',
-  STORE_IN_STORE_HOLDER_PERSON_MATCH:
-    '店中店模式下，烟草持证主体营业执照与烟草证的负责人必须一致，请核对两份证照或办理变更。',
-  STORE_IN_STORE_HOLDER_ADDRESS_MATCH:
-    '请确认烟草持证主体营业执照与烟草证登记地址一致；地址名称不同但实为同址时，上传门牌照片或政府同址证明。',
-  STORE_IN_STORE_FRANCHISEE_ADDRESS_MATCH:
-    '加盟店营业执照地址必须与烟草证售烟地址一致或属于同一经营场所；请上传门牌照片或政府同址证明后人工复核。',
-  STANDARD_FRANCHISEE_NAME_MATCH:
-    '单店模式下，营业执照和烟草证主体必须与加盟商名称一致，请核对 OA 加盟商信息或办理证照变更。',
-  STANDARD_FRANCHISEE_NAME_EVIDENCE:
-    'OA 未提供加盟商主体名称，无法完成单店主体绑定校验，请补充后重新审核。',
-}
-
-function ruleSolution(ruleCode) {
-  return RULE_SUGGESTIONS[ruleCode] || '请核对证照信息后重新提交'
+function ruleSolution(rule) {
+  return rule?.suggestion || '请核对证照信息后重新提交'
 }
 
 function previewOaAttachment(attachment) {

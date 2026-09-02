@@ -41,6 +41,12 @@ from app.services.tobacco_consistency_extraction import (
     extract_consistency_document_results,
     resolved_consistency_fields,
 )
+from app.services.tobacco_consistency_presentation import (
+    tobacco_consistency_action_text,
+    tobacco_consistency_public_message,
+    tobacco_consistency_rule_suggestion,
+    with_tobacco_consistency_suggestion,
+)
 from app.services.tobacco_license_files import (
     TobaccoLicenseFileStore,
     TobaccoLicenseFileStoreError,
@@ -995,7 +1001,10 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
         "next_node_review_required": (
             decision == "manual_review" and manual_action is None
         ),
-        "rule_results": [rule.model_dump(mode="json") for rule in result.rule_results],
+        "rule_results": [
+            with_tobacco_consistency_suggestion(rule.model_dump(mode="json"))
+            for rule in result.rule_results
+        ],
         "needs_manual_review": decision in {"manual_review", "exception"},
     }
     if decision == "manual_review":
@@ -1014,9 +1023,15 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
             {
                 "rule_code": rule.rule_code,
                 "rule_name": rule.rule_name,
-                "message": rule.message,
+                "message": tobacco_consistency_public_message(
+                    rule.rule_code,
+                    rule.message,
+                ),
                 "details": rule.details,
-                "suggestion": _oa_manual_review_suggestion(rule.rule_code),
+                "suggestion": tobacco_consistency_rule_suggestion(
+                    rule.rule_code,
+                    rule.details,
+                ),
             }
             for rule in (unreliable_rules or failed)
         ]
@@ -1030,10 +1045,10 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
                 }
             )
         data["manual_review_reasons"] = manual_review_reasons
-        data["manual_review_reason_text"] = "；".join(
-            str(reason.get("message") or "").strip()
-            for reason in manual_review_reasons
-            if str(reason.get("message") or "").strip()
+        data["manual_review_reason_text"] = (
+            manual_comment
+            if manual_action == "request_more_info"
+            else tobacco_consistency_action_text(manual_review_reasons)
         )
     if decision == "reject":
         reject_reasons = [
@@ -1066,14 +1081,19 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
                 }
             )
         for reason in reject_reasons:
-            reason["suggestion"] = _oa_reject_suggestion(reason)
+            reason["suggestion"] = tobacco_consistency_rule_suggestion(
+                str(reason.get("rule_code") or ""),
+                reason.get("details")
+                if isinstance(reason.get("details"), dict)
+                else {},
+            )
         if manual_action is None:
             data["summary"] = f"一致性核对未通过，共 {len(reject_reasons)} 项问题"
         data["reject_reasons"] = reject_reasons
-        data["reject_reason_text"] = "；".join(
-            str(reason.get("message") or "").strip()
-            for reason in reject_reasons
-            if str(reason.get("message") or "").strip()
+        data["reject_reason_text"] = (
+            manual_comment
+            if manual_action == "rejected"
+            else tobacco_consistency_action_text(reject_reasons)
         )
     if decision == "exception" and isinstance(rpa_info, dict):
         data["error"] = {
@@ -1093,14 +1113,6 @@ def _oa_callback_response(result: ReviewResult) -> dict[str, Any]:
     response = _oa_response(result)
     data = response["data"]
     decision = str(data.get("decision") or "")
-    for rule in data.get("rule_results", []):
-        if rule.get("passed") is not False:
-            continue
-        rule["suggestion"] = (
-            _oa_manual_review_suggestion(str(rule.get("rule_code") or ""))
-            if decision == "manual_review"
-            else _oa_reject_suggestion(rule)
-        )
     if decision == "manual_review":
         reason_text = str(
             data.get("manual_review_reason_text")
@@ -1124,49 +1136,6 @@ def _oa_callback_response(result: ReviewResult) -> dict[str, Any]:
         if manual_action == "request_more_info":
             data["next_node_review_required"] = False
     return response
-
-
-def _oa_reject_suggestion(reason: dict[str, Any]) -> str:
-    rule_code = str(reason.get("rule_code") or "")
-    details = (
-        reason.get("details") if isinstance(reason.get("details"), dict) else {}
-    )
-    field_label = {
-        "subject_name": "主体名称",
-        "business_address": "经营地址",
-        "legal_person": "法定代表人/负责人",
-        "license_no": "许可证号",
-        "valid_to": "有效期",
-    }.get(str(details.get("field") or ""))
-    if rule_code == "MANUAL_REVIEW_REJECTED":
-        return "请根据人工复核意见处理后重新提交"
-    if rule_code == "TOBACCO_LICENSE_RPA_VERIFICATION":
-        return "请核实烟草证真伪并补充有效证照后重新提交"
-    if details.get("difference") == "expired":
-        return "请提供有效期内的烟草证后重新提交"
-    if rule_code == "STANDARD_FRANCHISEE_NAME_MATCH":
-        return "请核对 OA 加盟商名称与单店证照主体，确认一致后重新提交"
-    if rule_code in {
-        "STORE_IN_STORE_HOLDER_ADDRESS_MATCH",
-        "STORE_IN_STORE_FRANCHISEE_ADDRESS_MATCH",
-    }:
-        return "请核对三证经营地址；同址不同写法需补充门牌照片或政府同址证明"
-    if field_label:
-        return f"请核对营业执照与烟草证的{field_label}，确认一致后重新提交"
-    return "请核对相关证照材料，确认无误后重新提交"
-
-
-def _oa_manual_review_suggestion(rule_code: str) -> str:
-    if rule_code.endswith("_CHILD_REVIEW_READY"):
-        return "请人工核对子审核结论及原始证照"
-    if rule_code == "STANDARD_FRANCHISEE_NAME_EVIDENCE":
-        return "请补充 OA 加盟商主体名称，不得使用门店名称代替"
-    if rule_code in {
-        "STORE_IN_STORE_HOLDER_ADDRESS_MATCH",
-        "STORE_IN_STORE_FRANCHISEE_ADDRESS_MATCH",
-    }:
-        return "请核验门牌照片或派出所、房管局、社区委员会等机构出具的同址证明"
-    return "请核对原始证照并补充缺失字段的可追溯证据"
 
 
 def _oa_outcome_response(outcome: OaAutoReviewOutcome) -> dict[str, Any]:

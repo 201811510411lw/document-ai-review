@@ -31,6 +31,9 @@ from app.services.tobacco_review_cache import (
     save_tobacco_report,
 )
 from app.services.tobacco_license_files import TobaccoLicenseFileStore, TobaccoLicenseFileStoreError
+from app.services.tobacco_consistency_presentation import (
+    with_tobacco_consistency_suggestion,
+)
 from app.workflows.registry import review_graph_registry
 
 
@@ -890,7 +893,10 @@ def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> di
     business = dict(row.get("business_license_fields") or comparison.get("business_license") or {})
     franchisee_business = dict(comparison.get("franchisee_business_license") or {})
     tobacco = dict(row.get("tobacco_license_fields") or comparison.get("tobacco_license") or {})
-    rules = list(row.get("rule_results") or [])
+    rules = [
+        with_tobacco_consistency_suggestion(rule)
+        for rule in (row.get("rule_results") or [])
+    ]
     source_evidence = dict(row.get("source_evidence") or {})
     source = dict(source_evidence.get("source") or {})
     oa = dict(row.get("oa") or source.get("oa") or {})
