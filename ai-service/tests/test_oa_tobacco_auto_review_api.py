@@ -994,27 +994,23 @@ def test_unreliable_child_reviews_do_not_automatically_reject_oa_request(
     assert [
         reason["rule_code"] for reason in response["data"]["manual_review_reasons"]
     ] == [
-        "BUSINESS_LICENSE_CHILD_REVIEW_READY",
-        "BUSINESS_LICENSE_EVIDENCE_FOR_CONSISTENCY",
-        "TOBACCO_LICENSE_EVIDENCE_FOR_CONSISTENCY",
+        "TOBACCO_LICENSE_TYPE_FOR_CONSISTENCY",
+        "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
+        "BUSINESS_TOBACCO_ADDRESS_MATCH",
+        "BUSINESS_TOBACCO_PERSON_MATCH",
     ]
     assert [
         reason["message"] for reason in response["data"]["manual_review_reasons"]
     ] == [
-        "营业执照识别结果暂时无法支持自动核验",
-        "营业执照关键字段原文证据不完整",
-        "烟草证关键字段原文证据不完整",
+        "烟草证类型不匹配",
+        "营业执照主体名称与烟草证主体名称不一致",
+        "营业执照经营地址与烟草证经营地址不一致",
+        "营业执照法定代表人/负责人与烟草证法定代表人/负责人不一致",
     ]
-    assert response["data"]["manual_review_reason_text"] == "\n\n".join(
-        [
-            "请人工核对营业执照识别结果；如证照图片模糊、缺页或非原件，"
-            "请重新上传清晰、完整的营业执照原件。",
-            "请重新上传清晰、完整的营业执照原件，确保企业名称、负责人、"
-            "经营地址及对应原文清晰可见。",
-            "请重新上传清晰、完整的烟草证原件，确保企业名称、负责人、"
-            "经营地址、许可证号、有效期及对应原文清晰可见。",
-        ]
-    )
+    assert "现企业名称不一致" in response["data"]["manual_review_reason_text"]
+    assert "现经营地址不一致" in response["data"]["manual_review_reason_text"]
+    assert "现负责人不一致" in response["data"]["manual_review_reason_text"]
+    assert "重新上传清晰" not in response["data"]["manual_review_reason_text"]
     assert "子审核" not in response["data"]["manual_review_reason_text"]
     assert "证据完整不足" not in response["data"]["manual_review_reason_text"]
     assert all(

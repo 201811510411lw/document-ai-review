@@ -1055,6 +1055,16 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
         "needs_manual_review": decision in {"manual_review", "exception"},
     }
     if decision == "manual_review":
+        field_difference_rule_codes = {
+            str(item.get("rule_code") or "")
+            for item in field_differences
+            if item.get("rule_code")
+        }
+        field_difference_rules = [
+            rule
+            for rule in failed
+            if rule.rule_code in field_difference_rule_codes
+        ]
         unreliable_rules = [
             rule
             for rule in failed
@@ -1080,7 +1090,7 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
                     rule.details,
                 ),
             }
-            for rule in (unreliable_rules or failed)
+            for rule in (field_difference_rules or unreliable_rules or failed)
         ]
         if manual_action == "request_more_info":
             manual_review_reasons.append(
