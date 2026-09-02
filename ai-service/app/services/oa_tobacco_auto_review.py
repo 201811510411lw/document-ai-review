@@ -67,6 +67,7 @@ class OaAutoReviewCommand(BaseModel):
     store_name: str | None = None
     franchisee_name: str | None = None
     workflow_id: int = Field(gt=0)
+    submission_version: int = Field(default=1, gt=0)
 
 
 class OaAutoReviewError(BaseModel):
@@ -101,7 +102,11 @@ class OaTobaccoAutoReviewService:
         self._document_review_service = document_review_service
 
     def review(self, command: OaAutoReviewCommand) -> OaAutoReviewOutcome:
-        task_id = oa_auto_review_task_id(command.workflow_id, command.requestid)
+        task_id = oa_auto_review_task_id(
+            command.workflow_id,
+            command.requestid,
+            command.submission_version,
+        )
         return self._review_once(task_id, command)
 
     def update_callback_state(
@@ -485,6 +490,14 @@ class OaTobaccoAutoReviewService:
                     task_id,
                     command.requestid,
                 )
+            result = result.model_copy(
+                update={
+                    "skill_result": {
+                        **(result.skill_result or {}),
+                        "oa_claim": (claim.skill_result or {}).get("oa_claim", {}),
+                    }
+                }
+            )
             if not self._repository.complete_claim(claim, result):
                 return _claim_lost(task_id)
             logger.info(
@@ -627,8 +640,15 @@ class OaTobaccoAutoReviewService:
         return stage
 
 
-def oa_auto_review_task_id(workflow_id: int, requestid: int) -> str:
-    return f"tc-oa-{workflow_id}-{requestid}"
+def oa_auto_review_task_id(
+    workflow_id: int,
+    requestid: int,
+    submission_version: int = 1,
+) -> str:
+    base_task_id = f"tc-oa-{workflow_id}-{requestid}"
+    if submission_version == 1:
+        return base_task_id
+    return f"{base_task_id}-s{submission_version}"
 
 
 def _claim_lost(task_id: str) -> OaAutoReviewOutcome:
@@ -662,6 +682,7 @@ def _claim_result(task_id: str, command: OaAutoReviewCommand) -> ReviewResult:
                 "claim_token": uuid4().hex,
                 "requestid": command.requestid,
                 "workflow_id": command.workflow_id,
+                "submission_version": command.submission_version,
                 "store_code": command.store_code,
             }
         },

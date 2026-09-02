@@ -53,7 +53,7 @@ Shell 环境变量可覆盖 YAML；dotenv 文件只加载 Secret 白名单。精
 OA 自动审核和烟草证来源文件接口直接查询 `ecology` MySQL 中的 `formtable_main_283`、`workflow_requestbase`、`docdetail`、`docimagefile`、`imagefile` 五张源表，不再等待 StarRocks ODS 同步。应用从允许的 NAS 根目录准备附件，并将文件复制或安全解压到受控数据目录。路径必须位于允许目录内；加密附件、损坏压缩包、缺失文件和越界路径都会产生明确错误。
 
 证照字段必须来自附件识别结果或人工确认，不能使用 OA 门店名称补造主体字段。
-OA 自动审核按调用方显式提供的正整数 `workflow_id` 和精确 `requestid` 获取 OA MySQL/NAS 附件；当前“烟草商品建档申请”流程传 `614`，
+OA 自动审核按调用方显式提供的正整数 `workflow_id` 和精确 `requestid` 获取 OA MySQL/NAS 附件，并按 `submission_version` 区分重提版本；当前“烟草商品建档申请”流程传 `614`，
 用 `X-OA-Token` 鉴权并受理后台审核，完成后向服务端配置的固定地址 POST 最终结果；
 系统不会主动推进 OA 流程，也不会调用请求方传入的任意 callback URL。
 

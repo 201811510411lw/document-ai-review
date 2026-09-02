@@ -69,7 +69,7 @@ OCR/LLM 字段抽取只能依据烟草证图片、PDF 页面或 OCR 文本中的
 
 ### 营业执照与烟草证一致性
 
-- OA 自动审核必须显式传入正整数 `workflow_id`，来源任务由 `workflow_id + requestid` 精确定位，禁止按门店名称、标题包含或最新记录回退；当前“烟草商品建档申请”流程传 `614`。
+- OA 自动审核必须显式传入正整数 `workflow_id`，来源任务由 `workflow_id + requestid` 精确定位，禁止按门店名称、标题包含或最新记录回退；当前“烟草商品建档申请”流程传 `614`。审核执行由 `workflow_id + requestid + submission_version` 标识，`submission_version` 为从 `1` 开始的正整数。
 - OA 的 `store_code` 只用于与来源记录交叉校验，不作为证照字段或模糊查询依据。
 - 两类证照子审核完成且业务字段均一致时可自动通过；存在少量字段差异时按下述阈值携带明细流转到 OA 下一节点复核。
 - 自动一致性审核通常按字段差异数量决定 OA 流转：证据可靠时，0 项普通字段不匹配返回 `pass`，1..3 项返回 `manual_review` 并进入专用人工审批节点，`>=4` 项返回 `reject`。字段差异只统计证照类型、许可证号、主体名称、经营地址、负责人和有效期等业务字段；子审核状态、证据完整性等过程规则不计入字段差异数量。烟草证明确已过期属于硬性拒绝条件，即使总差异少于 4 项也返回 `reject`。
@@ -77,8 +77,8 @@ OCR/LLM 字段抽取只能依据烟草证图片、PDF 页面或 OCR 文本中的
 - 领域结果、持久化和轮询接口保留 `pass`、`reject`、`manual_review`、`exception` 四态；当前 OA 接收端只支持 `pass`、`reject`、`exception` 三态。自动审核产生的 `manual_review` 在 callback 中使用非重试 `exception` 进入专用人工审批节点，并携带 `error.code=REVIEW_REQUIRES_MANUAL_REVIEW`、`review_decision=manual_review`、`next_node_review_required=true`、`manual_review_reasons` 和 `manual_review_reason_text`。该传输投影不得改变持久化的业务结论。人工明确要求补件同样映射为非重试 `exception`，但 `next_node_review_required=false`。
 - 人工审批 `exception` transport 和 `reject` 回调均必须包含 `mismatch_count`、阈值和结构化 `field_differences`，逐项给出字段名、字段中文名、营业执照侧/期望值、烟草证侧/实际值、差异类型和规则信息，供 OA 下一节点展示和复核。`reject` 回调还必须包含决定性 `reject_reasons`、非空 `suggestion` 和可直接写入 OA 流转意见的 `reject_reason_text`。兼容期内 callback 保留完整 `rule_results`，并为其中的失败规则补充非空 `suggestion`；审核结果和轮询详情继续保留原始完整规则。
 - OA 的 `manual_review_reason_text`、`reject_reason_text` 和原因项 `suggestion` 必须使用面向申请人的业务处理建议，说明需要补充或变更的材料以及可执行的下一步。`子审核未形成可靠自动结论`、`证据完整不足` 等内部规则诊断只能保留在原始 `rule_results` 和审计数据中，不得直接写入 OA 流转意见。名称、地址、负责人不一致时使用对应的合规风险与整改建议；证照识别或原文证据不足时提示重新上传清晰、完整原件及需要清晰可见的字段。
-- OA 重复调用必须按 `workflow_id + requestid` 幂等返回，不重复执行文件下载、OCR 或 RPA。
-- OA 触发接口受理后在后台执行审核，最终三态 callback 传输投影必须携带原始 `workflow_id`、`requestid` 和 `store_code`；回调投递失败或三态映射不得改变已经形成并持久化的四态业务审核结论。
+- OA 同一提交版本的重复调用必须按 `workflow_id + requestid + submission_version` 幂等返回，不重复执行文件下载、OCR 或 RPA。驳回后用户重新提交时，OA 必须递增 `submission_version`，系统创建新 Review Task、重新读取当前附件并执行 OCR；普通网络重试不得递增版本。
+- OA 触发接口受理后在后台执行审核，最终三态 callback 传输投影必须携带原始 `workflow_id`、`requestid`、`submission_version` 和 `store_code`；回调投递失败或三态映射不得改变已经形成并持久化的四态业务审核结论。
 - 人工通过的领域结果为 `pass`，摘要必须明确为人工复核通过；人工驳回为 `reject`，必须携带人工填写的驳回原因；要求补件的领域结果必须保持 `manual_review` 并携带补件要求，只允许在 OA 三态 callback 投影中映射为专用、非重试的 `exception`。
 - 回调的 HTTP 2xx 只证明传输送达。响应正文明确表示失败时必须记为失败；空响应或无法识别的 2xx 响应必须标记为业务未确认，不得宣称 OA 节点已经推进。
 - 每次新回调必须保留可审计记录，包括脱敏后的目标地址、实际请求 JSON、触发来源、尝试次数、HTTP 状态、限长响应正文、业务接受状态、错误和时间；不得保存 Authorization、token、cookie、密码或其他凭据。

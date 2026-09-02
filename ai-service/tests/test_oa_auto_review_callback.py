@@ -23,6 +23,7 @@ from app.services.oa_tobacco_auto_review import (
     OaAutoReviewCommand,
     OaAutoReviewError,
     OaAutoReviewOutcome,
+    oa_auto_review_task_id,
 )
 
 
@@ -45,7 +46,11 @@ class CapturingCallbackClient:
 class CompletedReviewService:
     def review(self, command):
         return OaAutoReviewOutcome(
-            task_id=f"tc-oa-{command.workflow_id}-{command.requestid}",
+            task_id=oa_auto_review_task_id(
+                command.workflow_id,
+                command.requestid,
+                command.submission_version,
+            ),
             result=_review_result(command),
         )
 
@@ -89,9 +94,40 @@ def test_submit_returns_processing_and_schedules_background_review():
             "status": "processing",
             "task_id": "tc-oa-123-584412",
             "workflow_id": 123,
+            "submission_version": 1,
         },
     }
     assert len(background_tasks.tasks) == 1
+
+
+def test_resubmission_version_creates_a_new_review_task():
+    background_tasks = CapturingBackgroundTasks()
+
+    response = submit_oa_auto_review(
+        OaAutoReviewRequest(
+            requestid=584412,
+            store_code="0001",
+            store_name="测试门店",
+            workflow_id=123,
+            submission_version=2,
+        ),
+        background_tasks=background_tasks,
+        _oa_client={"client": "oa"},
+        sql_client=object(),
+        file_store=object(),
+        repository=object(),
+        document_review_service=object(),
+        callback_client=CapturingCallbackClient(),
+    )
+
+    assert response["data"] == {
+        "status": "processing",
+        "task_id": "tc-oa-123-584412-s2",
+        "workflow_id": 123,
+        "submission_version": 2,
+    }
+    command = background_tasks.tasks[0][2]["command"]
+    assert command.submission_version == 2
 
 
 def test_background_review_posts_result_with_original_oa_identity():
@@ -115,6 +151,27 @@ def test_background_review_posts_result_with_original_oa_identity():
     assert payload.store_code == "0001"
     assert payload.result["data"]["decision"] == "pass"
     assert payload.result["data"]["task_id"] == "tc-oa-123-584412"
+
+
+def test_resubmission_callback_carries_submission_identity():
+    command = OaAutoReviewCommand(
+        requestid=584412,
+        store_code="0001",
+        store_name="测试门店",
+        workflow_id=123,
+        submission_version=2,
+    )
+    callback_client = CapturingCallbackClient()
+
+    _run_oa_auto_review_and_callback(
+        command=command,
+        review_service=CompletedReviewService(),
+        callback_client=callback_client,
+    )
+
+    payload = callback_client.payloads[0]
+    assert payload.submission_version == 2
+    assert payload.result["data"]["task_id"] == "tc-oa-123-584412-s2"
 
 
 def test_duplicate_background_review_does_not_callback_in_progress_as_final_result():
@@ -398,7 +455,11 @@ def test_callback_client_rejects_explicit_business_failure_in_http_2xx(monkeypat
 def _review_result(command):
     now = datetime(2026, 8, 5, tzinfo=timezone.utc)
     return ReviewResult(
-        task_id=f"tc-oa-{command.workflow_id}-{command.requestid}",
+        task_id=oa_auto_review_task_id(
+            command.workflow_id,
+            command.requestid,
+            command.submission_version,
+        ),
         use_case_name="tobacco_license_consistency_review",
         use_case_version="v1",
         skill_name="tobacco_license_consistency_review",

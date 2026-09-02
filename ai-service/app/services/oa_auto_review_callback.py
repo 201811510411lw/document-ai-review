@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 class OaAutoReviewCallbackPayload(BaseModel):
     workflow_id: int = Field(gt=0)
     requestid: int = Field(gt=0)
+    submission_version: int = Field(default=1, gt=0)
     store_code: str
     result: dict[str, Any]
 

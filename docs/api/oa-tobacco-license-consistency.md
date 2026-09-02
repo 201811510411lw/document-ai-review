@@ -12,7 +12,8 @@
   "store_code": "00001",
   "store_name": "示例门店",
   "franchisee_name": "成都示例商贸有限公司",
-  "workflow_id": 614
+  "workflow_id": 614,
+  "submission_version": 1
 }
 ```
 
@@ -21,8 +22,11 @@
 `store_name` 猜测企业主体。当前“烟草商品建档申请”流程
 传 `614`；接口使用调用方提供的流程 ID 精确查询来源记录。为兼容现有 OA 调用，
 `callback_url` 可传空字符串并会被忽略，非空 URL 会被拒绝；接口不接受证照字段。
-任务 ID 固定为 `tc-oa-{workflow_id}-{requestid}`。接口受理后立即返回任务身份，审核在后台
-执行；重复任务仍由结果库幂等占位保护，不重复执行文件下载、OCR 或 RPA。
+`submission_version` 是从 `1` 开始的正整数，未传时兼容为 `1`。首次提交任务 ID 为
+`tc-oa-{workflow_id}-{requestid}`，版本 `2+` 的任务 ID 为
+`tc-oa-{workflow_id}-{requestid}-s{submission_version}`。同版本重复调用由结果库幂等占位保护，
+不重复执行文件下载、OCR 或 RPA；驳回后用户重新提交时，OA 必须递增版本，系统创建新任务并
+重新读取当前附件执行 OCR。普通网络重试必须保持原版本。
 
 附件中只有一张不同主体营业执照时按单店审核；存在两张不同主体营业执照时，系统尝试把主体名称
 和负责人同时与烟草证唯一匹配的一张分配为烟草持证主体营业执照，另一张分配为加盟店营业执照，
@@ -39,7 +43,8 @@
   "data": {
     "status": "processing",
     "task_id": "tc-oa-614-584412",
-    "workflow_id": 614
+    "workflow_id": 614,
+    "submission_version": 1
   }
 }
 ```
@@ -54,6 +59,7 @@
 {
   "workflow_id": 614,
   "requestid": 584412,
+  "submission_version": 1,
   "store_code": "00001",
   "result": {
     "code": 0,
@@ -91,7 +97,8 @@
 明确返回失败时，本次回调仍记为失败。空响应或无法识别的响应记为“HTTP 已投递、OA 业务未确认”。
 审核详情保存并展示回调目标、实际请求 JSON、尝试次数、HTTP 状态、脱敏且限长的响应正文、
 业务接受状态和错误。历史版本未保存的请求正文不会被重建为真实发送记录。
-OA 应按 `task_id` 幂等消费可能重复的回调，并根据 `result.data.decision` 执行流程分支。
+OA 应按 `task_id` 幂等消费可能重复的回调，并使用 `submission_version` 关联本次提交，根据
+`result.data.decision` 执行流程分支。旧版本迟到的回调不得覆盖较新提交版本的流程状态。
 callback 是面向 OA 的兼容投影；兼容期内继续发送完整 `rule_results`，并为其中所有失败规则
 补充非空 `suggestion`，避免现有 OA 接收端读取旧字段时异常或显示 `null`。完整原始规则执行
 结果仍保存在审核结果中，并可通过轮询/详情接口查看。OA 退回时必须把

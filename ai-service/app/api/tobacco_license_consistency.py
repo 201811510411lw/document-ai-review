@@ -131,6 +131,7 @@ class OaAutoReviewRequest(BaseModel):
     store_name: str | None = Field(default=None, max_length=256)
     franchisee_name: str | None = Field(default=None, max_length=256)
     workflow_id: int = Field(gt=0)
+    submission_version: int = Field(default=1, gt=0)
     callback_url: str | None = None
 
     @field_validator("store_code")
@@ -503,6 +504,7 @@ def create_oa_auto_review(
             store_name=request.store_name,
             franchisee_name=request.franchisee_name,
             workflow_id=request.workflow_id,
+            submission_version=request.submission_version,
         )
     )
     return _oa_outcome_response(outcome)
@@ -528,8 +530,13 @@ def submit_oa_auto_review(
         store_name=request.store_name,
         franchisee_name=request.franchisee_name,
         workflow_id=request.workflow_id,
+        submission_version=request.submission_version,
     )
-    task_id = oa_auto_review_task_id(command.workflow_id, command.requestid)
+    task_id = oa_auto_review_task_id(
+        command.workflow_id,
+        command.requestid,
+        command.submission_version,
+    )
     background_tasks.add_task(
         _run_oa_auto_review_and_callback,
         command=command,
@@ -548,6 +555,7 @@ def submit_oa_auto_review(
             "status": "processing",
             "task_id": task_id,
             "workflow_id": command.workflow_id,
+            "submission_version": command.submission_version,
         },
     }
 
@@ -558,7 +566,11 @@ def _run_oa_auto_review_and_callback(
     review_service: OaTobaccoAutoReviewService,
     callback_client: OaAutoReviewCallbackClient,
 ) -> None:
-    task_id = oa_auto_review_task_id(command.workflow_id, command.requestid)
+    task_id = oa_auto_review_task_id(
+        command.workflow_id,
+        command.requestid,
+        command.submission_version,
+    )
     try:
         outcome = review_service.review(command)
         if outcome.error is not None and outcome.error.code in {
@@ -584,6 +596,7 @@ def _run_oa_auto_review_and_callback(
     payload = OaAutoReviewCallbackPayload(
         workflow_id=command.workflow_id,
         requestid=command.requestid,
+        submission_version=command.submission_version,
         store_code=command.store_code,
         result=result,
     )
@@ -789,6 +802,7 @@ def _manual_oa_callback_payload(payload: ReviewResult) -> OaAutoReviewCallbackPa
     return OaAutoReviewCallbackPayload(
         workflow_id=workflow_id,
         requestid=requestid,
+        submission_version=int(claim.get("submission_version") or 1),
         store_code=store_code,
         result=_oa_callback_response(payload),
     )

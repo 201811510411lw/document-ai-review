@@ -497,12 +497,21 @@ def test_workflow_id_is_required_and_accepts_positive_custom_value():
         workflow_id=123,
     )
     assert request.workflow_id == 123
+    assert request.submission_version == 1
 
     with pytest.raises(ValidationError):
         OaAutoReviewRequest(
             requestid=584412,
             store_code="00001",
             workflow_id=0,
+        )
+
+    with pytest.raises(ValidationError):
+        OaAutoReviewRequest(
+            requestid=584412,
+            store_code="00001",
+            workflow_id=123,
+            submission_version=0,
         )
 
 
@@ -526,6 +535,64 @@ def test_repeated_oa_request_returns_saved_result_without_reprocessing():
     assert response["data"]["decision"] == "pass"
     assert response["data"]["task_id"] == "tc-oa-614-584412"
     assert repository.reads == 1
+
+
+def test_new_submission_version_reprocesses_and_is_idempotent_within_version(
+    monkeypatch,
+    tmp_path,
+):
+    source_files = [
+        _source("business_license", 1001),
+        _source("tobacco_license", 1002),
+    ]
+    documents = [_stored(tmp_path, source) for source in source_files]
+    repository = NewResultRepository()
+    repository.saved.append(_result())
+    source_calls = 0
+
+    def fetch_source_files(sql_client, requestid, workflow_id):
+        nonlocal source_calls
+        source_calls += 1
+        return source_files
+
+    monkeypatch.setattr(
+        "app.services.oa_tobacco_auto_review.fetch_tobacco_license_source_files_by_request",
+        fetch_source_files,
+    )
+    monkeypatch.setattr(settings, "rpa_verification_tobacco_enabled", False)
+    request = OaAutoReviewRequest(
+        requestid=584412,
+        store_code="00001",
+        franchisee_name="示例商行",
+        workflow_id=614,
+        submission_version=2,
+    )
+
+    first = create_oa_auto_review(
+        request,
+        _oa_client={"client": "oa"},
+        sql_client=object(),
+        file_store=StoredDocumentsFileStore(documents),
+        repository=repository,
+        document_review_service=ChildReviewService(),
+    )
+    second = create_oa_auto_review(
+        request,
+        _oa_client={"client": "oa"},
+        sql_client=MustNotRun(),
+        file_store=MustNotRun(),
+        repository=repository,
+        document_review_service=MustNotRun(),
+    )
+
+    assert first["data"]["task_id"] == "tc-oa-614-584412-s2"
+    assert second["data"]["task_id"] == "tc-oa-614-584412-s2"
+    assert source_calls == 1
+    assert {result.task_id for result in repository.saved} == {
+        "tc-oa-614-584412",
+        "tc-oa-614-584412-s2",
+    }
+    assert repository.saved[-1].skill_result["oa_claim"]["submission_version"] == 2
 
 
 def test_oa_auto_review_executes_current_project_review_chain(monkeypatch, tmp_path):

@@ -65,6 +65,7 @@ class OaReviewRecoveryScheduler:
             payload = OaAutoReviewCallbackPayload(
                 workflow_id=int(claim["workflow_id"]),
                 requestid=int(claim["requestid"]),
+                submission_version=int(claim.get("submission_version") or 1),
                 store_code=str(claim["store_code"]),
                 result=_oa_callback_response(result),
             )

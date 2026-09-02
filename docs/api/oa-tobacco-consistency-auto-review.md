@@ -7,7 +7,8 @@
 
 ```text
 OA 来源记录直接从 ecology MySQL 查询
-  -> OA 按 workflow_id + requestid 精确触发，或控制台查询待处理门店
+  -> OA 按 workflow_id + requestid 精确定位来源
+  -> 按 submission_version 区分首次提交、重提和同版本重试
   -> 查询待处理门店
   -> 获取营业执照和烟草证附件
   -> 文档识别与字段抽取

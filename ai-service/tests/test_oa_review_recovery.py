@@ -17,6 +17,18 @@ class RecordingRepository:
     def save(self, result: ReviewResult) -> None:
         self.saved.append(result)
 
+    def get_by_task_id(self, task_id: str) -> ReviewResult | None:
+        result = self.saved[-1] if self.saved else self.result
+        return result if result.task_id == task_id else None
+
+
+class CapturingCallbackClient:
+    def __init__(self) -> None:
+        self.payloads = []
+
+    def send(self, payload):
+        self.payloads.append(payload)
+
 
 class RecordingFileStore:
     def __init__(self, stored: list[TobaccoLicenseStoredDocument]) -> None:
@@ -75,6 +87,34 @@ def test_recovery_still_backfills_terminal_result(monkeypatch):
     source_evidence = repository.saved[0].skill_result["source_evidence"]["source"]
     assert source_evidence["requestid"] == 584412
     assert source_evidence["workflow_id"] == 614
+
+
+def test_recovery_callback_preserves_submission_version():
+    result = _result(ReviewStatus.PENDING_MANUAL_REVIEW).model_copy(
+        update={
+            "task_id": "tc-oa-614-584412-s2",
+            "skill_result": {
+                "oa_claim": {
+                    "workflow_id": 614,
+                    "requestid": 584412,
+                    "submission_version": 2,
+                    "store_code": "00001",
+                },
+                "oa_callback": {"status": "PENDING"},
+            },
+        }
+    )
+    repository = RecordingRepository(result)
+    callback_client = CapturingCallbackClient()
+    scheduler = OaReviewRecoveryScheduler(
+        repository=repository,
+        callback_client=callback_client,
+    )
+
+    scheduler.run_once()
+
+    assert callback_client.payloads[0].submission_version == 2
+    assert callback_client.payloads[0].result["data"]["task_id"] == result.task_id
 
 
 def _source_and_stored_document():

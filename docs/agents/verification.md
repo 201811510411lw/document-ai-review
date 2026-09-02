@@ -38,13 +38,13 @@ After deployment, verify the behavior that changed against the deployed image. D
 For OA tobacco changes:
 
 1. Confirm the running workload uses the image built from the intended commit.
-2. Submit a new OA request with a new `requestid` and the expected `workflow_id`; never reuse a terminal historical task.
-3. Correlate `workflow_id + requestid` with the persisted review task and callback history.
+2. Submit a new OA request, or resubmit an existing request with a higher `submission_version`; never reuse a terminal `workflow_id + requestid + submission_version` identity.
+3. Correlate `workflow_id + requestid + submission_version` with the persisted review task and callback history.
 4. Inspect the actual callback JSON, including the domain decision, reason text, structured differences, suggestions, and retryability.
 5. Confirm the callback receiver accepted the business result, not only the HTTP transport.
 6. Confirm OA reached the expected node or returned to the expected applicant step.
 
-If UAT fails, add or refine the smallest regression test that reproduces that failure, fix it, rebuild once, and repeat with another new request ID.
+If UAT fails, add or refine the smallest regression test that reproduces that failure, fix it, rebuild once, and repeat with another new request ID or a higher submission version.
 
 ## Reporting
 
