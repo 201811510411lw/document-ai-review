@@ -211,6 +211,6 @@ GET /api/tobacco/reports/{task_id}
 ## 8. 当前边界
 
 - 没有独立的烟草一致性详情 V1 路由；详情由 Web Console 报告接口提供。
-- OA 专用入口立即返回 `processing`；领域结果和轮询保持四态，向当前三态 OA 接收端回调 `pass`、`reject` 或 `exception`。自动产生的 `manual_review` 使用 transport `pass` 进入下一人工节点，并携带 `review_decision=manual_review`、`next_node_review_required=true`；人工明确要求补件时才使用带 `REVIEW_REQUIRES_MANUAL_REVIEW` 的非重试 `exception`。
+- OA 专用入口立即返回 `processing`；领域结果和轮询保持四态，向当前三态 OA 接收端回调 `pass`、`reject` 或 `exception`。自动产生的 `manual_review` 映射为带 `REVIEW_REQUIRES_MANUAL_REVIEW` 的非重试 transport `exception`，并携带 `review_decision=manual_review`、`next_node_review_required=true`，由 OA 进入专用人工审批节点；人工明确要求补件时同样使用非重试 `exception`，但设置 `next_node_review_required=false`。
 - OA callback 在兼容期内保留完整 `rule_results`，并为失败规则补充非空 `suggestion`；OA 使用 `reject_reason_text` 或 `manual_review_reason_text` 写入流转意见，并从原因项的 `suggestion` 展示处理建议。
 - 后台任务为进程内任务，不是持久化队列；Pod 重启后的结果恢复依赖 `oa-result` 轮询。

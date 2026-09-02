@@ -233,13 +233,14 @@ OA 两个接口使用独立请求头 `X-OA-Token`，密钥由 `OA_AUTO_REVIEW_TO
 自动审核要求显式传入正整数 `workflow_id`，当前“烟草商品建档申请”流程传 `614`；系统以 `workflow_id + requestid` 生成稳定任务 ID；
 `store_code` 只做来源记录交叉校验。领域结果和轮询决策为 `pass`、`reject`、
 `manual_review`、`exception`；当前 OA callback 接收端只支持 `pass`、`reject`、`exception`。
-自动审核产生的人工复核以 transport `pass` 路由下一人工节点，并携带
-`review_decision=manual_review`、`next_node_review_required=true`；明确要求补件时才映射为
-带 `REVIEW_REQUIRES_MANUAL_REVIEW` 的非重试 `exception`，持久化业务结论不变。最终结果以无认证 JSON POST 到固定回调地址，
+自动审核产生的人工复核映射为带 `REVIEW_REQUIRES_MANUAL_REVIEW` 的非重试 transport
+`exception`，并携带 `review_decision=manual_review`、`next_node_review_required=true`，由 OA
+进入专用人工审批节点；明确要求补件时同样使用非重试 `exception`，但设置
+`next_node_review_required=false`。持久化业务结论不变。最终结果以无认证 JSON POST 到固定回调地址，
 并携带原始 `workflow_id`、`requestid` 和 `store_code`。完整请求和响应见
 [`docs/api/oa-tobacco-license-consistency.md`](api/oa-tobacco-license-consistency.md)。
-证据可靠时，0 项字段差异返回 `pass`，1..2 项返回 `manual_review` 并流转下一人工节点，
-`>=3` 项返回 `reject`；子审核未就绪或关键证据缺失时不使用数量阈值，直接返回
+证据可靠时，0 项字段差异返回 `pass`，1..3 项返回 `manual_review` 并流转专用人工审批节点，
+`>=4` 项返回 `reject`；子审核未就绪或关键证据缺失时不使用数量阈值，直接返回
 `manual_review`。回调通过 `mismatch_count`
 和 `field_differences` 携带具体差异字段及两侧值，使用 `reject_reason_text` 或
 `manual_review_reason_text` 提供可直接写入 OA 流转意见的原因文本。为兼容现有 OA 接收端，

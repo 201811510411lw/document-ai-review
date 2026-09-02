@@ -54,7 +54,7 @@
       "task_id": "tc-oa-614-584412",
       "summary": "营业执照与烟草证一致性校验通过",
       "mismatch_count": 0,
-      "mismatch_rejection_threshold": 3,
+      "mismatch_rejection_threshold": 4,
       "field_differences": [],
       "next_node_review_required": false,
       "rule_results": [
@@ -89,17 +89,17 @@ callback 是面向 OA 的兼容投影；兼容期内继续发送完整 `rule_res
 `reject_reason_text` 写入流转意见，人工处理时写入 `manual_review_reason_text`；“建议”字段
 优先读取对应原因项的 `suggestion`，旧实现可从失败规则的 `suggestion` 兼容读取。
 领域结果和轮询接口保留四态；当前 OA callback 接收端只支持三态。自动审核产生的
-`manual_review` 在 callback 中使用 `decision=pass` 作为进入下一人工节点的 transport
-路由动作，同时携带 `review_decision=manual_review`、`next_node_review_required=true`
-以及完整人工处理原因；该 transport `pass` 不表示业务自动通过。人工明确要求补件时才映射为
-`decision=exception`，并携带 `error.code=REVIEW_REQUIRES_MANUAL_REVIEW`、
-`retryable=false`。
+`manual_review` 在 callback 中映射为 `decision=exception`，并携带
+`error.code=REVIEW_REQUIRES_MANUAL_REVIEW`、`retryable=false`、
+`review_decision=manual_review`、`next_node_review_required=true` 以及完整人工处理原因，
+由 OA 进入专用人工审批节点。人工明确要求补件时同样使用非重试 `exception`，但设置
+`next_node_review_required=false`。
 
-字段差异阈值为 3。证据可靠时，0 项普通字段不匹配返回 `pass`，1..2 项返回
-`manual_review` 并由 callback transport `pass` 流转到下一人工节点；`>=3` 项返回
+字段差异拒绝阈值为 4。证据可靠时，0 项普通字段不匹配返回 `pass`，1..3 项返回
+`manual_review` 并由 callback transport `exception` 流转到专用人工审批节点；`>=4` 项返回
 `reject`。子审核未就绪、关键证据缺失或候选
 冲突时优先返回 `manual_review`，不得用不可靠字段触发自动驳回。烟草证明确已过期属于硬性拒绝条件，
-即使总差异少于 3 项也返回 `reject`。证照类型、许可证号、主体名称、经营地址、
+即使总差异少于 4 项也返回 `reject`。证照类型、许可证号、主体名称、经营地址、
 负责人和有效期纳入字段差异计数，过程状态和证据完整性规则不计数。`field_differences`
 逐项提供 `field`、`field_label`、`expected`、`actual`、`difference`、`rule_code`、
 `rule_name` 和 `message`，放行与驳回回调都会携带该列表。
@@ -111,14 +111,18 @@ callback 是面向 OA 的兼容投影；兼容期内继续发送完整 `rule_res
 `decision` 取值：
 
 - `pass`：证据可靠且没有字段差异，表示自动审核通过。
-- `reject`：字段差异达到 3 项、烟草证明确已过期，或官网真伪核验明确失败；OA 退回申请人。
+- `reject`：字段差异达到 4 项、烟草证明确已过期，或官网真伪核验明确失败；OA 退回申请人。
   自动拒绝摘要使用“`一致性核对未通过，共 N 项问题`”，`reject_reasons` 逐项保留
   `rule_code`、`rule_name`、`message`、`suggestion` 和完整 `details`，`reject_reason_text`
   提供可直接写入 OA 流转意见的合并文本。
-- `manual_review`：证据可靠但存在 1..2 项普通字段差异，或子审核未就绪、关键证据缺失、
-  候选冲突、人工明确要求补件等不能自动形成结论的领域结果。自动审核产生的人工复核由
-  callback transport `pass` 路由下一人工节点；明确要求补件使用非重试 `exception` 退回补件。
-- `exception`：StarRocks、NAS、OCR、LLM、持久化或 RPA 技术失败；OA 停留当前节点，可根据 `data.error.retryable` 重试。
+- `manual_review`：证据可靠但存在 1..3 项普通字段差异，或子审核未就绪、关键证据缺失、
+  候选冲突、人工明确要求补件等不能自动形成结论的领域结果。callback 使用带
+  `REVIEW_REQUIRES_MANUAL_REVIEW` 的非重试 `exception`；自动人工复核进入专用人工审批节点，
+  明确要求补件则退回补件。
+- `exception`：callback 传输层同时承载两类结果。`error.code=REVIEW_REQUIRES_MANUAL_REVIEW`
+  且 `retryable=false` 时进入人工审批或退回补件；其他情况表示 StarRocks、NAS、OCR、LLM、
+  持久化或 RPA 技术失败，OA 可根据 `data.error.retryable` 决定是否重试。领域结果仍分别保留
+  `manual_review` 和 `exception`。
 
 控制台人工驳回和要求补件必须填写处理说明。人工通过回调使用“人工复核通过”摘要；人工驳回
 使用“人工复核驳回”摘要并包含 `MANUAL_REVIEW_REJECTED` 原因；要求补件的持久化结果保持

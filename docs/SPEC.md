@@ -410,7 +410,7 @@ business_license capability 只负责营业执照单证审核。
 状态：`implemented`。
 
 - 获取 OA ecology MySQL 来源附件，分别执行营业执照和烟草证识别，再执行双证一致性规则。
-- OA 自动审核要求显式传入正整数 `workflow_id`，并按 `workflow_id + requestid` 精确定位来源，使用稳定任务 ID 幂等执行；当前“烟草商品建档申请”流程传 `614`，领域结果、持久化和轮询区分 `pass`、`reject`、`manual_review` 和 `exception`。证据可靠时，0 项差异返回 `pass`，1..2 项返回 `manual_review` 并进入下一人工节点，`>=3` 项返回 `reject`；证据不可靠时不使用数量阈值，始终进入人工复核。当前 OA callback 接收端为三态协议，自动产生的人工复核以 transport `pass` 路由下一节点，并携带 `review_decision=manual_review` 和 `next_node_review_required=true`；明确要求补件才映射为带 `REVIEW_REQUIRES_MANUAL_REVIEW` 的非重试 `exception`。
+- OA 自动审核要求显式传入正整数 `workflow_id`，并按 `workflow_id + requestid` 精确定位来源，使用稳定任务 ID 幂等执行；当前“烟草商品建档申请”流程传 `614`，领域结果、持久化和轮询区分 `pass`、`reject`、`manual_review` 和 `exception`。证据可靠时，0 项差异返回 `pass`，1..3 项返回 `manual_review` 并进入专用人工审批节点，`>=4` 项返回 `reject`；证据不可靠时不使用数量阈值，始终进入人工复核。当前 OA callback 接收端为三态协议，自动产生的人工复核映射为带 `REVIEW_REQUIRES_MANUAL_REVIEW` 的非重试 transport `exception`，并携带 `review_decision=manual_review` 和 `next_node_review_required=true`；明确要求补件时同样使用非重试 `exception`，但设置 `next_node_review_required=false`。
 - 支持标准和店中店模式、单条和批量审核、人工复核、报告详情和 OA 结果投影。
 - 影刀 RPA 是可配置 integration；业务负面结果与技术执行异常必须分开表达。
 - 当前提供 OA 专用 token 的异步受理、固定地址结果回调与轮询入口；回调后台任务为进程内任务，轮询接口承担 Pod 重启后的恢复路径。

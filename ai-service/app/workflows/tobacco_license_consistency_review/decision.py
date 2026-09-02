@@ -5,7 +5,7 @@ from app.models import ReviewResult, ReviewStatus
 
 OaReviewDecision = Literal["pass", "reject", "manual_review", "exception"]
 
-FIELD_MISMATCH_REJECTION_THRESHOLD = 3
+FIELD_MISMATCH_REJECTION_THRESHOLD = 4
 _HARD_REJECTION_DIFFERENCES = {
     ("BUSINESS_TOBACCO_TOBACCO_VALIDITY", "expired"),
 }

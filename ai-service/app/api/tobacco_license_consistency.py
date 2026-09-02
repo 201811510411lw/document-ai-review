@@ -1084,31 +1084,27 @@ def _oa_callback_response(result: ReviewResult) -> dict[str, Any]:
             else _oa_reject_suggestion(rule)
         )
     if decision == "manual_review":
+        reason_text = str(
+            data.get("manual_review_reason_text")
+            or data.get("summary")
+            or result.summary
+            or "审核证据不足，需要人工处理"
+        ).strip()
+        data["review_decision"] = "manual_review"
+        data["decision"] = "exception"
+        data["summary"] = "系统无法自动完成核对，需人工处理"
+        data["error"] = {
+            "code": "REVIEW_REQUIRES_MANUAL_REVIEW",
+            "message": reason_text,
+            "retryable": False,
+        }
         manual_action = (
             result.manual_review.action
             if result.manual_review and result.manual_review.status.value == "COMPLETED"
             else None
         )
         if manual_action == "request_more_info":
-            reason_text = str(
-                data.get("manual_review_reason_text")
-                or data.get("summary")
-                or result.summary
-                or "审核证据不足，需要人工处理"
-            ).strip()
-            data["decision"] = "exception"
-            data["summary"] = "系统无法自动完成核对，需人工处理"
             data["next_node_review_required"] = False
-            data["error"] = {
-                "code": "REVIEW_REQUIRES_MANUAL_REVIEW",
-                "message": reason_text,
-                "retryable": False,
-            }
-        else:
-            data["review_decision"] = "manual_review"
-            data["decision"] = "pass"
-            data["summary"] = "自动审核需人工复核，已提交下一节点"
-            data["next_node_review_required"] = True
     return response
 
 

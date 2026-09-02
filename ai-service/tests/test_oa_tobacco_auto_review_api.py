@@ -214,7 +214,7 @@ def test_timeout_callback_can_be_retried_without_changing_review_decision():
     assert audit["business_accepted"] is True
 
 
-def test_automatic_manual_review_callback_routes_to_next_node_and_keeps_reasons():
+def test_automatic_manual_review_callback_uses_exception_and_keeps_reasons():
     rule = _rule(
         "TOBACCO_LICENSE_EVIDENCE_FOR_CONSISTENCY",
         details={"missing_evidence_fields": ["license_no_evidence"]},
@@ -241,11 +241,15 @@ def test_automatic_manual_review_callback_routes_to_next_node_and_keeps_reasons(
 
     assert response["status"] == "SENT"
     data = callback_client.payloads[0].result["data"]
-    assert data["decision"] == "pass"
+    assert data["decision"] == "exception"
     assert data["review_decision"] == "manual_review"
     assert data["next_node_review_required"] is True
     assert data["needs_manual_review"] is True
-    assert "error" not in data
+    assert data["error"] == {
+        "code": "REVIEW_REQUIRES_MANUAL_REVIEW",
+        "message": "未通过",
+        "retryable": False,
+    }
     assert data["manual_review_reason_text"] == "未通过"
     assert data["manual_review_reasons"][0]["suggestion"]
     assert data["rule_results"][0]["rule_code"] == rule.rule_code
@@ -255,7 +259,7 @@ def test_automatic_manual_review_callback_routes_to_next_node_and_keeps_reasons(
     assert repository.saved[-1].needs_manual_review is True
 
 
-def test_small_confirmed_mismatch_callback_routes_to_next_manual_review_node():
+def test_small_confirmed_mismatch_callback_uses_manual_review_exception():
     rule = _rule(
         "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
         details={
@@ -287,9 +291,14 @@ def test_small_confirmed_mismatch_callback_routes_to_next_manual_review_node():
     )
 
     data = callback_client.payloads[0].result["data"]
-    assert data["decision"] == "pass"
+    assert data["decision"] == "exception"
     assert data["review_decision"] == "manual_review"
     assert data["next_node_review_required"] is True
+    assert data["error"] == {
+        "code": "REVIEW_REQUIRES_MANUAL_REVIEW",
+        "message": "未通过",
+        "retryable": False,
+    }
     assert data["mismatch_count"] == 1
     assert data["manual_review_reasons"][0]["rule_code"] == rule.rule_code
 
@@ -385,6 +394,7 @@ class RejectingChildReviewService(ChildReviewService):
         if use_case_name == "tobacco_license":
             fields.update(
                 {
+                    "document_type": "other_document",
                     "subject_name": "另一主体",
                     "business_address": "成都市另一地址",
                     "legal_person": "李四",
@@ -768,9 +778,10 @@ def test_rejected_consistency_result_skips_rpa_and_preserves_reject_reasons(
     )
 
     assert response["data"]["decision"] == "reject"
-    assert response["data"]["summary"] == "一致性核对未通过，共 3 项问题"
-    assert response["data"]["mismatch_count"] == 3
+    assert response["data"]["summary"] == "一致性核对未通过，共 4 项问题"
+    assert response["data"]["mismatch_count"] == 4
     assert [reason["rule_code"] for reason in response["data"]["reject_reasons"]] == [
+        "TOBACCO_LICENSE_TYPE_FOR_CONSISTENCY",
         "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
         "BUSINESS_TOBACCO_ADDRESS_MATCH",
         "BUSINESS_TOBACCO_PERSON_MATCH",
@@ -803,7 +814,7 @@ def test_unreliable_child_reviews_do_not_automatically_reject_oa_request(
 
     assert response["data"]["decision"] == "manual_review"
     assert response["data"]["needs_manual_review"] is True
-    assert response["data"]["mismatch_count"] == 3
+    assert response["data"]["mismatch_count"] == 4
     assert "reject_reasons" not in response["data"]
     assert [
         reason["rule_code"] for reason in response["data"]["manual_review_reasons"]
@@ -900,7 +911,7 @@ def test_two_field_mismatches_require_manual_review_with_structured_differences(
 
     assert response["decision"] == "manual_review"
     assert response["mismatch_count"] == 2
-    assert response["mismatch_rejection_threshold"] == 3
+    assert response["mismatch_rejection_threshold"] == 4
     assert response["next_node_review_required"] is True
     assert response["needs_manual_review"] is True
     assert [item["rule_code"] for item in response["manual_review_reasons"]] == [
@@ -982,7 +993,7 @@ def test_expired_tobacco_license_remains_hard_reject_when_other_evidence_is_miss
     assert _oa_decision(result) == "reject"
 
 
-def test_three_field_mismatches_are_rejected():
+def test_three_field_mismatches_require_manual_review():
     result = _result(
         _rule(
             "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
@@ -1015,11 +1026,60 @@ def test_three_field_mismatches_are_rejected():
 
     response = _oa_response(result)["data"]
 
-    assert response["decision"] == "reject"
+    assert response["decision"] == "manual_review"
     assert response["mismatch_count"] == 3
-    assert response["mismatch_rejection_threshold"] == 3
-    assert response["next_node_review_required"] is False
+    assert response["mismatch_rejection_threshold"] == 4
+    assert response["next_node_review_required"] is True
     assert len(response["field_differences"]) == 3
+
+
+def test_four_field_mismatches_are_rejected():
+    result = _result(
+        _rule(
+            "TOBACCO_LICENSE_NO_FOR_CONSISTENCY",
+            details={
+                "field": "license_no",
+                "expected": "许可证号完整",
+                "actual": None,
+                "difference": "missing",
+            },
+        ),
+        _rule(
+            "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
+            details={
+                "field": "subject_name",
+                "expected": "甲公司",
+                "actual": "乙公司",
+                "difference": "value_mismatch",
+            },
+        ),
+        _rule(
+            "BUSINESS_TOBACCO_ADDRESS_MATCH",
+            details={
+                "field": "business_address",
+                "expected": "甲地址",
+                "actual": "乙地址",
+                "difference": "value_mismatch",
+            },
+        ),
+        _rule(
+            "BUSINESS_TOBACCO_PERSON_MATCH",
+            details={
+                "field": "legal_person",
+                "expected": "张三",
+                "actual": "李四",
+                "difference": "value_mismatch",
+            },
+        ),
+    )
+
+    response = _oa_response(result)["data"]
+
+    assert response["decision"] == "reject"
+    assert response["mismatch_count"] == 4
+    assert response["mismatch_rejection_threshold"] == 4
+    assert response["next_node_review_required"] is False
+    assert len(response["field_differences"]) == 4
 
 
 def test_rpa_technical_error_is_exception():
