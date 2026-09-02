@@ -410,7 +410,7 @@ business_license capability 只负责营业执照单证审核。
 状态：`implemented`。
 
 - 获取 OA ecology MySQL 来源附件，分别执行营业执照和烟草证识别，再按单店双证或店中店三证模式执行一致性规则。店中店的两张营业执照通过与烟草证的主体名称和负责人唯一匹配关系分配为持证主体营业执照和加盟店营业执照，无法唯一分配时转人工复核。
-- OA 自动审核要求显式传入正整数 `workflow_id`，按 `workflow_id + requestid` 精确定位来源，并按 `workflow_id + requestid + submission_version` 幂等执行；`submission_version` 默认 `1`，驳回后重提必须递增并创建新任务重新 OCR，同版本网络重试复用已有任务。当前“烟草商品建档申请”流程传 `614`，领域结果、持久化和轮询区分 `pass`、`reject`、`manual_review` 和 `exception`。证据可靠时，0 项差异返回 `pass`，1..3 项返回 `manual_review` 并进入专用人工审批节点，`>=4` 项返回 `reject`；证据不可靠时不使用数量阈值，始终进入人工复核。当前 OA callback 接收端为三态协议，自动产生的人工复核映射为带 `REVIEW_REQUIRES_MANUAL_REVIEW` 的非重试 transport `exception`，并携带 `review_decision=manual_review` 和 `next_node_review_required=true`；明确要求补件时同样使用非重试 `exception`，但设置 `next_node_review_required=false`。
+- OA 自动审核要求显式传入正整数 `workflow_id`，按 `workflow_id + requestid` 精确定位来源。系统从 `workflow_requestlog` 的申请人提交事件自动推导 `submission_log_id` 和 `submission_version`，OA 无需传版本；同一提交事件复用已有任务，驳回重提的新事件创建新任务并重新 OCR，没有日志时按首次提交处理。当前“烟草商品建档申请”流程传 `614`，领域结果、持久化和轮询区分 `pass`、`reject`、`manual_review` 和 `exception`。证据可靠时，0 项差异返回 `pass`，1..3 项返回 `manual_review` 并进入专用人工审批节点，`>=4` 项返回 `reject`；证据不可靠时不使用数量阈值，始终进入人工复核。当前 OA callback 接收端为三态协议，自动产生的人工复核映射为带 `REVIEW_REQUIRES_MANUAL_REVIEW` 的非重试 transport `exception`，并携带 `review_decision=manual_review` 和 `next_node_review_required=true`；明确要求补件时同样使用非重试 `exception`，但设置 `next_node_review_required=false`。
 - 单店要求营业执照与烟草证的主体名称、负责人、经营地址一致，并要求证照主体与 OA 加盟商名称一致；OA 缺失加盟商名称时转人工复核，不使用门店名称替代。
 - 店中店要求持证主体营业执照与烟草证三信息一致；加盟店营业执照不与烟草证比较名称和负责人，只校验材料完整性及三证同址。地址不同写法必须凭门牌照片或政府同址证明人工确认，不以模糊相似度自动通过。
 - 支持单条和批量审核、人工复核、报告详情和 OA 结果投影。

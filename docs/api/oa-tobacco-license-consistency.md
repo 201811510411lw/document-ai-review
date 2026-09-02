@@ -12,8 +12,7 @@
   "store_code": "00001",
   "store_name": "示例门店",
   "franchisee_name": "成都示例商贸有限公司",
-  "workflow_id": 614,
-  "submission_version": 1
+  "workflow_id": 614
 }
 ```
 
@@ -22,11 +21,14 @@
 `store_name` 猜测企业主体。当前“烟草商品建档申请”流程
 传 `614`；接口使用调用方提供的流程 ID 精确查询来源记录。为兼容现有 OA 调用，
 `callback_url` 可传空字符串并会被忽略，非空 URL 会被拒绝；接口不接受证照字段。
-`submission_version` 是从 `1` 开始的正整数，未传时兼容为 `1`。首次提交任务 ID 为
+OA 无需传入 `submission_version`。系统使用 `workflow_id + requestid` 查询
+`workflow_requestlog`，以最新申请人提交事件的 `LOGID` 作为稳定的 `submission_log_id`，并按提交
+事件顺序推导从 `1` 开始的 `submission_version`。首次提交任务 ID 为
 `tc-oa-{workflow_id}-{requestid}`，版本 `2+` 的任务 ID 为
-`tc-oa-{workflow_id}-{requestid}-s{submission_version}`。同版本重复调用由结果库幂等占位保护，
-不重复执行文件下载、OCR 或 RPA；驳回后用户重新提交时，OA 必须递增版本，系统创建新任务并
-重新读取当前附件执行 OCR。普通网络重试必须保持原版本。
+`tc-oa-{workflow_id}-{requestid}-s{submission_version}`。同一提交日志的重复调用由结果库幂等占位
+保护，不重复执行文件下载、OCR 或 RPA；驳回后用户重新提交产生新日志，系统创建新任务并重新读取
+当前附件执行 OCR。没有提交日志时按首次提交处理；日志查询失败时接口返回 `503`，不会误用旧结果。
+为兼容诊断调用，接口仍接受显式正整数 `submission_version`，正常 OA 集成不应传该字段。
 
 附件中只有一张不同主体营业执照时按单店审核；存在两张不同主体营业执照时，系统尝试把主体名称
 和负责人同时与烟草证唯一匹配的一张分配为烟草持证主体营业执照，另一张分配为加盟店营业执照，
@@ -97,7 +99,7 @@
 明确返回失败时，本次回调仍记为失败。空响应或无法识别的响应记为“HTTP 已投递、OA 业务未确认”。
 审核详情保存并展示回调目标、实际请求 JSON、尝试次数、HTTP 状态、脱敏且限长的响应正文、
 业务接受状态和错误。历史版本未保存的请求正文不会被重建为真实发送记录。
-OA 应按 `task_id` 幂等消费可能重复的回调，并使用 `submission_version` 关联本次提交，根据
+OA 应按 `task_id` 幂等消费可能重复的回调，并使用服务端返回的 `submission_version` 关联本次提交，根据
 `result.data.decision` 执行流程分支。旧版本迟到的回调不得覆盖较新提交版本的流程状态。
 callback 是面向 OA 的兼容投影；兼容期内继续发送完整 `rule_results`，并为其中所有失败规则
 补充非空 `suggestion`，避免现有 OA 接收端读取旧字段时异常或显示 `null`。完整原始规则执行

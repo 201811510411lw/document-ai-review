@@ -1,6 +1,10 @@
 from typing import Any, Mapping, Protocol
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+OA_TOBACCO_APPLICANT_NODE_ID = 7304
+OA_TOBACCO_ROBOT_NODE_ID = 8081
 
 
 class SqlFetchClient(Protocol):
@@ -37,6 +41,11 @@ class TobaccoLicenseSourceFile(BaseModel):
     file_size: str | None = None
 
 
+class OaReviewSubmissionIdentity(BaseModel):
+    submission_log_id: int = Field(gt=0)
+    submission_version: int = Field(gt=0)
+
+
 class TobaccoLicenseSourceTaskError(ValueError):
     def __init__(self, code: str, message: str, *, store_identifier: str | None = None):
         self.code = code
@@ -58,6 +67,7 @@ OA_MYSQL_TOBACCO_SOURCE_TABLES = {
     "docdetail": "docdetail",
     "docimagefile": "docimagefile",
     "imagefile": "imagefile",
+    "requestlog": "workflow_requestlog",
 }
 
 
@@ -105,6 +115,29 @@ def build_tobacco_license_source_by_request_sql(
         order_by="d.ID, dif.IMAGEFILEID",
         tables=tables or STARROCKS_TOBACCO_SOURCE_TABLES,
     )
+
+
+def build_oa_review_submission_sql(
+    requestid: int,
+    *,
+    workflow_id: int = 614,
+    table: str = "workflow_requestlog",
+) -> str:
+    safe_requestid = _required_positive_int(requestid, "requestid")
+    safe_workflow_id = _required_positive_int(workflow_id, "workflow_id")
+    return f"""
+SELECT
+    LOGID AS submission_log_id,
+    COUNT(*) OVER () AS submission_version
+FROM {table}
+WHERE REQUESTID = {safe_requestid}
+  AND WORKFLOWID = {safe_workflow_id}
+  AND NODEID = {OA_TOBACCO_APPLICANT_NODE_ID}
+  AND DESTNODEID = {OA_TOBACCO_ROBOT_NODE_ID}
+  AND LOGTYPE = '2'
+ORDER BY OPERATEDATE DESC, OPERATETIME DESC, LOGID DESC
+LIMIT 1
+""".strip()
 
 
 def _build_source_sql(
@@ -306,6 +339,25 @@ def fetch_tobacco_license_source_files_by_request(
         and source_file.requestid == safe_requestid
         and source_file.workflow_id == safe_workflow_id
     ]
+
+
+def fetch_latest_oa_review_submission(
+    sql_client: SqlFetchClient,
+    requestid: int,
+    *,
+    workflow_id: int = 614,
+) -> OaReviewSubmissionIdentity | None:
+    tables = _source_tables(sql_client)
+    rows = sql_client.fetch_all(
+        build_oa_review_submission_sql(
+            requestid,
+            workflow_id=workflow_id,
+            table=tables.get("requestlog", "workflow_requestlog"),
+        )
+    )
+    if not rows:
+        return None
+    return OaReviewSubmissionIdentity.model_validate(rows[0])
 
 
 def _to_source_file(row: dict[str, Any]) -> TobaccoLicenseSourceFile:

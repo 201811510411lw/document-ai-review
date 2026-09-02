@@ -222,7 +222,7 @@ GET /api/v1/tobacco-license/source-files/local/{relative_path}
 | Method | Path | 说明 |
 | --- | --- | --- |
 | `GET` | `/api/v1/tobacco-license-consistency/pending-stores` | 分页查询有待处理 OA 流程的门店 |
-| `POST` | `/api/v1/tobacco-license-consistency/oa-auto-review` | 受理带提交版本的 OA 自动审核并后台回调结果 |
+| `POST` | `/api/v1/tobacco-license-consistency/oa-auto-review` | 受理 OA 自动审核并后台回调结果 |
 | `POST` | `/api/v1/tobacco-license-consistency/reviews` | 获取来源文件并执行单门店一致性审核 |
 | `POST` | `/api/v1/tobacco-license-consistency/reviews/batch` | 批量执行最多 20 个门店审核 |
 | `POST` | `/api/v1/tobacco-license-consistency/reviews/{task_id}/manual-review` | 对报告提交人工复核 |
@@ -230,7 +230,7 @@ GET /api/v1/tobacco-license/source-files/local/{relative_path}
 | `GET` | `/api/v1/tobacco-license-consistency/reviews/{task_id}/oa-result` | 读取可供 OA 适配器使用的结果载荷 |
 
 OA 两个接口使用独立请求头 `X-OA-Token`，密钥由 `OA_AUTO_REVIEW_TOKEN` 配置。
-自动审核要求显式传入正整数 `workflow_id`，当前“烟草商品建档申请”流程传 `614`；系统以 `workflow_id + requestid + submission_version` 生成稳定任务 ID。`submission_version` 默认 `1`，驳回后重提递增版本并重新执行 OCR，同版本重试保持幂等；
+自动审核要求显式传入正整数 `workflow_id`，当前“烟草商品建档申请”流程传 `614`；OA 无需传入 `submission_version`，系统根据 `workflow_id + requestid` 查询申请人提交日志，自动推导提交版本并生成稳定任务 ID。驳回后重提产生新的提交日志并重新执行 OCR，同一提交日志的网络重试保持幂等；没有日志时按首次提交处理，查询失败时拒绝受理以避免复用旧结果。
 `store_code` 只做来源记录交叉校验。领域结果和轮询决策为 `pass`、`reject`、
 `manual_review`、`exception`；当前 OA callback 接收端只支持 `pass`、`reject`、`exception`。
 自动审核产生的人工复核映射为带 `REVIEW_REQUIRES_MANUAL_REVIEW` 的非重试 transport

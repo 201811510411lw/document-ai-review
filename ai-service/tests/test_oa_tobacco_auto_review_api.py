@@ -497,7 +497,7 @@ def test_workflow_id_is_required_and_accepts_positive_custom_value():
         workflow_id=123,
     )
     assert request.workflow_id == 123
-    assert request.submission_version == 1
+    assert request.submission_version is None
 
     with pytest.raises(ValidationError):
         OaAutoReviewRequest(

@@ -64,7 +64,7 @@ curl http://127.0.0.1:8000/health
 
 其他范围使用 `make verify-test TESTS='tests/test_file.py::test_name'`。`make verify-full` 仅用于显式要求的全量诊断，不作为提交、Jenkins 镜像构建或部署门禁。
 
-OpenAPI 清单校验只证明路由契约未漂移，不证明 SRM、StarRocks、OCR、LLM、企业微信或影刀 RPA 已正确配置。镜像部署到 UAT 后应针对改动执行真实业务验收；OA 烟草流程使用新的 `workflow_id + requestid`，或对现有请求使用更高的 `submission_version`，核对运行镜像来源、持久化结果、实际 callback JSON、OA 业务接收状态和最终节点流转。
+OpenAPI 清单校验只证明路由契约未漂移，不证明 SRM、StarRocks、OCR、LLM、企业微信或影刀 RPA 已正确配置。镜像部署到 UAT 后应针对改动执行真实业务验收；OA 烟草流程使用新的 `workflow_id + requestid`，或在 OA 中真实驳回后重新提交，核对自动推导的 `submission_log_id` / `submission_version`、运行镜像来源、持久化结果、实际 callback JSON、OA 业务接收状态和最终节点流转。
 
 前端本地验证：
 

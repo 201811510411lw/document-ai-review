@@ -12,6 +12,7 @@ from app.integrations.starrocks.tobacco_license_sources import (
     OA_MYSQL_TOBACCO_SOURCE_TABLES,
     SqlFetchClient,
     build_pending_stores_sql,
+    fetch_latest_oa_review_submission,
     fetch_pending_stores,
     fetch_latest_tobacco_license_source_files,
     TobaccoLicenseSourceTaskError,
@@ -131,7 +132,7 @@ class OaAutoReviewRequest(BaseModel):
     store_name: str | None = Field(default=None, max_length=256)
     franchisee_name: str | None = Field(default=None, max_length=256)
     workflow_id: int = Field(gt=0)
-    submission_version: int = Field(default=1, gt=0)
+    submission_version: int | None = Field(default=None, gt=0)
     callback_url: str | None = None
 
     @field_validator("store_code")
@@ -492,20 +493,21 @@ def create_oa_auto_review(
     document_review_service: ReviewService = Depends(get_document_review_service),
 ) -> dict[str, Any]:
     """按 OA 请求身份同步执行烟草证一致性自动审核。"""
+    command = OaAutoReviewCommand(
+        requestid=request.requestid,
+        store_code=request.store_code,
+        store_name=request.store_name,
+        franchisee_name=request.franchisee_name,
+        workflow_id=request.workflow_id,
+        submission_version=request.submission_version or 1,
+    )
     outcome = OaTobaccoAutoReviewService(
         sql_client=sql_client,
         file_store=file_store,
         repository=repository,
         document_review_service=document_review_service,
     ).review(
-        OaAutoReviewCommand(
-            requestid=request.requestid,
-            store_code=request.store_code,
-            store_name=request.store_name,
-            franchisee_name=request.franchisee_name,
-            workflow_id=request.workflow_id,
-            submission_version=request.submission_version,
-        )
+        command
     )
     return _oa_outcome_response(outcome)
 
@@ -524,14 +526,7 @@ def submit_oa_auto_review(
     ),
 ) -> dict[str, Any]:
     """受理 OA 烟草证审核，并在后台完成后推送结果。"""
-    command = OaAutoReviewCommand(
-        requestid=request.requestid,
-        store_code=request.store_code,
-        store_name=request.store_name,
-        franchisee_name=request.franchisee_name,
-        workflow_id=request.workflow_id,
-        submission_version=request.submission_version,
-    )
+    command = _oa_auto_review_command(request, sql_client)
     task_id = oa_auto_review_task_id(
         command.workflow_id,
         command.requestid,
@@ -558,6 +553,44 @@ def submit_oa_auto_review(
             "submission_version": command.submission_version,
         },
     }
+
+
+def _oa_auto_review_command(
+    request: OaAutoReviewRequest,
+    sql_client: SqlFetchClient,
+) -> OaAutoReviewCommand:
+    submission_version = request.submission_version
+    submission_log_id = None
+    if submission_version is None:
+        try:
+            submission = fetch_latest_oa_review_submission(
+                sql_client,
+                request.requestid,
+                workflow_id=request.workflow_id,
+            )
+        except Exception as error:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "OA_SUBMISSION_IDENTITY_UNAVAILABLE",
+                    "message": "OA 提交记录查询失败，请稍后重试",
+                },
+            ) from error
+        if submission is None:
+            submission_version = 1
+        else:
+            submission_version = submission.submission_version
+            submission_log_id = submission.submission_log_id
+
+    return OaAutoReviewCommand(
+        requestid=request.requestid,
+        store_code=request.store_code,
+        store_name=request.store_name,
+        franchisee_name=request.franchisee_name,
+        workflow_id=request.workflow_id,
+        submission_version=submission_version,
+        submission_log_id=submission_log_id,
+    )
 
 
 def _run_oa_auto_review_and_callback(

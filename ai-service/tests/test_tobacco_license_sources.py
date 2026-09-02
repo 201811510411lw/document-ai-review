@@ -1,10 +1,12 @@
 from app.integrations.starrocks.tobacco_license_sources import (
     OA_MYSQL_TOBACCO_SOURCE_TABLES,
+    build_oa_review_submission_sql,
     build_pending_stores_sql,
     build_tobacco_license_source_by_request_sql,
     build_tobacco_license_source_sql,
     fetch_pending_stores,
     fetch_latest_tobacco_license_source_files,
+    fetch_latest_oa_review_submission,
     fetch_tobacco_license_source_files_by_request,
 )
 
@@ -119,6 +121,39 @@ def test_build_source_by_request_sql_supports_oa_mysql_table_names():
     assert "LEFT JOIN docimagefile dif" in sql
     assert "LEFT JOIN imagefile i" in sql
     assert "ods_oa_ecology_" not in sql
+
+
+def test_build_oa_review_submission_sql_uses_exact_submit_event_identity():
+    sql = build_oa_review_submission_sql(2855868, workflow_id=614)
+
+    assert "FROM workflow_requestlog" in sql
+    assert "REQUESTID = 2855868" in sql
+    assert "WORKFLOWID = 614" in sql
+    assert "NODEID = 7304" in sql
+    assert "DESTNODEID = 8081" in sql
+    assert "LOGTYPE = '2'" in sql
+    assert "COUNT(*) OVER () AS submission_version" in sql
+    assert "ORDER BY OPERATEDATE DESC, OPERATETIME DESC, LOGID DESC" in sql
+
+
+def test_fetch_latest_oa_review_submission_maps_latest_log():
+    client = StubSqlClient([
+        {"submission_log_id": 23814310, "submission_version": 3},
+    ])
+
+    identity = fetch_latest_oa_review_submission(client, 2855868, workflow_id=614)
+
+    assert identity is not None
+    assert identity.submission_log_id == 23814310
+    assert identity.submission_version == 3
+
+
+def test_fetch_latest_oa_review_submission_returns_none_without_log():
+    assert fetch_latest_oa_review_submission(
+        StubSqlClient([]),
+        2855868,
+        workflow_id=614,
+    ) is None
 
 
 def test_fetch_source_files_by_request_does_not_select_another_request():

@@ -43,6 +43,21 @@ class CapturingCallbackClient:
         self.payloads.append(payload)
 
 
+class SubmissionSqlClient:
+    source_tables = {"requestlog": "workflow_requestlog"}
+
+    def __init__(self, rows=None, error=None):
+        self.rows = rows or []
+        self.error = error
+        self.executed_sql = []
+
+    def fetch_all(self, sql):
+        self.executed_sql.append(sql)
+        if self.error is not None:
+            raise self.error
+        return self.rows
+
+
 class CompletedReviewService:
     def review(self, command):
         return OaAutoReviewOutcome(
@@ -80,7 +95,7 @@ def test_submit_returns_processing_and_schedules_background_review():
         ),
         background_tasks=background_tasks,
         _oa_client={"client": "oa"},
-        sql_client=object(),
+        sql_client=SubmissionSqlClient(),
         file_store=object(),
         repository=object(),
         document_review_service=object(),
@@ -100,8 +115,11 @@ def test_submit_returns_processing_and_schedules_background_review():
     assert len(background_tasks.tasks) == 1
 
 
-def test_resubmission_version_creates_a_new_review_task():
+def test_resubmission_log_creates_a_new_review_task_without_oa_version():
     background_tasks = CapturingBackgroundTasks()
+    sql_client = SubmissionSqlClient([
+        {"submission_log_id": 23811265, "submission_version": 2},
+    ])
 
     response = submit_oa_auto_review(
         OaAutoReviewRequest(
@@ -109,11 +127,10 @@ def test_resubmission_version_creates_a_new_review_task():
             store_code="0001",
             store_name="测试门店",
             workflow_id=123,
-            submission_version=2,
         ),
         background_tasks=background_tasks,
         _oa_client={"client": "oa"},
-        sql_client=object(),
+        sql_client=sql_client,
         file_store=object(),
         repository=object(),
         document_review_service=object(),
@@ -128,6 +145,56 @@ def test_resubmission_version_creates_a_new_review_task():
     }
     command = background_tasks.tasks[0][2]["command"]
     assert command.submission_version == 2
+    assert command.submission_log_id == 23811265
+    assert "FROM workflow_requestlog" in sql_client.executed_sql[0]
+
+
+def test_submission_identity_query_failure_does_not_replay_first_submission():
+    background_tasks = CapturingBackgroundTasks()
+
+    with pytest.raises(HTTPException) as error:
+        submit_oa_auto_review(
+            OaAutoReviewRequest(
+                requestid=584412,
+                store_code="0001",
+                workflow_id=123,
+            ),
+            background_tasks=background_tasks,
+            _oa_client={"client": "oa"},
+            sql_client=SubmissionSqlClient(error=RuntimeError("database unavailable")),
+            file_store=object(),
+            repository=object(),
+            document_review_service=object(),
+            callback_client=CapturingCallbackClient(),
+        )
+
+    assert error.value.status_code == 503
+    assert error.value.detail["code"] == "OA_SUBMISSION_IDENTITY_UNAVAILABLE"
+    assert background_tasks.tasks == []
+
+
+def test_explicit_submission_version_remains_supported_without_querying_oa_log():
+    background_tasks = CapturingBackgroundTasks()
+    sql_client = SubmissionSqlClient(error=AssertionError("must not query"))
+
+    response = submit_oa_auto_review(
+        OaAutoReviewRequest(
+            requestid=584412,
+            store_code="0001",
+            workflow_id=123,
+            submission_version=3,
+        ),
+        background_tasks=background_tasks,
+        _oa_client={"client": "oa"},
+        sql_client=sql_client,
+        file_store=object(),
+        repository=object(),
+        document_review_service=object(),
+        callback_client=CapturingCallbackClient(),
+    )
+
+    assert response["data"]["task_id"] == "tc-oa-123-584412-s3"
+    assert sql_client.executed_sql == []
 
 
 def test_background_review_posts_result_with_original_oa_identity():

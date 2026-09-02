@@ -68,6 +68,7 @@ class OaAutoReviewCommand(BaseModel):
     franchisee_name: str | None = None
     workflow_id: int = Field(gt=0)
     submission_version: int = Field(default=1, gt=0)
+    submission_log_id: int | None = Field(default=None, gt=0)
 
 
 class OaAutoReviewError(BaseModel):
@@ -683,6 +684,7 @@ def _claim_result(task_id: str, command: OaAutoReviewCommand) -> ReviewResult:
                 "requestid": command.requestid,
                 "workflow_id": command.workflow_id,
                 "submission_version": command.submission_version,
+                "submission_log_id": command.submission_log_id,
                 "store_code": command.store_code,
             }
         },
