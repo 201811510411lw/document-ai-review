@@ -255,15 +255,20 @@ callback 暂时保留完整 `rule_results`，其中失败规则带非空 `sugges
 {
   "store_identifier": "store-code-or-request-id",
   "review_mode": "standard",
+  "franchisee_name": "OA 加盟商主体名称",
   "business_license_fields": {},
+  "franchisee_business_license_fields": {},
   "tobacco_license_fields": {},
   "store_in_store": {},
   "selected_files": []
 }
 ```
 
-`review_mode` 为 `standard` 或 `store_in_store`。请求中的字段只作为人工确认或补充值，
-系统优先使用来源文件抽取结果，不能用 OA 门店名称伪造证照主体字段。
+`review_mode` 为 `standard` 或 `store_in_store`。单店必须提供可追溯的 `franchisee_name`；
+店中店需要两张营业执照，系统将与烟草证主体名称和负责人唯一匹配的一张识别为持证主体营业执照，
+另一张识别为加盟店营业执照。请求中的字段只作为人工确认或补充值，系统优先使用来源文件抽取
+结果，不能用 OA 门店名称伪造证照主体字段。地址不完全一致时，`store_in_store.same_premises_evidence`
+只作为人工复核证据，不会触发模糊地址自动通过。
 
 批量请求使用 `store_identifiers` 数组；返回每个门店的 `completed` 或 `failed` 结果，单项
 失败不会中止其余项目。

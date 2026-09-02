@@ -93,7 +93,9 @@ def _missing_required_document_roles(source_files: list[Any]) -> list[str]:
 class CreateConsistencyReviewRequest(BaseModel):
     store_identifier: str
     review_mode: Literal["standard", "store_in_store"] = "standard"
+    franchisee_name: str | None = None
     business_license_fields: dict[str, Any] = Field(default_factory=dict)
+    franchisee_business_license_fields: dict[str, Any] = Field(default_factory=dict)
     tobacco_license_fields: dict[str, Any] = Field(default_factory=dict)
     store_in_store: dict[str, Any] = Field(default_factory=dict)
     selected_files: list[dict[str, Any]] = Field(default_factory=list)
@@ -121,6 +123,7 @@ class OaAutoReviewRequest(BaseModel):
     requestid: int = Field(gt=0)
     store_code: str = Field(min_length=1, max_length=128)
     store_name: str | None = Field(default=None, max_length=256)
+    franchisee_name: str | None = Field(default=None, max_length=256)
     workflow_id: int = Field(gt=0)
     callback_url: str | None = None
 
@@ -330,6 +333,10 @@ def create_consistency_review(
         document_results.get("tobacco_license"),
         request.tobacco_license_fields,
     )
+    franchisee_business_fields = resolved_consistency_fields(
+        document_results.get("franchisee_business_license"),
+        request.franchisee_business_license_fields,
+    )
     oa_source = _oa_source_snapshot(
         first,
         source_files=source_files,
@@ -359,9 +366,15 @@ def create_consistency_review(
         },
         options={
             "review_mode": request.review_mode,
+            "franchisee_name": request.franchisee_name,
             "business_license_fields": business_fields,
+            "holder_business_license_fields": business_fields,
+            "franchisee_business_license_fields": franchisee_business_fields,
             "tobacco_license_fields": tobacco_fields,
             "business_license_result": document_results.get("business_license"),
+            "franchisee_business_license_result": document_results.get(
+                "franchisee_business_license"
+            ),
             "tobacco_license_result": document_results.get("tobacco_license"),
             "store_in_store": request.store_in_store,
             "selected_files": request.selected_files,
@@ -423,6 +436,9 @@ def create_consistency_review(
         "business_license_name": business_fields.get("subject_name"),
         "business_license_address": business_fields.get("business_address"),
         "business_license_person": business_fields.get("legal_person"),
+        "franchisee_name": request.franchisee_name,
+        "franchisee_business_license_name": franchisee_business_fields.get("subject_name"),
+        "franchisee_business_license_address": franchisee_business_fields.get("business_address"),
         "tobacco_license_name": tobacco_fields.get("subject_name"),
         "tobacco_license_no": tobacco_fields.get("license_no"),
         "tobacco_license_address": tobacco_fields.get("business_address"),
@@ -479,6 +495,7 @@ def create_oa_auto_review(
             requestid=request.requestid,
             store_code=request.store_code,
             store_name=request.store_name,
+            franchisee_name=request.franchisee_name,
             workflow_id=request.workflow_id,
         )
     )
@@ -503,6 +520,7 @@ def submit_oa_auto_review(
         requestid=request.requestid,
         store_code=request.store_code,
         store_name=request.store_name,
+        franchisee_name=request.franchisee_name,
         workflow_id=request.workflow_id,
     )
     task_id = oa_auto_review_task_id(command.workflow_id, command.requestid)
@@ -1126,6 +1144,13 @@ def _oa_reject_suggestion(reason: dict[str, Any]) -> str:
         return "请核实烟草证真伪并补充有效证照后重新提交"
     if details.get("difference") == "expired":
         return "请提供有效期内的烟草证后重新提交"
+    if rule_code == "STANDARD_FRANCHISEE_NAME_MATCH":
+        return "请核对 OA 加盟商名称与单店证照主体，确认一致后重新提交"
+    if rule_code in {
+        "STORE_IN_STORE_HOLDER_ADDRESS_MATCH",
+        "STORE_IN_STORE_FRANCHISEE_ADDRESS_MATCH",
+    }:
+        return "请核对三证经营地址；同址不同写法需补充门牌照片或政府同址证明"
     if field_label:
         return f"请核对营业执照与烟草证的{field_label}，确认一致后重新提交"
     return "请核对相关证照材料，确认无误后重新提交"
@@ -1134,6 +1159,13 @@ def _oa_reject_suggestion(reason: dict[str, Any]) -> str:
 def _oa_manual_review_suggestion(rule_code: str) -> str:
     if rule_code.endswith("_CHILD_REVIEW_READY"):
         return "请人工核对子审核结论及原始证照"
+    if rule_code == "STANDARD_FRANCHISEE_NAME_EVIDENCE":
+        return "请补充 OA 加盟商主体名称，不得使用门店名称代替"
+    if rule_code in {
+        "STORE_IN_STORE_HOLDER_ADDRESS_MATCH",
+        "STORE_IN_STORE_FRANCHISEE_ADDRESS_MATCH",
+    }:
+        return "请核验门牌照片或派出所、房管局、社区委员会等机构出具的同址证明"
     return "请核对原始证照并补充缺失字段的可追溯证据"
 
 

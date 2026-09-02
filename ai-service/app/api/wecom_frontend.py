@@ -888,6 +888,7 @@ def _frontend_review_record(
 def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> dict[str, Any]:
     comparison = dict(row.get("comparison") or row.get("normalized_fields") or {})
     business = dict(row.get("business_license_fields") or comparison.get("business_license") or {})
+    franchisee_business = dict(comparison.get("franchisee_business_license") or {})
     tobacco = dict(row.get("tobacco_license_fields") or comparison.get("tobacco_license") or {})
     rules = list(row.get("rule_results") or [])
     source_evidence = dict(row.get("source_evidence") or {})
@@ -938,6 +939,9 @@ def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> di
         "business_license_name": business.get("subject_name"),
         "business_license_address": business.get("business_address"),
         "business_license_person": business.get("legal_person"),
+        "franchisee_name": comparison.get("franchisee_name"),
+        "franchisee_business_license_name": franchisee_business.get("subject_name"),
+        "franchisee_business_license_address": franchisee_business.get("business_address"),
         "tobacco_license_name": tobacco.get("subject_name"),
         "tobacco_license_no": tobacco.get("license_no"),
         "tobacco_license_address": tobacco.get("business_address"),

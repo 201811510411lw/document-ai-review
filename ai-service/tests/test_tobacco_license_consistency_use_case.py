@@ -29,6 +29,11 @@ BASE_TOBACCO_FIELDS = {
     "valid_to_evidence": "有效期至：2099-12-31",
 }
 
+BASE_FRANCHISEE_BUSINESS_FIELDS = {
+    **BASE_BUSINESS_FIELDS,
+    "subject_name": "成都零食有鸣加盟店",
+}
+
 
 def test_tobacco_license_consistency_all_match_passes():
     result = _review()
@@ -137,6 +142,20 @@ def test_tobacco_license_consistency_name_mismatch_routes_manual_review():
     assert _failed_codes(result) == ["BUSINESS_TOBACCO_SUBJECT_NAME_MATCH"]
 
 
+def test_standard_mode_requires_license_holder_to_match_franchisee_name():
+    result = _review(franchisee_name="成都零食有鸣加盟店")
+
+    assert result.status == ReviewStatus.PENDING_MANUAL_REVIEW
+    assert "STANDARD_FRANCHISEE_NAME_MATCH" in _failed_codes(result)
+
+
+def test_standard_mode_missing_franchisee_name_routes_manual_review():
+    result = _review(franchisee_name=None)
+
+    assert result.status == ReviewStatus.PENDING_MANUAL_REVIEW
+    assert "STANDARD_FRANCHISEE_NAME_EVIDENCE" in _failed_codes(result)
+
+
 def test_tobacco_license_consistency_address_mismatch_routes_manual_review():
     result = _review(tobacco_fields={**BASE_TOBACCO_FIELDS, "business_address": "成都市锦江区 2 号"})
 
@@ -153,6 +172,7 @@ def test_tobacco_license_consistency_person_mismatch_routes_manual_review():
 
 def test_tobacco_license_consistency_accepts_individual_business_suffix_and_region_alias():
     result = _review(
+        franchisee_name="木垒哈萨克自治县疆小垒零食店",
         business_fields={
             **BASE_BUSINESS_FIELDS,
             "subject_name": "木垒哈萨克自治县疆小垒零食店（个体工商户）",
@@ -197,6 +217,8 @@ def test_tobacco_license_consistency_collects_fields_after_invalid_document_type
     rules = consistency_workflow._review_rules(
         {**BASE_BUSINESS_FIELDS, "document_type": "food_license"},
         {**BASE_TOBACCO_FIELDS, "document_type": "business_license"},
+        franchisee_business_fields={},
+        franchisee_name=BASE_BUSINESS_FIELDS["subject_name"],
         review_mode="standard",
         store_in_store={},
     )
@@ -212,6 +234,7 @@ def test_tobacco_license_consistency_collects_fields_after_invalid_document_type
         "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
         "BUSINESS_TOBACCO_ADDRESS_MATCH",
         "BUSINESS_TOBACCO_PERSON_MATCH",
+        "STANDARD_FRANCHISEE_NAME_MATCH",
         "BUSINESS_TOBACCO_TOBACCO_VALIDITY",
     ]
     assert [rule.rule_code for rule in rules if not rule.passed] == [
@@ -220,7 +243,7 @@ def test_tobacco_license_consistency_collects_fields_after_invalid_document_type
     ]
 
 
-def test_store_in_store_allows_franchisee_name_to_differ_when_evidence_chain_is_complete():
+def test_store_in_store_allows_franchisee_license_name_and_person_to_differ():
     result = _review(
         business_fields={
             **BASE_BUSINESS_FIELDS,
@@ -234,12 +257,11 @@ def test_store_in_store_allows_franchisee_name_to_differ_when_evidence_chain_is_
         },
         review_mode="store_in_store",
         store_in_store={
-            "franchisee_business_license_fields": {"subject_name": "甲加盟商"},
-            "relationship_evidence": {
-                "document_id": "agreement.pdf",
-                "franchisee_name": "甲加盟商",
-                "holder_name": "乙便利店",
-                "address": "成都市高新区天府大道 1 号",
+            "franchisee_business_license_fields": {
+                **BASE_FRANCHISEE_BUSINESS_FIELDS,
+                "subject_name": "甲加盟商",
+                "legal_person": "李四",
+                "business_address": "成都市高新区天府大道 1 号",
             },
         },
     )
@@ -249,34 +271,36 @@ def test_store_in_store_allows_franchisee_name_to_differ_when_evidence_chain_is_
     assert "STORE_IN_STORE_HOLDER_NAME_MATCH" not in _failed_codes(result)
 
 
-def test_store_in_store_allows_explicit_multi_address_evidence():
+def test_store_in_store_address_difference_requires_manual_review_even_with_evidence():
     result = _review(
-        business_fields={**BASE_BUSINESS_FIELDS, "business_address": "成都市锦江区总店"},
-        tobacco_fields={**BASE_TOBACCO_FIELDS, "business_address": "成都市高新区天府大道 1 号"},
         review_mode="store_in_store",
         store_in_store={
-            "relationship_evidence": {
-                "document_id": "agreement.pdf",
-                "franchisee_name": "甲加盟商",
-                "holder_name": "成都示例烟草商行",
-                "address": "成都市高新区天府大道 1 号",
+            "franchisee_business_license_fields": {
+                **BASE_FRANCHISEE_BUSINESS_FIELDS,
+                "business_address": "成都市高新区天府大道1号附1号",
             },
-            "multi_address_evidence": {
-                "holder_name": "成都示例烟草商行",
-                "addresses": ["成都市高新区天府大道 1 号"],
+            "same_premises_evidence": {
+                "document_id": "门牌号照片.jpg",
+                "description": "同一门店对应两个门牌号",
             },
         },
     )
 
-    assert result.status == ReviewStatus.REVIEWED
-    assert result.risk_level == RiskLevel.NONE
+    assert result.status == ReviewStatus.PENDING_MANUAL_REVIEW
+    address_rule = next(
+        rule
+        for rule in result.rule_results
+        if rule.rule_code == "STORE_IN_STORE_FRANCHISEE_ADDRESS_MATCH"
+    )
+    assert address_rule.details["difference"] == "same_premises_evidence_required"
+    assert address_rule.details["same_premises_evidence"]["document_id"] == "门牌号照片.jpg"
 
 
-def test_store_in_store_requires_relationship_evidence():
+def test_store_in_store_requires_franchisee_business_license():
     result = _review(review_mode="store_in_store", store_in_store={})
 
     assert result.status == ReviewStatus.PENDING_MANUAL_REVIEW
-    assert "STORE_IN_STORE_RELATIONSHIP_EVIDENCE" in _failed_codes(result)
+    assert "FRANCHISEE_BUSINESS_LICENSE_CHILD_REVIEW_READY" in _failed_codes(result)
 
 
 def _review(
@@ -285,6 +309,7 @@ def _review(
     tobacco_fields: dict | None = None,
     review_mode: str = "standard",
     store_in_store: dict | None = None,
+    franchisee_name: str | None = BASE_BUSINESS_FIELDS["subject_name"],
     business_result: dict | None = None,
     tobacco_result: dict | None = None,
 ):
@@ -304,6 +329,7 @@ def _review(
                 "business_license_result": business_result,
                 "tobacco_license_result": tobacco_result,
                 "review_mode": review_mode,
+                "franchisee_name": franchisee_name,
                 "store_in_store": store_in_store or {},
             },
         ),

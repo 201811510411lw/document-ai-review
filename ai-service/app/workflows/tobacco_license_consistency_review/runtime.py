@@ -11,6 +11,8 @@ def tobacco_license_consistency_review_state_from_workflow_state(
         "document": {"document_type": "business_tobacco_consistency"},
         "extracted_fields": {
             "business_license": workflow_state.get("business_license_fields", {}),
+            "holder_business_license": workflow_state.get("holder_business_license_fields", {}),
+            "franchisee_business_license": workflow_state.get("franchisee_business_license_fields", {}),
             "tobacco_license": workflow_state.get("tobacco_license_fields", {}),
         },
         "normalized_fields": workflow_state.get("comparison", {}),
@@ -40,6 +42,8 @@ def tobacco_license_consistency_review_state_from_workflow_state(
         "artifacts": {
             "implementation_status": "implemented",
             "business_license_fields": workflow_state.get("business_license_fields", {}),
+            "holder_business_license_fields": workflow_state.get("holder_business_license_fields", {}),
+            "franchisee_business_license_fields": workflow_state.get("franchisee_business_license_fields", {}),
             "tobacco_license_fields": workflow_state.get("tobacco_license_fields", {}),
             "comparison": workflow_state.get("comparison", {}),
             "source_evidence": workflow_state.get("source_evidence", {}),

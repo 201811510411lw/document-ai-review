@@ -112,10 +112,12 @@
       </section>
 
       <section v-if="report.review_mode === 'store_in_store'" class="content-section">
-        <header class="section-header"><div><p>补充材料</p><h2>店中店证据链</h2></div></header>
+        <header class="section-header"><div><p>证照角色</p><h2>店中店三证核对</h2></div></header>
         <div class="store-evidence">
-          <div><span>加盟/联营/场地授权凭证</span><strong>{{ report.comparison?.store_in_store?.relationship_evidence?.document_id || '-' }}</strong></div>
-          <div><span>多经营地址佐证</span><strong>{{ report.comparison?.store_in_store?.multi_address_evidence?.addresses?.join('、') || '营业执照登记地址' }}</strong></div>
+          <div><span>烟草持证主体</span><strong>{{ report.comparison?.holder_business_license?.subject_name || '-' }}</strong></div>
+          <div><span>加盟店主体</span><strong>{{ report.comparison?.franchisee_business_license?.subject_name || '-' }}</strong></div>
+          <div><span>加盟店地址</span><strong>{{ report.comparison?.franchisee_business_license?.business_address || '-' }}</strong></div>
+          <div><span>同址证明</span><strong>{{ report.comparison?.store_in_store?.same_premises_evidence?.document_id || '无需补充证明' }}</strong></div>
         </div>
       </section>
 
@@ -420,7 +422,7 @@ async function retryOaCallback() {
 
 function modeLabel(mode) { return mode === 'store_in_store' ? '店中店核对' : '标准核对' }
 function formatTime(value) { return value ? String(value).replace('T', ' ').slice(0, 19) : '-' }
-function attachmentRoleLabel(role) { return { tobacco_license: '烟草证', business_license: '营业执照', selected_attachment: '核对选用附件' }[role] || 'OA 附件' }
+function attachmentRoleLabel(role) { return { tobacco_license: '烟草证', business_license: '烟草持证主体营业执照', franchisee_business_license: '加盟店营业执照', selected_attachment: '核对选用附件' }[role] || 'OA 附件' }
 
 const RULE_SUGGESTIONS = {
   BUSINESS_TOBACCO_SUBJECT_NAME_MATCH:
@@ -428,8 +430,7 @@ const RULE_SUGGESTIONS = {
     + '现企业名称不一致，按照法律规定需要变更为一致，若未变更被执法机关查到，'
     + '轻则限期整改，重则被罚款、取消烟草证等，同时会对我司品牌造成不良影响。'
     + '建议加盟商变更后经营。\n'
-    + '店中店模式：店中店模式下，烟草证对应营业执照与零食有鸣营业执照不能一致，'
-    + '请核实是否上传错误还是门店模式判断错误。\n'
+    + '店中店模式仅要求烟草持证主体营业执照与烟草证名称一致，不要求加盟店营业执照与持证主体同名。\n'
     + '如无法变更但坚持售卖，需要在 OA 流程写：'
     + '已确认和接受因企业名称、地址、负责人不一致，未变更被执法机关查到，'
     + '轻则限期整改，重则被罚款、取消烟草证等，同时会对我司品牌造成不良影响的风险。',
@@ -459,18 +460,17 @@ const RULE_SUGGESTIONS = {
   BUSINESS_TOBACCO_TOBACCO_VALIDITY:
     '烟草证已过期或临近过期，请前往当地烟草专卖局办理续期后重新提交。',
   STORE_IN_STORE_HOLDER_NAME_MATCH:
-    '店中店模式下，烟草证对应营业执照与零食有鸣营业执照不能一致，'
-    + '请核实是否上传错误还是门店模式判断错误。',
+    '店中店模式下，烟草持证主体营业执照与烟草证的企业名称必须一致，请核对两份证照或办理变更。',
   STORE_IN_STORE_HOLDER_PERSON_MATCH:
-    '请确认加盟店负责人与加盟/联营协议一致。如不一致请联系招商处理是否需要补签三方协议。',
-  STORE_IN_STORE_RELATIONSHIP_EVIDENCE:
-    '店中店模式需提供加盟/联营/场地授权凭证。请上传包含以下信息的盖章材料：'
-    + '持证方（烟草证主体）与被授权方（零食有鸣）的主体名称、授权期限、经营地址及双方签章。',
-  STORE_IN_STORE_ADDRESS_COVERAGE:
-    '请确认烟草证经营地址在持证主体登记地址范围内。如不在：\n'
-    + '1. 上传多地址备案证明；\n'
-    + '2. 或拍照证明（照片显示烟证门牌号+实际店铺）；\n'
-    + '3. 或上传政府出具的地址名称一致证明文件。',
+    '店中店模式下，烟草持证主体营业执照与烟草证的负责人必须一致，请核对两份证照或办理变更。',
+  STORE_IN_STORE_HOLDER_ADDRESS_MATCH:
+    '请确认烟草持证主体营业执照与烟草证登记地址一致；地址名称不同但实为同址时，上传门牌照片或政府同址证明。',
+  STORE_IN_STORE_FRANCHISEE_ADDRESS_MATCH:
+    '加盟店营业执照地址必须与烟草证售烟地址一致或属于同一经营场所；请上传门牌照片或政府同址证明后人工复核。',
+  STANDARD_FRANCHISEE_NAME_MATCH:
+    '单店模式下，营业执照和烟草证主体必须与加盟商名称一致，请核对 OA 加盟商信息或办理证照变更。',
+  STANDARD_FRANCHISEE_NAME_EVIDENCE:
+    'OA 未提供加盟商主体名称，无法完成单店主体绑定校验，请补充后重新审核。',
 }
 
 function ruleSolution(ruleCode) {

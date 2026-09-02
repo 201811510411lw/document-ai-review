@@ -132,6 +132,94 @@ def test_conflicting_same_role_candidates_are_not_silently_selected(tmp_path):
     assert errors["tobacco_license"] == "MULTIPLE_CONFLICTING_CANDIDATES"
 
 
+def test_two_business_licenses_are_assigned_holder_and_franchisee_roles(tmp_path):
+    documents = [
+        _stored_document(tmp_path, role="business_license", docid=1001),
+        _stored_document(tmp_path, role="business_license", docid=1002),
+        _stored_document(tmp_path, role="tobacco_license", docid=1003),
+    ]
+    service = CandidateReviewService(
+        {
+            "business_license-1001.jpg": {
+                "document_type": "business_license",
+                "subject_name": "烟草持证主体",
+                "legal_person": "张三",
+                "business_address": "成都市高新区天府大道1号",
+            },
+            "business_license-1002.jpg": {
+                "document_type": "business_license",
+                "subject_name": "零食有鸣加盟店",
+                "legal_person": "李四",
+                "business_address": "成都市高新区天府大道1号",
+            },
+            "tobacco_license-1003.jpg": {
+                "document_type": "tobacco_license",
+                "subject_name": "烟草持证主体",
+                "legal_person": "张三",
+                "business_address": "成都市高新区天府大道1号",
+            },
+        }
+    )
+
+    results, errors = extract_consistency_document_results(
+        documents,
+        review_service=service,
+        store_identifier="B65230024",
+    )
+
+    assert errors == {}
+    assert set(results) == {
+        "business_license",
+        "franchisee_business_license",
+        "tobacco_license",
+    }
+    assert (
+        results["business_license"].skill_result["normalized_fields"]["subject_name"]
+        == "烟草持证主体"
+    )
+    assert (
+        results["franchisee_business_license"]
+        .skill_result["normalized_fields"]["subject_name"]
+        == "零食有鸣加盟店"
+    )
+
+
+def test_two_business_licenses_without_unique_holder_remain_conflicting(tmp_path):
+    documents = [
+        _stored_document(tmp_path, role="business_license", docid=1001),
+        _stored_document(tmp_path, role="business_license", docid=1002),
+        _stored_document(tmp_path, role="tobacco_license", docid=1003),
+    ]
+    service = CandidateReviewService(
+        {
+            "business_license-1001.jpg": {
+                "document_type": "business_license",
+                "subject_name": "甲主体",
+                "legal_person": "张三",
+            },
+            "business_license-1002.jpg": {
+                "document_type": "business_license",
+                "subject_name": "乙主体",
+                "legal_person": "李四",
+            },
+            "tobacco_license-1003.jpg": {
+                "document_type": "tobacco_license",
+                "subject_name": "丙主体",
+                "legal_person": "王五",
+            },
+        }
+    )
+
+    results, errors = extract_consistency_document_results(
+        documents,
+        review_service=service,
+        store_identifier="B65230024",
+    )
+
+    assert "business_license" not in results
+    assert errors["business_license"] == "MULTIPLE_CONFLICTING_CANDIDATES"
+
+
 def test_usable_candidate_is_retained_when_another_attachment_fails(tmp_path):
     documents = [
         _stored_document(tmp_path, role="business_license", docid=1001),

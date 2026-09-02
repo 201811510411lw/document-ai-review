@@ -368,6 +368,21 @@ class ChildReviewService:
         return _child_result(use_case_name, fields)
 
 
+class StoreInStoreChildReviewService(ChildReviewService):
+    def review(self, review_input, use_case_name=None):
+        if (
+            use_case_name == "business_license"
+            and review_input.source["attachment_ref_id"].split(":")[2] == "1002"
+        ):
+            fields = {
+                **_business_fields(),
+                "subject_name": "零食有鸣加盟店",
+                "legal_person": "李四",
+            }
+            return _child_result(use_case_name, fields)
+        return super().review(review_input, use_case_name)
+
+
 class ConflictingChildReviewService(ChildReviewService):
     def review(self, review_input, use_case_name=None):
         fields = _business_fields() if use_case_name == "business_license" else _tobacco_fields()
@@ -483,7 +498,12 @@ def test_repeated_oa_request_returns_saved_result_without_reprocessing():
     repository = ExistingResultRepository(_result())
 
     response = create_oa_auto_review(
-        OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=614),
+        OaAutoReviewRequest(
+            requestid=584412,
+            store_code="00001",
+            franchisee_name="示例商行",
+            workflow_id=614,
+        ),
         _oa_client={"client": "oa"},
         sql_client=MustNotRun(),
         file_store=MustNotRun(),
@@ -516,7 +536,12 @@ def test_oa_auto_review_executes_current_project_review_chain(monkeypatch, tmp_p
     monkeypatch.setattr(settings, "rpa_verification_tobacco_enabled", False)
 
     response = create_oa_auto_review(
-        OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=123),
+        OaAutoReviewRequest(
+            requestid=584412,
+            store_code="00001",
+            franchisee_name="示例商行",
+            workflow_id=123,
+        ),
         _oa_client={"client": "oa"},
         sql_client=object(),
         file_store=StoredDocumentsFileStore(documents),
@@ -560,6 +585,42 @@ def test_oa_auto_review_executes_current_project_review_chain(monkeypatch, tmp_p
     assert repository.saved[-1].task_id == "tc-oa-123-584412"
 
 
+def test_oa_auto_review_infers_store_in_store_from_two_business_licenses(
+    monkeypatch,
+    tmp_path,
+):
+    source_files = [
+        _source("business_license", 1001),
+        _source("business_license", 1002),
+        _source("tobacco_license", 1003),
+    ]
+    documents = [_stored(tmp_path, source) for source in source_files]
+    repository = NewResultRepository()
+    monkeypatch.setattr(
+        "app.services.oa_tobacco_auto_review.fetch_tobacco_license_source_files_by_request",
+        lambda sql_client, requestid, workflow_id: source_files,
+    )
+    monkeypatch.setattr(settings, "rpa_verification_tobacco_enabled", False)
+
+    response = create_oa_auto_review(
+        OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=614),
+        _oa_client={"client": "oa"},
+        sql_client=object(),
+        file_store=StoredDocumentsFileStore(documents),
+        repository=repository,
+        document_review_service=StoreInStoreChildReviewService(),
+    )
+
+    assert response["data"]["decision"] == "pass"
+    comparison = repository.saved[-1].skill_result["comparison"]
+    assert comparison["review_mode"] == "store_in_store"
+    assert comparison["holder_business_license"]["subject_name"] == "示例商行"
+    assert (
+        comparison["franchisee_business_license"]["subject_name"]
+        == "零食有鸣加盟店"
+    )
+
+
 def test_concurrent_repeated_request_executes_source_chain_once(monkeypatch, tmp_path):
     source_files = [
         _source("business_license", 1001),
@@ -592,7 +653,12 @@ def test_concurrent_repeated_request_executes_source_chain_once(monkeypatch, tmp
 
     def invoke():
         return create_oa_auto_review(
-            OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=614),
+            OaAutoReviewRequest(
+                requestid=584412,
+                store_code="00001",
+                franchisee_name="示例商行",
+                workflow_id=614,
+            ),
             _oa_client={"client": "oa"},
             sql_client=object(),
             file_store=StoredDocumentsFileStore(documents),
@@ -630,7 +696,12 @@ def test_conflicting_candidates_are_persisted_for_manual_review(monkeypatch, tmp
     monkeypatch.setattr(settings, "rpa_verification_tobacco_enabled", False)
 
     response = create_oa_auto_review(
-        OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=614),
+        OaAutoReviewRequest(
+            requestid=584412,
+            store_code="00001",
+            franchisee_name="示例商行",
+            workflow_id=614,
+        ),
         _oa_client={"client": "oa"},
         sql_client=object(),
         file_store=StoredDocumentsFileStore(documents),
@@ -659,7 +730,12 @@ def test_empty_child_fields_complete_parent_as_manual_review(monkeypatch, tmp_pa
     monkeypatch.setattr(settings, "rpa_verification_tobacco_enabled", False)
 
     response = create_oa_auto_review(
-        OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=614),
+        OaAutoReviewRequest(
+            requestid=584412,
+            store_code="00001",
+            franchisee_name="示例商行",
+            workflow_id=614,
+        ),
         _oa_client={"client": "oa"},
         sql_client=object(),
         file_store=StoredDocumentsFileStore(documents),
@@ -686,7 +762,12 @@ def test_result_save_failure_returns_exception_not_in_memory_pass(monkeypatch, t
     monkeypatch.setattr(settings, "rpa_verification_tobacco_enabled", False)
 
     response = create_oa_auto_review(
-        OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=614),
+        OaAutoReviewRequest(
+            requestid=584412,
+            store_code="00001",
+            franchisee_name="示例商行",
+            workflow_id=614,
+        ),
         _oa_client={"client": "oa"},
         sql_client=object(),
         file_store=StoredDocumentsFileStore(documents),
@@ -718,7 +799,12 @@ def test_small_field_mismatch_requires_next_node_review_without_rpa(monkeypatch,
     )
 
     response = create_oa_auto_review(
-        OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=614),
+        OaAutoReviewRequest(
+            requestid=584412,
+            store_code="00001",
+            franchisee_name="示例商行",
+            workflow_id=614,
+        ),
         _oa_client={"client": "oa"},
         sql_client=object(),
         file_store=StoredDocumentsFileStore(documents),
@@ -769,7 +855,12 @@ def test_rejected_consistency_result_skips_rpa_and_preserves_reject_reasons(
     )
 
     response = create_oa_auto_review(
-        OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=614),
+        OaAutoReviewRequest(
+            requestid=584412,
+            store_code="00001",
+            franchisee_name="示例商行",
+            workflow_id=614,
+        ),
         _oa_client={"client": "oa"},
         sql_client=object(),
         file_store=StoredDocumentsFileStore(documents),
@@ -804,7 +895,12 @@ def test_unreliable_child_reviews_do_not_automatically_reject_oa_request(
     )
 
     response = create_oa_auto_review(
-        OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=614),
+        OaAutoReviewRequest(
+            requestid=584412,
+            store_code="00001",
+            franchisee_name="示例商行",
+            workflow_id=614,
+        ),
         _oa_client={"client": "oa"},
         sql_client=object(),
         file_store=StoredDocumentsFileStore(documents),
@@ -824,7 +920,7 @@ def test_unreliable_child_reviews_do_not_automatically_reject_oa_request(
         "TOBACCO_LICENSE_EVIDENCE_FOR_CONSISTENCY",
     ]
     assert response["data"]["manual_review_reason_text"] == (
-        "营业执照子审核未形成可靠自动结论；"
+        "持证主体营业执照子审核未形成可靠自动结论；"
         "营业执照关键字段证据完整不足；"
         "烟草证关键字段证据完整不足"
     )
@@ -850,7 +946,12 @@ def test_rpa_is_not_repeated_when_final_persistence_fails(monkeypatch, tmp_path)
 
     def invoke():
         return create_oa_auto_review(
-            OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=614),
+            OaAutoReviewRequest(
+                requestid=584412,
+                store_code="00001",
+                franchisee_name="示例商行",
+                workflow_id=614,
+            ),
             _oa_client={"client": "oa"},
             sql_client=object(),
             file_store=StoredDocumentsFileStore(documents),

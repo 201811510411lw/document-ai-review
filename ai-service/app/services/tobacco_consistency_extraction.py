@@ -1,3 +1,5 @@
+import re
+import unicodedata
 from collections.abc import Iterable
 from typing import Any, Protocol
 
@@ -6,7 +8,11 @@ from app.services.tobacco_license_files import TobaccoLicenseStoredDocument
 
 
 class DocumentReviewService(Protocol):
-    def review(self, review_input: ReviewInput, use_case_name: str | None = None) -> ReviewResult:
+    def review(
+        self,
+        review_input: ReviewInput,
+        use_case_name: str | None = None,
+    ) -> ReviewResult:
         ...
 
 
@@ -23,6 +29,7 @@ _MANUAL_OVERRIDE_FIELDS = {
     "valid_from",
     "valid_to",
 }
+
 
 def extract_consistency_document_results(
     stored_documents: Iterable[TobaccoLicenseStoredDocument],
@@ -57,16 +64,36 @@ def extract_consistency_document_results(
                     f"{type(error).__name__}: {error}"
                 )
 
+    distinct_candidates = {
+        role: _distinct_review_results(role_candidates)
+        for role, role_candidates in candidates.items()
+    }
     results: dict[str, ReviewResult] = {}
-    for role, role_candidates in candidates.items():
-        reference_fields = _review_result_fields(role_candidates[0])
-        if any(
-            _review_result_fields(candidate) != reference_fields
-            for candidate in role_candidates[1:]
-        ):
-            errors[role] = "MULTIPLE_CONFLICTING_CANDIDATES"
-            continue
-        results[role] = role_candidates[0]
+    tobacco_candidates = distinct_candidates.get("tobacco_license", [])
+    if len(tobacco_candidates) == 1:
+        results["tobacco_license"] = tobacco_candidates[0]
+    elif len(tobacco_candidates) > 1:
+        errors["tobacco_license"] = "MULTIPLE_CONFLICTING_CANDIDATES"
+
+    business_candidates = distinct_candidates.get("business_license", [])
+    if len(business_candidates) == 1:
+        results["business_license"] = business_candidates[0]
+    elif len(business_candidates) == 2 and len(tobacco_candidates) == 1:
+        holder_candidates = [
+            candidate
+            for candidate in business_candidates
+            if _holder_identity_matches(candidate, tobacco_candidates[0])
+        ]
+        if len(holder_candidates) == 1:
+            holder = holder_candidates[0]
+            results["business_license"] = holder
+            results["franchisee_business_license"] = next(
+                candidate for candidate in business_candidates if candidate is not holder
+            )
+        else:
+            errors["business_license"] = "MULTIPLE_CONFLICTING_CANDIDATES"
+    elif len(business_candidates) > 1:
+        errors["business_license"] = "MULTIPLE_CONFLICTING_CANDIDATES"
     return results, errors
 
 
@@ -87,9 +114,46 @@ def _review_result_fields(review_result: ReviewResult | None) -> dict[str, Any]:
     if review_result is None:
         return {}
     skill_result = review_result.skill_result
-    payload = skill_result if isinstance(skill_result, dict) else skill_result.model_dump(mode="json")
+    payload = (
+        skill_result
+        if isinstance(skill_result, dict)
+        else skill_result.model_dump(mode="json")
+    )
     fields = payload.get("normalized_fields") or payload.get("extracted_fields") or {}
     return dict(fields) if isinstance(fields, dict) else {}
+
+
+def _distinct_review_results(
+    candidates: list[ReviewResult],
+) -> list[ReviewResult]:
+    distinct: list[ReviewResult] = []
+    seen: list[dict[str, Any]] = []
+    for candidate in candidates:
+        fields = _review_result_fields(candidate)
+        if fields in seen:
+            continue
+        seen.append(fields)
+        distinct.append(candidate)
+    return distinct
+
+
+def _holder_identity_matches(
+    business_result: ReviewResult,
+    tobacco_result: ReviewResult,
+) -> bool:
+    business = _review_result_fields(business_result)
+    tobacco = _review_result_fields(tobacco_result)
+    return all(
+        _normalized_identity_value(business.get(field))
+        and _normalized_identity_value(business.get(field))
+        == _normalized_identity_value(tobacco.get(field))
+        for field in ("subject_name", "legal_person")
+    )
+
+
+def _normalized_identity_value(value: Any) -> str:
+    text = unicodedata.normalize("NFKC", "".join(str(value or "").split()))
+    return re.sub(r"[（(]个体工商户[）)]$|个体工商户$", "", text)
 
 
 def _review_input_for_document(

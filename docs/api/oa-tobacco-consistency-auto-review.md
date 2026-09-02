@@ -58,7 +58,9 @@ POST /api/v1/tobacco-license-consistency/reviews
 {
   "store_identifier": "store-code-or-request-id",
   "review_mode": "standard",
+  "franchisee_name": "OA 加盟商主体名称",
   "business_license_fields": {},
+  "franchisee_business_license_fields": {},
   "tobacco_license_fields": {},
   "store_in_store": {},
   "selected_files": []
@@ -69,12 +71,16 @@ POST /api/v1/tobacco-license-consistency/reviews
 | --- | --- | --- |
 | `store_identifier` | 是 | 门店编码、OA request ID 或来源查询支持的其他标识 |
 | `review_mode` | 否 | `standard` 或 `store_in_store` |
+| `franchisee_name` | 单店是 | OA 加盟商主体名称；不得用门店名称替代 |
 | `business_license_fields` | 否 | 人工确认或补充的营业执照字段 |
+| `franchisee_business_license_fields` | 店中店否 | 人工确认或补充的加盟店营业执照字段；优先使用附件识别结果 |
 | `tobacco_license_fields` | 否 | 人工确认或补充的烟草证字段 |
-| `store_in_store` | 否 | 店中店模式的关系和证明信息 |
+| `store_in_store` | 否 | 店中店同址证明信息，使用 `same_premises_evidence` |
 | `selected_files` | 否 | 前端选择的来源文件信息 |
 
-证照字段优先来自附件识别结果。OA 门店名称只能作为来源上下文，不能代替证照主体字段。
+证照字段优先来自附件识别结果。OA 门店名称只能作为来源上下文，不能代替证照主体字段或
+`franchisee_name`。店中店的持证主体营业执照与烟草证核对名称、负责人和地址；加盟店营业执照
+不与烟草证核对名称和负责人，只核对材料完整性和同址关系。地址不同写法转人工核验证明。
 
 成功响应包含：
 

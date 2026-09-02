@@ -14,7 +14,8 @@
           </van-radio-group>
         </template>
       </van-cell>
-      <p class="field-group-title">营业执照</p>
+      <van-field label="加盟商名称" :model-value="franchiseeName" @update:model-value="$emit('update:franchiseeName', $event)" />
+      <p class="field-group-title">{{ mode === 'store_in_store' ? '烟草持证主体营业执照' : '营业执照' }}</p>
       <van-field label="执照主体" :model-value="businessFields.subject_name" @update:model-value="updateBusiness('subject_name', $event)" />
       <van-field label="执照地址" :model-value="businessFields.business_address" @update:model-value="updateBusiness('business_address', $event)" />
       <van-field label="执照负责人" :model-value="businessFields.legal_person" @update:model-value="updateBusiness('legal_person', $event)" />
@@ -24,12 +25,13 @@
       <van-field label="烟草负责人" :model-value="tobaccoFields.legal_person" @update:model-value="updateTobacco('legal_person', $event)" />
       <van-field label="有效截止日" placeholder="YYYY-MM-DD" :model-value="tobaccoFields.valid_to" @update:model-value="updateTobacco('valid_to', $event)" />
       <template v-if="mode === 'store_in_store'">
-        <van-field label="关系凭证" :model-value="relationship.document_id" @update:model-value="updateRelationship('document_id', $event)" />
-        <van-field label="加盟商" :model-value="relationship.franchisee_name" @update:model-value="updateRelationship('franchisee_name', $event)" />
-        <van-field label="持证主体" :model-value="relationship.holder_name" @update:model-value="updateRelationship('holder_name', $event)" />
-        <van-field label="关系地址" :model-value="relationship.address" @update:model-value="updateRelationship('address', $event)" />
-        <van-field label="多址主体" :model-value="multiAddressHolderName" @update:model-value="$emit('update:multiAddressHolderName', $event)" />
-        <van-field label="多经营地址" type="textarea" autosize :model-value="multiAddressText" @update:model-value="$emit('update:multiAddressText', $event)" />
+        <p class="field-group-title">加盟店营业执照</p>
+        <van-field label="执照主体" :model-value="franchiseeBusinessFields.subject_name" @update:model-value="updateFranchiseeBusiness('subject_name', $event)" />
+        <van-field label="执照地址" :model-value="franchiseeBusinessFields.business_address" @update:model-value="updateFranchiseeBusiness('business_address', $event)" />
+        <van-field label="执照负责人" :model-value="franchiseeBusinessFields.legal_person" @update:model-value="updateFranchiseeBusiness('legal_person', $event)" />
+        <p class="field-group-title">同一经营场所证明</p>
+        <van-field label="证明文件" :model-value="samePremisesEvidence.document_id" @update:model-value="updateSamePremisesEvidence('document_id', $event)" />
+        <van-field label="证明说明" type="textarea" autosize :model-value="samePremisesEvidence.description" @update:model-value="updateSamePremisesEvidence('description', $event)" />
       </template>
     </div>
   </section>
@@ -39,18 +41,19 @@
 const props = defineProps({
   expanded: { type: Boolean, default: false },
   mode: { type: String, default: 'standard' },
+  franchiseeName: { type: String, default: '' },
   businessFields: { type: Object, required: true },
+  franchiseeBusinessFields: { type: Object, required: true },
   tobaccoFields: { type: Object, required: true },
-  relationship: { type: Object, required: true },
-  multiAddressHolderName: { type: String, default: '' },
-  multiAddressText: { type: String, default: '' },
+  samePremisesEvidence: { type: Object, required: true },
 })
 
-const emit = defineEmits(['update:expanded', 'update:mode', 'update:businessFields', 'update:tobaccoFields', 'update:relationship', 'update:multiAddressHolderName', 'update:multiAddressText'])
+const emit = defineEmits(['update:expanded', 'update:mode', 'update:franchiseeName', 'update:businessFields', 'update:franchiseeBusinessFields', 'update:tobaccoFields', 'update:samePremisesEvidence'])
 
 function updateBusiness(field, value) { emit('update:businessFields', { ...props.businessFields, [field]: value }) }
+function updateFranchiseeBusiness(field, value) { emit('update:franchiseeBusinessFields', { ...props.franchiseeBusinessFields, [field]: value }) }
 function updateTobacco(field, value) { emit('update:tobaccoFields', { ...props.tobaccoFields, [field]: value }) }
-function updateRelationship(field, value) { emit('update:relationship', { ...props.relationship, [field]: value }) }
+function updateSamePremisesEvidence(field, value) { emit('update:samePremisesEvidence', { ...props.samePremisesEvidence, [field]: value }) }
 </script>
 
 <style scoped>

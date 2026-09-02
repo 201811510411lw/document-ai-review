@@ -11,7 +11,9 @@ _HARD_REJECTION_DIFFERENCES = {
 }
 _EVIDENCE_RULE_CODES = {
     "BUSINESS_LICENSE_EVIDENCE_FOR_CONSISTENCY",
+    "FRANCHISEE_BUSINESS_LICENSE_EVIDENCE_FOR_CONSISTENCY",
     "TOBACCO_LICENSE_EVIDENCE_FOR_CONSISTENCY",
+    "STANDARD_FRANCHISEE_NAME_EVIDENCE",
 }
 
 _FIELD_RULES: dict[str, tuple[str, str]] = {
@@ -36,6 +38,15 @@ _FIELD_RULES: dict[str, tuple[str, str]] = {
     ),
     "STORE_IN_STORE_HOLDER_NAME_MATCH": ("subject_name", "持证主体名称"),
     "STORE_IN_STORE_HOLDER_PERSON_MATCH": ("legal_person", "持证主体负责人"),
+    "STORE_IN_STORE_HOLDER_ADDRESS_MATCH": (
+        "holder_business_address",
+        "持证主体经营地址",
+    ),
+    "STORE_IN_STORE_FRANCHISEE_ADDRESS_MATCH": (
+        "franchisee_business_address",
+        "加盟店经营地址",
+    ),
+    "STANDARD_FRANCHISEE_NAME_MATCH": ("franchisee_name", "加盟商名称"),
 }
 
 

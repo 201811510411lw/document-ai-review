@@ -65,6 +65,7 @@ class OaAutoReviewCommand(BaseModel):
     requestid: int = Field(gt=0)
     store_code: str
     store_name: str | None = None
+    franchisee_name: str | None = None
     workflow_id: int = Field(gt=0)
 
 
@@ -397,8 +398,16 @@ class OaTobaccoAutoReviewService:
                 "oa": oa_source,
             },
             options={
-                "review_mode": "standard",
+                "review_mode": (
+                    "store_in_store"
+                    if "franchisee_business_license" in document_results
+                    else "standard"
+                ),
+                "franchisee_name": command.franchisee_name,
                 "business_license_result": document_results.get("business_license"),
+                "franchisee_business_license_result": document_results.get(
+                    "franchisee_business_license"
+                ),
                 "tobacco_license_result": document_results.get("tobacco_license"),
             },
         )
@@ -428,6 +437,8 @@ class OaTobaccoAutoReviewService:
                 summary="一致性规则完成，正在保存最终审核结果",
                 skill_result={
                     "business_license_fields": result.skill_result.get("business_license_fields", {}),
+                    "holder_business_license_fields": result.skill_result.get("holder_business_license_fields", {}),
+                    "franchisee_business_license_fields": result.skill_result.get("franchisee_business_license_fields", {}),
                     "tobacco_license_fields": result.skill_result.get("tobacco_license_fields", {}),
                     "comparison": result.skill_result.get("comparison", {}),
                     "source_evidence": result.skill_result.get("source_evidence", {}),

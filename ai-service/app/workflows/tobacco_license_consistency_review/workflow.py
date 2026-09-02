@@ -6,28 +6,44 @@ from app.models import ReviewInputContext, RiskLevel, RuleResult
 
 
 def run_tobacco_license_consistency_workflow(input_context: ReviewInputContext) -> dict:
+    options = input_context.input.options
     business_fields = _extract_fields(
-        input_context.input.options.get("business_license_result"),
-        input_context.input.options.get("business_license_fields"),
+        options.get("holder_business_license_result")
+        or options.get("business_license_result"),
+        options.get("holder_business_license_fields")
+        or options.get("business_license_fields"),
     )
     tobacco_fields = _extract_fields(
-        input_context.input.options.get("tobacco_license_result"),
-        input_context.input.options.get("tobacco_license_fields"),
+        options.get("tobacco_license_result"),
+        options.get("tobacco_license_fields"),
     )
-    review_mode = str(input_context.input.options.get("review_mode") or "standard")
-    store_in_store = dict(input_context.input.options.get("store_in_store") or {})
+    review_mode = str(options.get("review_mode") or "standard")
+    store_in_store = dict(options.get("store_in_store") or {})
+    franchisee_business_fields = _extract_fields(
+        options.get("franchisee_business_license_result"),
+        options.get("franchisee_business_license_fields")
+        or store_in_store.get("franchisee_business_license_fields"),
+    )
+    franchisee_name = options.get("franchisee_name")
     rule_results = _review_rules(
         business_fields,
         tobacco_fields,
+        franchisee_business_fields=franchisee_business_fields,
+        franchisee_name=franchisee_name,
         review_mode=review_mode,
         store_in_store=store_in_store,
-        business_result=input_context.input.options.get("business_license_result"),
-        tobacco_result=input_context.input.options.get("tobacco_license_result"),
+        business_result=options.get("holder_business_license_result")
+        or options.get("business_license_result"),
+        franchisee_business_result=options.get("franchisee_business_license_result"),
+        tobacco_result=options.get("tobacco_license_result"),
     )
     failed = [rule for rule in rule_results if not rule.passed]
     comparison = {
         "business_license": business_fields,
+        "holder_business_license": business_fields,
+        "franchisee_business_license": franchisee_business_fields,
         "tobacco_license": tobacco_fields,
+        "franchisee_name": franchisee_name,
         "review_mode": review_mode,
         "store_in_store": store_in_store if review_mode == "store_in_store" else {},
         "differences": [
@@ -44,6 +60,8 @@ def run_tobacco_license_consistency_workflow(input_context: ReviewInputContext) 
     return {
         "input_context": input_context,
         "business_license_fields": business_fields,
+        "holder_business_license_fields": business_fields,
+        "franchisee_business_license_fields": franchisee_business_fields,
         "tobacco_license_fields": tobacco_fields,
         "comparison": comparison,
         "rule_results": rule_results,
@@ -51,9 +69,17 @@ def run_tobacco_license_consistency_workflow(input_context: ReviewInputContext) 
         "needs_manual_review": bool(failed),
         "manual_review_reasons": [_manual_reason(rule) for rule in failed],
         "summary": (
-            ("店中店营业执照与烟草证证据链校验通过" if review_mode == "store_in_store" else "营业执照与烟草证一致性校验通过")
+            (
+                "店中店营业执照与烟草证证据链校验通过"
+                if review_mode == "store_in_store"
+                else "营业执照与烟草证一致性校验通过"
+            )
             if not failed
-            else ("店中店证据链存在需要人工复核的问题" if review_mode == "store_in_store" else "营业执照与烟草证存在需要人工复核的一致性问题")
+            else (
+                "店中店证据链存在需要人工复核的问题"
+                if review_mode == "store_in_store"
+                else "营业执照与烟草证存在需要人工复核的一致性问题"
+            )
         ),
         "source_evidence": {
             "supplier_name": input_context.input.supplier_name,
@@ -88,9 +114,12 @@ def _review_rules(
     business_fields: dict,
     tobacco_fields: dict,
     *,
+    franchisee_business_fields: dict,
+    franchisee_name: str | None,
     review_mode: str,
     store_in_store: dict,
     business_result=None,
+    franchisee_business_result=None,
     tobacco_result=None,
 ) -> list[RuleResult]:
     type_rules = [
@@ -98,89 +127,115 @@ def _review_rules(
         _type_rule("tobacco_license", tobacco_fields.get("document_type"), "烟草证类型"),
     ]
     rules = [
-        _child_review_ready_rule("BUSINESS_LICENSE", "营业执照", business_result),
-        _child_review_ready_rule("TOBACCO_LICENSE", "烟草证", tobacco_result),
+        _child_review_ready_rule("BUSINESS_LICENSE", "持证主体营业执照", business_result, business_fields),
+        _child_review_ready_rule("TOBACCO_LICENSE", "烟草证", tobacco_result, tobacco_fields),
         *type_rules,
     ]
-    rules.extend([
-        _required_field_rule(
-            "TOBACCO_LICENSE_NO_FOR_CONSISTENCY",
-            "烟草证许可证号完整",
-            "license_no",
-            tobacco_fields.get("license_no"),
-        ),
-        _evidence_rule(
-            "BUSINESS_LICENSE_EVIDENCE_FOR_CONSISTENCY",
-            "营业执照关键字段证据完整",
-            business_fields,
-            ("subject_name", "business_address", "legal_person"),
-        ),
-        _evidence_rule(
-            "TOBACCO_LICENSE_EVIDENCE_FOR_CONSISTENCY",
-            "烟草证关键字段证据完整",
-            tobacco_fields,
-            ("subject_name", "business_address", "legal_person", "license_no", "valid_to"),
-        ),
-    ])
+    rules.extend(
+        [
+            _required_field_rule(
+                "TOBACCO_LICENSE_NO_FOR_CONSISTENCY",
+                "烟草证许可证号完整",
+                "license_no",
+                tobacco_fields.get("license_no"),
+            ),
+            _evidence_rule(
+                "BUSINESS_LICENSE_EVIDENCE_FOR_CONSISTENCY",
+                "营业执照关键字段证据完整",
+                business_fields,
+                ("subject_name", "business_address", "legal_person"),
+            ),
+            _evidence_rule(
+                "TOBACCO_LICENSE_EVIDENCE_FOR_CONSISTENCY",
+                "烟草证关键字段证据完整",
+                tobacco_fields,
+                (
+                    "subject_name",
+                    "business_address",
+                    "legal_person",
+                    "license_no",
+                    "valid_to",
+                ),
+            ),
+        ]
+    )
     if review_mode == "store_in_store":
-        rules.extend(_store_in_store_rules(business_fields, tobacco_fields, store_in_store))
+        rules.extend(
+            [
+                _child_review_ready_rule(
+                    "FRANCHISEE_BUSINESS_LICENSE",
+                    "加盟店营业执照",
+                    franchisee_business_result,
+                    franchisee_business_fields,
+                ),
+                _type_rule(
+                    "business_license",
+                    franchisee_business_fields.get("document_type"),
+                    "加盟店营业执照类型",
+                    code_prefix="FRANCHISEE_BUSINESS_LICENSE",
+                ),
+                _evidence_rule(
+                    "FRANCHISEE_BUSINESS_LICENSE_EVIDENCE_FOR_CONSISTENCY",
+                    "加盟店营业执照关键字段证据完整",
+                    franchisee_business_fields,
+                    ("subject_name", "business_address"),
+                ),
+            ]
+        )
+        rules.extend(
+            _store_in_store_rules(
+                business_fields,
+                franchisee_business_fields,
+                tobacco_fields,
+                store_in_store,
+            )
+        )
     else:
-        rules.extend([
-            _same_field_rule(
-            "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
-            "主体名称一致",
-            "subject_name",
-            business_fields.get("subject_name"),
-            tobacco_fields.get("subject_name"),
-        ),
-            _same_field_rule(
-            "BUSINESS_TOBACCO_ADDRESS_MATCH",
-            "经营地址一致",
-            "business_address",
-            business_fields.get("business_address"),
-            tobacco_fields.get("business_address"),
-        ),
-            _same_field_rule(
-            "BUSINESS_TOBACCO_PERSON_MATCH",
-            "法定代表人/负责人一致",
-            "legal_person",
-            business_fields.get("legal_person"),
-            tobacco_fields.get("legal_person"),
-        ),
-        ])
+        rules.extend(
+            [
+                _same_field_rule(
+                    "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
+                    "主体名称一致",
+                    "subject_name",
+                    business_fields.get("subject_name"),
+                    tobacco_fields.get("subject_name"),
+                ),
+                _same_field_rule(
+                    "BUSINESS_TOBACCO_ADDRESS_MATCH",
+                    "经营地址一致",
+                    "business_address",
+                    business_fields.get("business_address"),
+                    tobacco_fields.get("business_address"),
+                ),
+                _same_field_rule(
+                    "BUSINESS_TOBACCO_PERSON_MATCH",
+                    "法定代表人/负责人一致",
+                    "legal_person",
+                    business_fields.get("legal_person"),
+                    tobacco_fields.get("legal_person"),
+                ),
+                _franchisee_name_rule(
+                    franchisee_name,
+                    business_fields.get("subject_name"),
+                ),
+            ]
+        )
+        if franchisee_business_fields:
+            rules.append(_standard_document_count_rule(franchisee_business_fields))
     rules.append(_tobacco_validity_rule(tobacco_fields.get("valid_to")))
     return rules
 
 
 def _store_in_store_rules(
     holder_fields: dict,
+    franchisee_fields: dict,
     tobacco_fields: dict,
     store_in_store: dict,
 ) -> list[RuleResult]:
-    relationship = dict(store_in_store.get("relationship_evidence") or {})
-    multi_address = dict(store_in_store.get("multi_address_evidence") or {})
-    franchisee = dict(store_in_store.get("franchisee_business_license_fields") or {})
-    tobacco_address = tobacco_fields.get("business_address")
-    holder_address = holder_fields.get("business_address")
-    listed_addresses = multi_address.get("addresses") or []
-    multi_address_matches_holder = _normalized_equal(
-        multi_address.get("holder_name"), tobacco_fields.get("subject_name")
-    )
-    address_covered = _normalized_equal(holder_address, tobacco_address) or (
-        multi_address_matches_holder
-        and any(_normalized_equal(address, tobacco_address) for address in listed_addresses)
-    )
-    relationship_complete = bool(
-        relationship.get("document_id")
-        and relationship.get("franchisee_name")
-        and relationship.get("holder_name")
-        and relationship.get("address")
-    )
-    relationship_matches = (
-        relationship_complete
-        and _normalized_equal(relationship.get("holder_name"), tobacco_fields.get("subject_name"))
-        and _normalized_equal(relationship.get("address"), tobacco_address)
-        and (not franchisee.get("subject_name") or _normalized_equal(relationship.get("franchisee_name"), franchisee.get("subject_name")))
+    same_premises_evidence = dict(
+        store_in_store.get("same_premises_evidence")
+        or store_in_store.get("multi_address_evidence")
+        or {}
     )
     return [
         _same_field_rule(
@@ -190,39 +245,52 @@ def _store_in_store_rules(
             holder_fields.get("subject_name"),
             tobacco_fields.get("subject_name"),
         ),
-        _optional_same_field_rule(
+        _same_field_rule(
             "STORE_IN_STORE_HOLDER_PERSON_MATCH",
             "持证主体负责人一致",
             "legal_person",
             holder_fields.get("legal_person"),
             tobacco_fields.get("legal_person"),
         ),
-        _rule_result(
-            "STORE_IN_STORE_RELATIONSHIP_EVIDENCE",
-            "加盟/联营/场地授权凭证",
-            relationship_matches,
-            "relationship_evidence_missing_or_mismatch",
-            {"relationship_evidence": relationship, "franchisee": franchisee},
+        _address_match_rule(
+            "STORE_IN_STORE_HOLDER_ADDRESS_MATCH",
+            "持证主体经营地址一致",
+            holder_fields.get("business_address"),
+            tobacco_fields.get("business_address"),
+            same_premises_evidence,
+            expected_source="holder_business_license",
+            actual_source="tobacco_license",
         ),
-        _rule_result(
-            "STORE_IN_STORE_ADDRESS_COVERAGE",
-            "持证经营地址覆盖",
-            address_covered,
-            "address_not_registered_or_listed",
-            {"holder_address": holder_address, "tobacco_address": tobacco_address, "multi_address_evidence": multi_address},
+        _address_match_rule(
+            "STORE_IN_STORE_FRANCHISEE_ADDRESS_MATCH",
+            "加盟店经营地址与售烟地址一致",
+            tobacco_fields.get("business_address"),
+            franchisee_fields.get("business_address"),
+            same_premises_evidence,
+            expected_source="tobacco_license",
+            actual_source="franchisee_business_license",
         ),
     ]
 
 
-def _child_review_ready_rule(code_prefix: str, name: str, result_payload) -> RuleResult:
+def _child_review_ready_rule(
+    code_prefix: str,
+    name: str,
+    result_payload,
+    explicit_fields: dict | None = None,
+) -> RuleResult:
     if result_payload is None:
+        passed = bool(explicit_fields)
         return RuleResult(
             rule_code=f"{code_prefix}_CHILD_REVIEW_READY",
             rule_name=f"{name}子审核就绪",
-            passed=True,
+            passed=passed,
             risk_level_on_failure=RiskLevel.MEDIUM,
-            message=f"{name}使用显式确认字段",
-            details={"source": "explicit_fields"},
+            message=f"{name}使用显式确认字段" if passed else f"{name}缺失",
+            details={
+                "source": "explicit_fields",
+                "difference": None if passed else "required_document_missing",
+            },
         )
     payload = (
         result_payload.model_dump(mode="json")
@@ -289,23 +357,121 @@ def _evidence_rule(
     )
 
 
-def _optional_same_field_rule(code: str, name: str, field: str, expected: str | None, actual: str | None) -> RuleResult:
-    if not _normalize_text(expected) or not _normalize_text(actual):
-        return RuleResult(rule_code=code, rule_name=name, passed=True, risk_level_on_failure=RiskLevel.MEDIUM, message=f"{name}未完整识别，需结合其他证据复核", details={"field": field, "expected": expected, "actual": actual, "evidence": {}})
-    return _same_field_rule(code, name, field, expected, actual)
-
-
-def _rule_result(code: str, name: str, passed: bool, difference: str, details: dict) -> RuleResult:
-    return RuleResult(rule_code=code, rule_name=name, passed=passed, risk_level_on_failure=RiskLevel.MEDIUM, message=f"{name}通过" if passed else f"{name}不通过", details={"difference": None if passed else difference, **details})
-
-
-def _normalized_equal(left: str | None, right: str | None) -> bool:
-    return bool(_normalize_text(left)) and _normalize_text(left) == _normalize_text(right)
-
-
-def _type_rule(expected: str, actual: str | None, name: str) -> RuleResult:
+def _franchisee_name_rule(
+    franchisee_name: str | None,
+    holder_name: str | None,
+) -> RuleResult:
+    expected = _normalize_comparison_value("subject_name", franchisee_name)
+    actual = _normalize_comparison_value("subject_name", holder_name)
+    if not expected:
+        return RuleResult(
+            rule_code="STANDARD_FRANCHISEE_NAME_EVIDENCE",
+            rule_name="单店加盟商名称依据完整",
+            passed=False,
+            risk_level_on_failure=RiskLevel.MEDIUM,
+            message="OA 未提供可用于主体核对的加盟商名称",
+            details={
+                "field": "franchisee_name",
+                "expected": franchisee_name,
+                "actual": holder_name,
+                "difference": "expected_missing",
+            },
+        )
+    passed = bool(expected) and expected == actual
     return RuleResult(
-        rule_code=f"{expected.upper()}_TYPE_FOR_CONSISTENCY",
+        rule_code="STANDARD_FRANCHISEE_NAME_MATCH",
+        rule_name="单店证照主体与加盟商名称一致",
+        passed=passed,
+        risk_level_on_failure=RiskLevel.MEDIUM,
+        message=(
+            "单店证照主体与加盟商名称一致"
+            if passed
+            else "单店证照主体与加盟商名称不一致或加盟商名称缺失"
+        ),
+        details={
+            "field": "franchisee_name",
+            "expected": franchisee_name,
+            "actual": holder_name,
+            "difference": None if passed else _difference(franchisee_name, holder_name),
+            "evidence": {
+                "expected_source": "oa_franchisee_name",
+                "actual_source": "holder_business_license",
+            },
+        },
+    )
+
+
+def _standard_document_count_rule(
+    franchisee_business_fields: dict,
+) -> RuleResult:
+    return RuleResult(
+        rule_code="STANDARD_UNEXPECTED_SECOND_BUSINESS_LICENSE",
+        rule_name="单店营业执照数量",
+        passed=False,
+        risk_level_on_failure=RiskLevel.MEDIUM,
+        message="单店模式检测到第二张不同主体营业执照，请确认门店模式",
+        details={
+            "field": "franchisee_business_license",
+            "actual": franchisee_business_fields.get("subject_name"),
+            "difference": "unexpected_second_business_license",
+        },
+    )
+
+
+def _address_match_rule(
+    code: str,
+    name: str,
+    expected: str | None,
+    actual: str | None,
+    same_premises_evidence: dict,
+    *,
+    expected_source: str,
+    actual_source: str,
+) -> RuleResult:
+    expected_norm = _normalize_comparison_value("business_address", expected)
+    actual_norm = _normalize_comparison_value("business_address", actual)
+    passed = bool(expected_norm) and expected_norm == actual_norm
+    has_evidence = any(bool(value) for value in same_premises_evidence.values())
+    difference = None
+    if not passed:
+        difference = (
+            "same_premises_evidence_required"
+            if has_evidence and expected_norm and actual_norm
+            else _difference(expected, actual)
+        )
+    return RuleResult(
+        rule_code=code,
+        rule_name=name,
+        passed=passed,
+        risk_level_on_failure=RiskLevel.MEDIUM,
+        message=(
+            f"{name}通过"
+            if passed
+            else f"{name}需核对门牌照片或政府同址证明"
+        ),
+        details={
+            "field": "business_address",
+            "expected": expected,
+            "actual": actual,
+            "difference": difference,
+            "same_premises_evidence": same_premises_evidence,
+            "evidence": {
+                "expected_source": expected_source,
+                "actual_source": actual_source,
+            },
+        },
+    )
+
+
+def _type_rule(
+    expected: str,
+    actual: str | None,
+    name: str,
+    *,
+    code_prefix: str | None = None,
+) -> RuleResult:
+    return RuleResult(
+        rule_code=f"{code_prefix or expected.upper()}_TYPE_FOR_CONSISTENCY",
         rule_name=name,
         passed=actual == expected,
         risk_level_on_failure=RiskLevel.HIGH,

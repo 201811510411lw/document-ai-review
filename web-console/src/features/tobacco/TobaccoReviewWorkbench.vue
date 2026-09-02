@@ -73,7 +73,7 @@
       </template>
       <van-empty v-else-if="sourceQueried" image-size="64" description="未取得可核对的 OA 附件" />
 
-      <TobaccoManualCorrection v-model:expanded="showManualCorrection" v-model:mode="reviewMode" v-model:business-fields="businessFields" v-model:tobacco-fields="tobaccoFields" v-model:relationship="relationship" v-model:multi-address-holder-name="multiAddressHolderName" v-model:multi-address-text="multiAddressText" />
+      <TobaccoManualCorrection v-model:expanded="showManualCorrection" v-model:mode="reviewMode" v-model:franchisee-name="franchiseeName" v-model:business-fields="businessFields" v-model:franchisee-business-fields="franchiseeBusinessFields" v-model:tobacco-fields="tobaccoFields" v-model:same-premises-evidence="samePremisesEvidence" />
       <div class="submit-panel">
         <div><strong>提交自动核对</strong><span>系统只基于上述 OA 附件抽取字段；异常结果转人工复核。</span></div>
         <van-button type="primary" icon="balance-list" :loading="comparing" @click="triggerComparison">开始核对</van-button>
@@ -158,11 +158,11 @@ const comparing = ref(false)
 const expandedPanels = ref([])
 const showManualCorrection = ref(false)
 const reviewMode = ref('standard')
+const franchiseeName = ref('')
 const businessFields = ref({ subject_name: '', business_address: '', legal_person: '' })
+const franchiseeBusinessFields = ref({ subject_name: '', business_address: '', legal_person: '' })
 const tobaccoFields = ref({ subject_name: '', business_address: '', legal_person: '', valid_to: '' })
-const relationship = ref({ document_id: '', franchisee_name: '', holder_name: '', address: '' })
-const multiAddressHolderName = ref('')
-const multiAddressText = ref('')
+const samePremisesEvidence = ref({ document_id: '', description: '' })
 
 const fileCount = computed(() => sourceDocuments.value.reduce((total, document) => total + (document.files?.length || 0), 0))
 const selectedStores = computed(() => pendingStores.value.filter((store) => selectedStoreKeys.value.includes(storeKey(store))))
@@ -267,14 +267,14 @@ async function triggerComparison() {
     const selectedFiles = sourceDocuments.value.flatMap((document) => document.files || [])
     const result = await tobaccoApi.createConsistencyReview(identifier, {
       review_mode: reviewMode.value,
+      franchisee_name: franchiseeName.value.trim() || null,
       business_license_fields: { document_type: 'business_license', ...businessFields.value },
+      franchisee_business_license_fields: reviewMode.value === 'store_in_store'
+        ? { document_type: 'business_license', ...franchiseeBusinessFields.value }
+        : {},
       tobacco_license_fields: { document_type: 'tobacco_license', ...tobaccoFields.value },
       store_in_store: reviewMode.value === 'store_in_store' ? {
-        relationship_evidence: relationship.value,
-        multi_address_evidence: {
-          holder_name: multiAddressHolderName.value,
-          addresses: multiAddressText.value.split('\n').map((item) => item.trim()).filter(Boolean),
-        },
+        same_premises_evidence: samePremisesEvidence.value,
       } : {},
       selected_files: selectedFiles.map((file) => ({ relative_path: file.relative_path, file_name: file.file_name })),
     })
