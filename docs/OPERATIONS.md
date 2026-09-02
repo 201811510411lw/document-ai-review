@@ -48,23 +48,31 @@ cd ai-service
 /home/lsym005226/project/starrocks-cleanup-audit/ai-env/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-基础检查：
+日常快速验证在仓库根目录按改动范围执行，不默认运行全量测试：
+
+```bash
+make verify-oa-tobacco
+make verify-frontend
+```
+
+后端服务启动后，可在 `ai-service` 目录执行接口与清单检查：
 
 ```bash
 curl http://127.0.0.1:8000/health
 /home/lsym005226/project/starrocks-cleanup-audit/ai-env/bin/python scripts/generate_api_operation_inventory.py --check
-/home/lsym005226/project/starrocks-cleanup-audit/ai-env/bin/pytest
 ```
 
-OpenAPI 清单校验只证明路由契约未漂移，不证明 SRM、StarRocks、OCR、LLM、企业微信或影刀 RPA 已正确配置。上线前还应对目标环境执行只读连接和现有记录查询。
+其他范围使用 `make verify-test TESTS='tests/test_file.py::test_name'`。`make verify-full` 仅用于显式要求的全量诊断，不作为提交、Jenkins 镜像构建或部署门禁。
 
-前端验证：
+OpenAPI 清单校验只证明路由契约未漂移，不证明 SRM、StarRocks、OCR、LLM、企业微信或影刀 RPA 已正确配置。镜像部署到 UAT 后应针对改动执行真实业务验收；OA 烟草流程使用新的 `workflow_id + requestid`，核对运行镜像来源、持久化结果、实际 callback JSON、OA 业务接收状态和最终节点流转。
+
+前端本地验证：
 
 ```bash
-cd web-console
-npm test
-npm run build
+make verify-frontend
 ```
+
+生产前端构建由 Jenkins 随镜像构建统一执行。本地仅在定位构建问题或用户明确要求时运行 `cd web-console && npm run build`。
 
 构建后的 `web-console/dist` 存在时，FastAPI 会将其挂载为 SPA 静态站点；API 路径和带扩展名的静态资源不会回退到 `index.html`。
 

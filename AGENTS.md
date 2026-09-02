@@ -14,6 +14,17 @@ Use the default triage labels, including `ready-for-agent` for AFK-ready work. S
 
 Single-context repo. Use `README.md`, `docs/PRD.md`, `docs/SPEC.md`, `docs/API.md`, and relevant `.agents/skills/*/SKILL.md` as domain sources. See `docs/agents/domain.md`.
 
+### Verification workflow
+
+Routine changes use focused local verification, Jenkins image construction, and post-deployment UAT acceptance. Full local test suites are not a commit, image-build, or deployment gate. See `docs/agents/verification.md`.
+
+### 测试阶段镜像版本约束
+
+- 当前项目尚处于测试阶段。功能修改后的 Jenkins 构建、镜像推送和测试环境部署统一使用镜像 Tag `v1`；`IMAGE_TAG` 留空时也必须解析为 `v1`。
+- 用户提到“新建 Tag”或“发布新版本”但没有明确说明 Git Tag 时，默认指镜像 Tag，并固定使用 `v1`。不要自动生成 Git SHA、构建号、时间戳或语义化版本作为镜像 Tag，也不要仅为测试部署创建 Git Tag。
+- 只有用户明确宣布进入正式发布阶段，或明确指定其他镜像 Tag / Git Tag 时，才可偏离 `v1`。
+- `v1` 是可变镜像 Tag，验收时必须核对本次 Jenkins 源提交、镜像仓库 digest 与运行容器 `imageID`；不能只凭 Tag 名判断新版本已经部署。必要的重新拉取或滚动更新属于部署动作，仍需按用户当次授权执行。
+
 ## 项目概述
 
 `document-ai-review` 是企业内部 AI 文档智能审核 demo，目标是把营业执照、食品证照、烟草证、QC 报告、合同等非结构化材料转为可抽取、可校验、可追溯、可人工复核的结构化审核结果。
@@ -121,12 +132,22 @@ cd ai-service
 /home/lsym005226/project/starrocks-cleanup-audit/ai-env/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-后端测试：
+后端完整测试（仅在显式要求全量诊断时执行）：
 
 ```bash
 cd ai-service
 /home/lsym005226/project/starrocks-cleanup-audit/ai-env/bin/pytest
 ```
+
+日常修改不要默认执行上述全量命令。按改动范围使用快速验证：
+
+```bash
+make verify-oa-tobacco
+make verify-frontend
+make verify-test TESTS='tests/test_file.py::test_name'
+```
+
+完整测试仅用于用户明确要求的全量检查，或无法通过专项测试隔离的跨领域故障诊断。
 
 前端运行：
 
@@ -146,6 +167,9 @@ npm run build
 
 - 先读现有代码和测试，再改实现。
 - 保持改动聚焦，不做无关重构。
+- 功能完成后只执行覆盖当前改动的专项测试、必要编译检查和 `git diff --check`，不要默认运行全量后端测试或重复本地生产构建。
+- Jenkins 镜像构建成功后不再重复编译；部署到 UAT 后，以真实新请求完成业务验收。OA 场景必须使用新的 `workflow_id + requestid`，核对运行镜像来源、持久化结果、实际回调载荷、OA 业务接收状态和节点流转。
+- `make verify-full` 仅用于用户明确要求，或专项测试无法隔离的跨领域故障诊断，不属于提交、构建和部署门禁。
 - 新增业务规则时，优先同步 `.agents/skills/<skill>/SKILL.md` 和对应测试。
 - 修改公共结果结构时，同时检查 API、repository、workflow projection、前端消费方和测试。
 - Python 代码优先使用 Pydantic / TypedDict 等结构化模型，不用临时 dict 串业务主路径。
