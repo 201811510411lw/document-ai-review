@@ -2,47 +2,75 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 
+_STANDARD_REQUIREMENT = (
+    "《烟草证》+《营业执照》满足：三信息均对应一致（企业名称、负责人、经营地址均一致）。"
+)
+_STORE_IN_STORE_REQUIREMENT = (
+    "具备2个《营业执照》+《烟草证》，其中《烟草证》+《营业执照1》满足："
+    "三信息均对应一致（企业名称、负责人、经营地址均一致），《营业执照1》+"
+    "《营业执照2》+《烟草证》都满足：经营地址一致或基本重合"
+    "（《营业执照2》是用来经营零食有鸣的）。"
+)
+_CONSISTENCY_REQUIREMENT = (
+    "按照法律规定，《营业执照》与《烟草证》对应的三信息（企业名称、负责人、经营地址）"
+    "必须一致。"
+)
 _STANDARD_LEGAL_RISK = (
-    "如未变更被执法机关查到，可能面临限期整改、罚款或烟草证被取消等后果，"
-    "并可能对我司品牌造成不良影响。"
+    "若未变更被执法机关查到，轻则限期整改，重则被罚款、取消烟草证等，同时会对我司品牌"
+    "造成不良影响。"
+)
+_STANDARD_REMEDIATION = (
+    "建议：1、加盟商变更一致后经营；2、如无法变更，可能带来较大风险：包括被执法机关"
+    "查到后轻则限期整改，重则被罚款、取消烟草证等后果，以及其他对我司品牌造成不良影响"
+    "的风险。"
+)
+_ADDRESS_REMEDIATION = (
+    "建议：1、加盟商变更一致后经营；2、若地址实为同一地址但有不同的叫法，需上传门店"
+    "门牌号照片（照片显示一个门店能对应两个不同的门牌号），或者相关政府机构出具的证明"
+    "（如当地派出所/房管局/社区委员会等出具的地址一致的证明文件）；3、如无法变更，可能"
+    "带来较大风险：包括被执法机关查到后轻则限期整改，重则被罚款、取消烟草证等后果，"
+    "以及其他对我司品牌造成不良影响的风险。"
 )
 
 _RULE_SUGGESTIONS = {
     "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH": (
-        "按照法律规定，用于办理烟草证的营业执照与烟草证上的企业名称、负责人和经营地址"
-        "应保持一致。现企业名称不一致，请先办理变更并确认一致后重新提交；"
-        f"{_STANDARD_LEGAL_RISK}"
+        f"主体名称：单店：{_STANDARD_REQUIREMENT}{_CONSISTENCY_REQUIREMENT}"
+        f"现企业名称不一致，需变更为一致，{_STANDARD_LEGAL_RISK}{_STANDARD_REMEDIATION}"
     ),
     "BUSINESS_TOBACCO_ADDRESS_MATCH": (
-        "按照法律规定，用于办理烟草证的营业执照与烟草证上的企业名称、负责人和经营地址"
-        "应保持一致，且只能在烟草证登记的经营地址售烟。现经营地址不一致，请选择以下方式"
-        "之一处理：1. 变更地址使两证一致；2. 如实际为同一经营场所，上传能同时对应两个门牌号"
-        "的门店照片；3. 上传派出所、房管局、社区委员会等机构出具的同址证明。"
-        f"{_STANDARD_LEGAL_RISK}"
+        f"经营地址：单店：{_STANDARD_REQUIREMENT}{_CONSISTENCY_REQUIREMENT}"
+        "卖烟只能在烟草证上的经营地址上售卖，所以要在零食有鸣门店里卖烟，门店的经营地址"
+        f"必须是烟草证上的经营地址。现经营地址不一致，需变更为一致，{_STANDARD_LEGAL_RISK}"
+        f"{_ADDRESS_REMEDIATION}"
     ),
     "BUSINESS_TOBACCO_PERSON_MATCH": (
-        "按照法律规定，用于办理烟草证的营业执照与烟草证上的企业名称、负责人和经营地址"
-        "应保持一致。现负责人不一致，请联系招商核对门店模式，并办理变更后重新提交；"
-        f"{_STANDARD_LEGAL_RISK}"
+        f"法定代表人/负责人：单店：{_STANDARD_REQUIREMENT}{_CONSISTENCY_REQUIREMENT}"
+        "现企业负责人/法定代表人不一致，需变更为一致，"
+        f"{_STANDARD_LEGAL_RISK}{_STANDARD_REMEDIATION}"
     ),
     "BUSINESS_TOBACCO_TOBACCO_VALIDITY": (
         "烟草证已过期或临近过期，请前往当地烟草专卖局办理续期后重新提交。"
     ),
     "STORE_IN_STORE_HOLDER_NAME_MATCH": (
-        "店中店模式下，烟草持证主体营业执照与烟草证的企业名称必须一致，"
-        "请核对两份证照或办理变更后重新提交。"
+        f"主体名称：店中店：{_STORE_IN_STORE_REQUIREMENT}{_CONSISTENCY_REQUIREMENT}"
+        f"现企业名称不一致，需变更为一致，{_STANDARD_LEGAL_RISK}{_STANDARD_REMEDIATION}"
     ),
     "STORE_IN_STORE_HOLDER_PERSON_MATCH": (
-        "店中店模式下，烟草持证主体营业执照与烟草证的负责人必须一致，"
-        "请核对两份证照或办理变更后重新提交。"
+        f"法定代表人/负责人：店中店：{_STORE_IN_STORE_REQUIREMENT}{_CONSISTENCY_REQUIREMENT}"
+        "现企业负责人/法定代表人不一致，需变更为一致，"
+        f"{_STANDARD_LEGAL_RISK}{_STANDARD_REMEDIATION}"
     ),
     "STORE_IN_STORE_HOLDER_ADDRESS_MATCH": (
-        "请确认烟草持证主体营业执照与烟草证登记地址一致；地址名称不同但实为同址时，"
-        "请上传能同时对应两个门牌号的门店照片，或政府机构出具的同址证明。"
+        f"经营地址：店中店：{_STORE_IN_STORE_REQUIREMENT}{_CONSISTENCY_REQUIREMENT}"
+        "卖烟只能在烟草证上的经营地址上售卖，所以要在零食有鸣门店里卖烟，门店的经营地址"
+        f"必须是烟草证上的经营地址。现经营地址不一致，需变更为一致，{_STANDARD_LEGAL_RISK}"
+        f"{_ADDRESS_REMEDIATION}"
     ),
     "STORE_IN_STORE_FRANCHISEE_ADDRESS_MATCH": (
-        "加盟店营业执照地址必须与烟草证售烟地址一致或属于同一经营场所；"
-        "地址名称不同但实为同址时，请上传门牌照片或政府机构出具的同址证明。"
+        f"经营地址：店中店：{_STORE_IN_STORE_REQUIREMENT}{_CONSISTENCY_REQUIREMENT}"
+        "卖烟只能在烟草证上的经营地址上售卖，所以要在零食有鸣门店里卖烟，门店的经营地址"
+        f"必须是烟草证上的经营地址。现经营地址不一致，需变更为一致，{_STANDARD_LEGAL_RISK}"
+        f"{_ADDRESS_REMEDIATION}"
     ),
     "STANDARD_FRANCHISEE_NAME_MATCH": (
         "单店模式下，营业执照和烟草证主体必须与 OA 加盟商名称一致，"

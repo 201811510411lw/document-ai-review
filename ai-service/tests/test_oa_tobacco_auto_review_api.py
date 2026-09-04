@@ -39,6 +39,8 @@ from app.services.oa_tobacco_auto_review import (
     OaAutoReviewCommand,
     OaAutoReviewError,
     OaAutoReviewOutcome,
+    OaStoreModeError,
+    resolve_oa_store_mode,
 )
 
 
@@ -303,14 +305,19 @@ def test_small_confirmed_mismatch_callback_uses_manual_review_exception():
     assert data["error"] == {
         "code": "REVIEW_REQUIRES_MANUAL_REVIEW",
         "message": (
-            "按照法律规定，用于办理烟草证的营业执照与烟草证上的企业名称、"
-            "负责人和经营地址应保持一致。现企业名称不一致，请先办理变更并确认一致后重新提交；"
-            "如未变更被执法机关查到，可能面临限期整改、罚款或烟草证被取消等后果，"
-            "并可能对我司品牌造成不良影响。"
+            "主体名称：单店：《烟草证》+《营业执照》满足：三信息均对应一致"
+            "（企业名称、负责人、经营地址均一致）。按照法律规定，《营业执照》与《烟草证》"
+            "对应的三信息（企业名称、负责人、经营地址）必须一致。现企业名称不一致，"
+            "需变更为一致，若未变更被执法机关查到，轻则限期整改，重则被罚款、取消烟草证等，"
+            "同时会对我司品牌造成不良影响。建议：1、加盟商变更一致后经营；2、如无法变更，"
+            "可能带来较大风险：包括被执法机关查到后轻则限期整改，重则被罚款、取消烟草证等"
+            "后果，以及其他对我司品牌造成不良影响的风险。"
         ),
         "retryable": False,
     }
     assert data["manual_review_reason_text"] == data["error"]["message"]
+    assert "经营地址：单店：" not in data["manual_review_reason_text"]
+    assert "法定代表人/负责人：单店：" not in data["manual_review_reason_text"]
     assert data["mismatch_count"] == 1
     assert data["manual_review_reasons"][0]["rule_code"] == rule.rule_code
 
@@ -632,6 +639,13 @@ def test_oa_auto_review_executes_current_project_review_chain(monkeypatch, tmp_p
     assert response["data"]["task_id"] == "tc-oa-123-584412"
     assert response["data"]["mismatch_count"] == 0
     assert response["data"]["field_differences"] == []
+    comparison = repository.saved[-1].skill_result["comparison"]
+    assert comparison["review_mode"] == "standard"
+    oa_source = repository.saved[-1].skill_result["source_evidence"]["source"]["oa"]
+    assert oa_source["mdms"] == 0
+    assert oa_source["mdms1"] is None
+    assert oa_source["review_mode"] == "standard"
+    assert oa_source["review_mode_source"] == "oa_mysql_fields"
     rules_by_code = {
         rule["rule_code"]: rule for rule in response["data"]["rule_results"]
     }
@@ -664,14 +678,14 @@ def test_oa_auto_review_executes_current_project_review_chain(monkeypatch, tmp_p
     assert repository.saved[-1].task_id == "tc-oa-123-584412"
 
 
-def test_oa_auto_review_infers_store_in_store_from_two_business_licenses(
+def test_oa_auto_review_uses_oa_store_in_store_mode(
     monkeypatch,
     tmp_path,
 ):
     source_files = [
-        _source("business_license", 1001),
-        _source("business_license", 1002),
-        _source("tobacco_license", 1003),
+        _source("business_license", 1001, mdms=None, mdms1=0),
+        _source("business_license", 1002, mdms=None, mdms1=0),
+        _source("tobacco_license", 1003, mdms=None, mdms1=0),
     ]
     documents = [_stored(tmp_path, source) for source in source_files]
     repository = NewResultRepository()
@@ -693,10 +707,88 @@ def test_oa_auto_review_infers_store_in_store_from_two_business_licenses(
     assert response["data"]["decision"] == "pass"
     comparison = repository.saved[-1].skill_result["comparison"]
     assert comparison["review_mode"] == "store_in_store"
+    oa_source = repository.saved[-1].skill_result["source_evidence"]["source"]["oa"]
+    assert oa_source["mdms"] is None
+    assert oa_source["mdms1"] == 0
+    assert oa_source["review_mode"] == "store_in_store"
+    assert oa_source["review_mode_source"] == "oa_mysql_fields"
     assert comparison["holder_business_license"]["subject_name"] == "示例商行"
     assert (
         comparison["franchisee_business_license"]["subject_name"]
         == "零食有鸣加盟店"
+    )
+
+
+@pytest.mark.parametrize(
+    ("mdms", "mdms1", "error_code"),
+    [
+        (None, None, "OA_STORE_MODE_MISSING"),
+        (0, 1, "OA_STORE_MODE_CONFLICT"),
+    ],
+)
+def test_oa_store_mode_rejects_invalid_source_values(mdms, mdms1, error_code):
+    source = _source("tobacco_license", 1001, mdms=mdms, mdms1=mdms1)
+
+    with pytest.raises(OaStoreModeError) as error:
+        resolve_oa_store_mode([source])
+
+    assert error.value.code == error_code
+    assert error.value.details["mdms"] == mdms
+    assert error.value.details["mdms1"] == mdms1
+
+
+def test_oa_store_mode_ignores_non_empty_cashier_values():
+    sources = [
+        _source("business_license", 1001, mdms=0, mdms1=None),
+        _source("tobacco_license", 1002, mdms=2, mdms1=None),
+    ]
+
+    assert resolve_oa_store_mode(sources) == "standard"
+
+
+def test_oa_store_mode_rejects_inconsistent_attachment_rows():
+    sources = [
+        _source("business_license", 1001, mdms=0, mdms1=None),
+        _source("tobacco_license", 1002, mdms=None, mdms1=0),
+    ]
+
+    with pytest.raises(OaStoreModeError) as error:
+        resolve_oa_store_mode(sources)
+
+    assert error.value.code == "OA_STORE_MODE_INCONSISTENT"
+
+
+def test_oa_auto_review_stops_before_file_preparation_when_store_mode_is_missing(
+    monkeypatch,
+):
+    source_files = [
+        _source("business_license", 1001, mdms=None, mdms1=None),
+        _source("tobacco_license", 1002, mdms=None, mdms1=None),
+    ]
+    repository = NewResultRepository()
+    monkeypatch.setattr(
+        "app.services.oa_tobacco_auto_review.fetch_tobacco_license_source_files_by_request",
+        lambda sql_client, requestid, workflow_id: source_files,
+    )
+
+    response = create_oa_auto_review(
+        OaAutoReviewRequest(requestid=584412, store_code="00001", workflow_id=614),
+        _oa_client={"client": "oa"},
+        sql_client=object(),
+        file_store=MustNotRun(),
+        repository=repository,
+        document_review_service=MustNotRun(),
+    )
+
+    assert response["data"]["decision"] == "exception"
+    assert response["data"]["error"] == {
+        "code": "OA_STORE_MODE_MISSING",
+        "message": "OA 来源记录未填写单店或店中店模式，无法自动审核",
+        "retryable": False,
+        "details": {"mdms": None, "mdms1": None},
+    }
+    assert repository.saved[-1].skill_result["oa_error"]["code"] == (
+        "OA_STORE_MODE_MISSING"
     )
 
 
@@ -1009,7 +1101,7 @@ def test_unreliable_child_reviews_do_not_automatically_reject_oa_request(
     ]
     assert "现企业名称不一致" in response["data"]["manual_review_reason_text"]
     assert "现经营地址不一致" in response["data"]["manual_review_reason_text"]
-    assert "现负责人不一致" in response["data"]["manual_review_reason_text"]
+    assert "现企业负责人/法定代表人不一致" in response["data"]["manual_review_reason_text"]
     assert "重新上传清晰" not in response["data"]["manual_review_reason_text"]
     assert "子审核" not in response["data"]["manual_review_reason_text"]
     assert "证据完整不足" not in response["data"]["manual_review_reason_text"]
@@ -1111,6 +1203,34 @@ def test_two_field_mismatches_require_manual_review_with_structured_differences(
     assert [item["field"] for item in response["field_differences"]] == [
         "subject_name",
         "legal_person",
+    ]
+    assert "主体名称：单店：" in response["manual_review_reason_text"]
+    assert "法定代表人/负责人：单店：" in response["manual_review_reason_text"]
+    assert "经营地址：单店：" not in response["manual_review_reason_text"]
+
+
+def test_store_in_store_response_uses_only_failed_field_content():
+    result = _result(
+        _rule(
+            "STORE_IN_STORE_FRANCHISEE_ADDRESS_MATCH",
+            details={
+                "field": "franchisee_business_address",
+                "expected": "甲地址",
+                "actual": "乙地址",
+                "difference": "value_mismatch",
+            },
+        )
+    )
+
+    response = _oa_response(result)["data"]
+
+    assert response["decision"] == "manual_review"
+    assert "经营地址：店中店：具备2个《营业执照》+《烟草证》" in response[
+        "manual_review_reason_text"
+    ]
+    assert "主体名称：店中店：" not in response["manual_review_reason_text"]
+    assert "法定代表人/负责人：店中店：" not in response[
+        "manual_review_reason_text"
     ]
 
 
@@ -1577,12 +1697,14 @@ def _tobacco_fields():
     }
 
 
-def _source(role, docid):
+def _source(role, docid, *, mdms=0, mdms1=None):
     return TobaccoLicenseSourceFile(
         requestid=584412,
         workflow_id=614,
         store_code="00001",
         store_name="示例门店",
+        mdms=mdms,
+        mdms1=mdms1,
         document_role=role,
         docid=docid,
         imagefile_id=docid + 1,

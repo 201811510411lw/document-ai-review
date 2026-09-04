@@ -31,6 +31,7 @@ ods_oa_ecology_imagefile_df
 - 表单主表为 `formtable_main_283`。
 - 烟草证附件 ID 字段为 `formtable_main_283.ycxsxkz`。
 - 营业执照附件 ID 字段是 `formtable_main_283.yyzz`。该字段可能包含一张单店营业执照，也可能同时包含店中店的烟草持证主体营业执照和加盟店营业执照，不能只按 OA 字段或上传顺序指定角色。
+- OA 自动审核从源端 MySQL `formtable_main_283` 读取 `mdms` 和 `mdms1`：仅 `mdms` 非空时为单店 `standard`，仅 `mdms1` 非空时为店中店 `store_in_store`。字段值只表示烟草是否经过收银系统，不影响一致性审核；双空、双非空或同一请求附件行的字段空值位置不一致时返回非重试来源错误，不得回退到附件数量猜测门店模式。
 - 同址门牌照片、政府机构地址证明等补充材料来自同一 OA 表单的其他附件字段；当前不预设其技术字段名。没有完成技术字段映射时，不得把地址近似自动判为一致。
 - 附件链路：`ycxsxkz -> docdetail.ID -> docimagefile.DOCID/IMAGEFILEID -> imagefile.IMAGEFILEID/FILEREALPATH`。
 - OA 文件优先使用本地 NAS 挂载路径 `/data` 读取。
@@ -78,13 +79,14 @@ OCR/LLM 字段抽取只能依据烟草证图片、PDF 页面或 OCR 文本中的
 - 人工审批 `exception` transport 和 `reject` 回调均必须包含 `mismatch_count`、阈值和结构化 `field_differences`，逐项给出字段名、字段中文名、营业执照侧/期望值、烟草证侧/实际值、差异类型和规则信息，供 OA 下一节点展示和复核。`reject` 回调还必须包含决定性 `reject_reasons`、非空 `suggestion` 和可直接写入 OA 流转意见的 `reject_reason_text`。兼容期内 callback 保留完整 `rule_results`，并为其中的失败规则补充非空 `suggestion`；审核结果和轮询详情继续保留原始完整规则。
 - OA 的 `manual_review_reason_text`、`reject_reason_text` 和原因项 `suggestion` 必须使用面向申请人的业务处理建议，说明需要补充或变更的材料以及可执行的下一步。`子审核未形成可靠自动结论`、`证据完整不足` 等内部规则诊断只能保留在原始 `rule_results` 和审计数据中，不得直接写入 OA 流转意见。名称、地址、负责人不一致时使用对应的合规风险与整改建议；证照识别或原文证据不足时提示重新上传清晰、完整原件及需要清晰可见的字段。
 - 自动结果同时包含结构化字段差异与证据不足时，OA 流转意见优先展示字段差异对应的合规风险与整改建议；证据不足规则继续保留在完整 `rule_results` 和审计数据中。只有没有结构化字段差异时，流转意见才使用重新上传清晰、完整原件的提示。
+- OA 流转意见按当前审核模式和失败字段组装：单店与店中店分别使用对应的主体名称、经营地址、法定代表人/负责人说明；审核通过的字段不得出现在 `manual_review_reason_text` 或 `reject_reason_text` 中，多个失败字段按字段分段展示。
 - OA 同一 `submission_log_id` 的重复调用必须按推导出的 `workflow_id + requestid + submission_version` 幂等返回，不重复执行文件下载、OCR 或 RPA。驳回后申请人重新提交会产生新的提交日志，系统自动创建新 Review Task、重新读取当前附件并执行 OCR；普通网络重试复用同一日志和任务。
 - OA 触发接口受理后在后台执行审核，最终三态 callback 传输投影必须携带原始 `workflow_id`、`requestid`、`submission_version` 和 `store_code`；回调投递失败或三态映射不得改变已经形成并持久化的四态业务审核结论。
 - 人工通过的领域结果为 `pass`，摘要必须明确为人工复核通过；人工驳回为 `reject`，必须携带人工填写的驳回原因；要求补件的领域结果必须保持 `manual_review` 并携带补件要求，只允许在 OA 三态 callback 投影中映射为专用、非重试的 `exception`。
 - 回调的 HTTP 2xx 只证明传输送达。响应正文明确表示失败时必须记为失败；空响应或无法识别的 2xx 响应必须标记为业务未确认，不得宣称 OA 节点已经推进。
 - 每次新回调必须保留可审计记录，包括脱敏后的目标地址、实际请求 JSON、触发来源、尝试次数、HTTP 状态、限长响应正文、业务接受状态、错误和时间；不得保存 Authorization、token、cookie、密码或其他凭据。
 
-一致性审核支持两种互斥模式：
+一致性审核支持两种互斥模式，OA 自动审核以源端 MySQL 的 `mdms` / `mdms1` 为模式事实源：
 
 - `standard`：单店模式。上传一张营业执照和一张烟草证；两证主体名称、经营地址、负责人必须一致，且两证主体名称必须与 OA 提供的加盟商名称一致。OA 未提供真实加盟商名称时进入人工复核，禁止使用门店名称猜测。
 - `store_in_store`：店中店模式。上传烟草持证主体营业执照、加盟店营业执照和烟草证。烟草持证主体可以与加盟商不同，不强制二者主体名称或负责人一致。

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.integrations.starrocks.tobacco_license_sources import (
     SqlFetchClient,
+    TobaccoLicenseSourceFile,
     fetch_tobacco_license_source_files_by_request,
 )
 from app.models import (
@@ -86,6 +87,13 @@ class OaAutoReviewOutcome(BaseModel):
 
 class OaReviewClaimLostError(RuntimeError):
     pass
+
+
+class OaStoreModeError(ValueError):
+    def __init__(self, code: str, message: str, *, details: dict[str, Any]):
+        self.code = code
+        self.details = details
+        super().__init__(message)
 
 
 class OaTobaccoAutoReviewService:
@@ -251,6 +259,18 @@ class OaTobaccoAutoReviewService:
             )
 
         try:
+            review_mode = resolve_oa_store_mode(source_files)
+        except OaStoreModeError as error:
+            return self._error_after_release(
+                claim,
+                task_id,
+                error.code,
+                str(error),
+                retryable=False,
+                details=error.details,
+            )
+
+        try:
             logger.info(
                 "[OA自动审核][NAS文件准备开始] task_id=%s requestid=%s 附件数量=%s",
                 task_id,
@@ -269,6 +289,7 @@ class OaTobaccoAutoReviewService:
                 source_files=source_files,
                 stored_documents=stored_documents,
                 selected_files=[],
+                review_mode=review_mode,
             )
             claim = self._persist_running_stage(
                 claim,
@@ -387,6 +408,7 @@ class OaTobaccoAutoReviewService:
             source_files=source_files,
             stored_documents=stored_documents,
             selected_files=[],
+            review_mode=review_mode,
         )
         if conflicting_roles:
             oa_source["document_extraction_errors"] = {
@@ -404,11 +426,7 @@ class OaTobaccoAutoReviewService:
                 "oa": oa_source,
             },
             options={
-                "review_mode": (
-                    "store_in_store"
-                    if "franchisee_business_license" in document_results
-                    else "standard"
-                ),
+                "review_mode": review_mode,
                 "franchisee_name": command.franchisee_name,
                 "business_license_result": document_results.get("business_license"),
                 "franchisee_business_license_result": document_results.get(
@@ -652,6 +670,48 @@ def oa_auto_review_task_id(
     return f"{base_task_id}-s{submission_version}"
 
 
+def resolve_oa_store_mode(source_files: list[TobaccoLicenseSourceFile]) -> str:
+    values = {(source.mdms, source.mdms1) for source in source_files}
+    presence_patterns = {
+        (source.mdms is not None, source.mdms1 is not None)
+        for source in source_files
+    }
+    if len(presence_patterns) != 1:
+        raise OaStoreModeError(
+            "OA_STORE_MODE_INCONSISTENT",
+            "OA 来源记录中的门店模式字段不一致，无法自动审核",
+            details={
+                "field_names": ["mdms", "mdms1"],
+                "values": [
+                    {"mdms": mdms, "mdms1": mdms1}
+                    for mdms, mdms1 in sorted(
+                        values,
+                        key=lambda item: (str(item[0]), str(item[1])),
+                    )
+                ],
+            },
+        )
+
+    mdms_present, mdms1_present = next(iter(presence_patterns))
+    mdms = source_files[0].mdms
+    mdms1 = source_files[0].mdms1
+    details = {"mdms": mdms, "mdms1": mdms1}
+    if not mdms_present and not mdms1_present:
+        raise OaStoreModeError(
+            "OA_STORE_MODE_MISSING",
+            "OA 来源记录未填写单店或店中店模式，无法自动审核",
+            details=details,
+        )
+    if mdms_present and mdms1_present:
+        raise OaStoreModeError(
+            "OA_STORE_MODE_CONFLICT",
+            "OA 来源记录同时填写了单店和店中店模式，无法自动审核",
+            details=details,
+        )
+
+    return "standard" if mdms_present else "store_in_store"
+
+
 def _claim_lost(task_id: str) -> OaAutoReviewOutcome:
     return _error(
         task_id,
@@ -716,6 +776,7 @@ def _oa_source_snapshot(
     source_files: list,
     stored_documents: list,
     selected_files: list[dict[str, Any]],
+    review_mode: str | None = None,
 ) -> dict[str, Any]:
     attachments = []
     stored_docids = set()
@@ -773,5 +834,9 @@ def _oa_source_snapshot(
         "created_date": first.created_date,
         "created_time": first.created_time,
         "request_status": first.request_status,
+        "mdms": first.mdms,
+        "mdms1": first.mdms1,
+        "review_mode": review_mode,
+        "review_mode_source": "oa_mysql_fields" if review_mode else None,
         "attachments": deduplicated,
     }

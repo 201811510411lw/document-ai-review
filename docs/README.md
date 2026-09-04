@@ -28,3 +28,4 @@
 
 - [运维手册](OPERATIONS.md)：配置优先级、数据库准备、调度、通知、部署验证和故障排查。
 - [StarRocks 来源表](sql/README.md)：SRM、批次报告和 OA 同步表 DDL 及准备顺序。
+- [OA 烟草门店模式字段口径](oa-tobacco-store-mode-fields.md)：记录 `mdms`、`mdms1` 的单店/店中店判定语义、异常组合和当前接入状态。

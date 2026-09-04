@@ -32,6 +32,8 @@ def test_build_tobacco_license_source_sql_filters_store_and_attachment_chain():
     assert "r.WORKFLOWID = 614" in sql
     assert "FIND_IN_SET" in sql
     assert "f.yyzz AS business_license_docids" in sql
+    assert "f.mdms" in sql
+    assert "f.mdms1" in sql
     assert "'business_license'" in sql
     assert "d.DOCSUBJECT" in sql
     assert "dif.IMAGEFILENAME" in sql
@@ -54,6 +56,8 @@ def test_fetch_latest_tobacco_license_source_files_maps_latest_form_rows_only():
         "document_role": "tobacco_license",
         "valid_from": "2026-06-25",
         "valid_to": "2029-06-01",
+        "mdms": 0,
+        "mdms1": None,
         "workflow_id": 614,
         "request_name": "香烟销售权限申请/香烟商品建档申请-徐飞-2026-07-09",
         "created_date": "2026-07-09",
@@ -85,6 +89,8 @@ def test_fetch_latest_tobacco_license_source_files_maps_latest_form_rows_only():
     assert files[0].docid == 824576
     assert files[0].business_license_docids == "824577"
     assert files[0].document_role == "tobacco_license"
+    assert files[0].mdms == 0
+    assert files[0].mdms1 is None
     assert files[0].imagefile_id == 1409517
     assert files[0].file_real_path == "/data/oaec/202607/J/file.zip"
     assert len(client.executed_sql) == 1
@@ -120,6 +126,8 @@ def test_build_source_by_request_sql_supports_oa_mysql_table_names():
     assert "LEFT JOIN docdetail d" in sql
     assert "LEFT JOIN docimagefile dif" in sql
     assert "LEFT JOIN imagefile i" in sql
+    assert "f.mdms" in sql
+    assert "f.mdms1" in sql
     assert "ods_oa_ecology_" not in sql
 
 

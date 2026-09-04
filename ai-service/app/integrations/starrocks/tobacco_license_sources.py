@@ -24,6 +24,8 @@ class TobaccoLicenseSourceFile(BaseModel):
     document_role: str = "tobacco_license"
     valid_from: str | None = None
     valid_to: str | None = None
+    mdms: int | None = None
+    mdms1: int | None = None
     workflow_id: int | None = None
     request_name: str | None = None
     created_date: str | None = None
@@ -166,6 +168,8 @@ SELECT
     END AS document_role,
     f.yczyxqksrq AS valid_from,
     f.yczyxqjsrq AS valid_to,
+    f.mdms,
+    f.mdms1,
     r.WORKFLOWID AS workflow_id,
     r.REQUESTNAME AS request_name,
     r.CREATEDATE AS created_date,
@@ -373,6 +377,8 @@ def _to_source_file(row: dict[str, Any]) -> TobaccoLicenseSourceFile:
         document_role=_text_or_none(row.get("document_role")) or "tobacco_license",
         valid_from=_text_or_none(row.get("valid_from")),
         valid_to=_text_or_none(row.get("valid_to")),
+        mdms=_int_or_none(row.get("mdms")),
+        mdms1=_int_or_none(row.get("mdms1")),
         workflow_id=_int_or_none(row.get("workflow_id")),
         request_name=_text_or_none(row.get("request_name")),
         created_date=_text_or_none(row.get("created_date")),
