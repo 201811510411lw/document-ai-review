@@ -31,6 +31,21 @@ _ADDRESS_REMEDIATION = (
     "带来较大风险：包括被执法机关查到后轻则限期整改，重则被罚款、取消烟草证等后果，"
     "以及其他对我司品牌造成不良影响的风险。"
 )
+_STANDARD_PASS_REASON_TEXT = (
+    "OCR审核通过：已确认上传材料为有效的营业执照和烟草专卖零售许可证；"
+    "烟草证许可证号已成功识别；《营业执照》与《烟草证》的主体名称、经营地址、"
+    "法定代表人/负责人均对应一致；证照主体名称与OA加盟商名称一致；烟草证在有效期内。"
+)
+_STORE_IN_STORE_PASS_REASON_TEXT = (
+    "OCR审核通过：已确认上传材料包含2个有效的《营业执照》和1个有效的《烟草证》；"
+    "烟草证许可证号已成功识别；烟草持证主体《营业执照》与《烟草证》的主体名称、"
+    "经营地址、法定代表人/负责人均对应一致；加盟店《营业执照》的经营地址与烟草证"
+    "售烟地址一致；烟草证在有效期内。"
+)
+_GENERIC_PASS_REASON_TEXT = (
+    "OCR审核通过：营业执照与烟草证的证照类型、许可证号、主体名称、经营地址、"
+    "法定代表人/负责人及烟草证有效期等审核项均已校验通过。"
+)
 
 _RULE_SUGGESTIONS = {
     "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH": (
@@ -165,6 +180,14 @@ def tobacco_consistency_rule_suggestion(
 
 def tobacco_consistency_public_message(rule_code: str, fallback: str) -> str:
     return _PUBLIC_MESSAGES.get(rule_code, fallback)
+
+
+def tobacco_consistency_pass_reason_text(review_mode: str | None) -> str:
+    if review_mode == "standard":
+        return _STANDARD_PASS_REASON_TEXT
+    if review_mode == "store_in_store":
+        return _STORE_IN_STORE_PASS_REASON_TEXT
+    return _GENERIC_PASS_REASON_TEXT
 
 
 def with_tobacco_consistency_suggestion(rule: Mapping[str, Any]) -> dict[str, Any]:

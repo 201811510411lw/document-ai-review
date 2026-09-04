@@ -44,6 +44,7 @@ from app.services.tobacco_consistency_extraction import (
 )
 from app.services.tobacco_consistency_presentation import (
     tobacco_consistency_action_text,
+    tobacco_consistency_pass_reason_text,
     tobacco_consistency_public_message,
     tobacco_consistency_rule_suggestion,
     with_tobacco_consistency_suggestion,
@@ -1020,6 +1021,12 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
     field_differences = oa_field_differences(result)
     failed = [rule for rule in result.rule_results if not rule.passed]
     skill_result = result.skill_result if isinstance(result.skill_result, dict) else {}
+    comparison = skill_result.get("comparison")
+    review_mode = (
+        str(comparison.get("review_mode") or "").strip() or None
+        if isinstance(comparison, dict)
+        else None
+    )
     rpa_info = (
         skill_result.get("rpa_verification")
     )
@@ -1054,6 +1061,12 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
         ],
         "needs_manual_review": decision in {"manual_review", "exception"},
     }
+    if decision == "pass":
+        data["pass_reason_text"] = (
+            summary
+            if manual_action == "approved"
+            else tobacco_consistency_pass_reason_text(review_mode)
+        )
     if decision == "manual_review":
         field_difference_rule_codes = {
             str(item.get("rule_code") or "")

@@ -267,6 +267,40 @@ def test_automatic_manual_review_callback_uses_exception_and_keeps_reasons():
     assert repository.saved[-1].needs_manual_review is True
 
 
+def test_pass_callback_includes_standard_ocr_review_reason():
+    result = _result().model_copy(
+        update={
+            "skill_result": {
+                "oa_claim": {
+                    "workflow_id": 614,
+                    "requestid": 584412,
+                    "store_code": "0001",
+                },
+                "comparison": {"review_mode": "standard"},
+            }
+        }
+    )
+    repository = NewResultRepository()
+    repository.saved.append(result)
+    callback_client = CapturingCallbackClient()
+
+    retry_oa_review_callback(
+        result.task_id,
+        _current_user={"username": "reviewer"},
+        repository=repository,
+        callback_client=callback_client,
+    )
+
+    data = callback_client.payloads[0].result["data"]
+    assert data["decision"] == "pass"
+    assert data["pass_reason_text"] == (
+        "OCR审核通过：已确认上传材料为有效的营业执照和烟草专卖零售许可证；"
+        "烟草证许可证号已成功识别；《营业执照》与《烟草证》的主体名称、经营地址、"
+        "法定代表人/负责人均对应一致；证照主体名称与OA加盟商名称一致；烟草证在有效期内。"
+    )
+    assert "field_checks" not in data
+
+
 def test_small_confirmed_mismatch_callback_uses_manual_review_exception():
     rule = _rule(
         "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
@@ -639,6 +673,11 @@ def test_oa_auto_review_executes_current_project_review_chain(monkeypatch, tmp_p
     assert response["data"]["task_id"] == "tc-oa-123-584412"
     assert response["data"]["mismatch_count"] == 0
     assert response["data"]["field_differences"] == []
+    assert response["data"]["pass_reason_text"] == (
+        "OCR审核通过：已确认上传材料为有效的营业执照和烟草专卖零售许可证；"
+        "烟草证许可证号已成功识别；《营业执照》与《烟草证》的主体名称、经营地址、"
+        "法定代表人/负责人均对应一致；证照主体名称与OA加盟商名称一致；烟草证在有效期内。"
+    )
     comparison = repository.saved[-1].skill_result["comparison"]
     assert comparison["review_mode"] == "standard"
     oa_source = repository.saved[-1].skill_result["source_evidence"]["source"]["oa"]
@@ -705,6 +744,12 @@ def test_oa_auto_review_uses_oa_store_in_store_mode(
     )
 
     assert response["data"]["decision"] == "pass"
+    assert response["data"]["pass_reason_text"] == (
+        "OCR审核通过：已确认上传材料包含2个有效的《营业执照》和1个有效的《烟草证》；"
+        "烟草证许可证号已成功识别；烟草持证主体《营业执照》与《烟草证》的主体名称、"
+        "经营地址、法定代表人/负责人均对应一致；加盟店《营业执照》的经营地址与烟草证"
+        "售烟地址一致；烟草证在有效期内。"
+    )
     comparison = repository.saved[-1].skill_result["comparison"]
     assert comparison["review_mode"] == "store_in_store"
     oa_source = repository.saved[-1].skill_result["source_evidence"]["source"]["oa"]

@@ -72,6 +72,7 @@ OA 无需传入 `submission_version`。系统使用 `workflow_id + requestid` �
       "decision": "pass",
       "task_id": "tc-oa-614-584412",
       "summary": "营业执照与烟草证一致性校验通过",
+      "pass_reason_text": "OCR审核通过：已确认上传材料为有效的营业执照和烟草专卖零售许可证；烟草证许可证号已成功识别；《营业执照》与《烟草证》的主体名称、经营地址、法定代表人/负责人均对应一致；证照主体名称与OA加盟商名称一致；烟草证在有效期内。",
       "mismatch_count": 0,
       "mismatch_rejection_threshold": 4,
       "field_differences": [],
@@ -105,7 +106,8 @@ OA 应按 `task_id` 幂等消费可能重复的回调，并使用服务端返回
 `result.data.decision` 执行流程分支。旧版本迟到的回调不得覆盖较新提交版本的流程状态。
 callback 是面向 OA 的兼容投影；兼容期内继续发送完整 `rule_results`，并为其中所有失败规则
 补充非空 `suggestion`，避免现有 OA 接收端读取旧字段时异常或显示 `null`。完整原始规则执行
-结果仍保存在审核结果中，并可通过轮询/详情接口查看。OA 退回时必须把
+结果仍保存在审核结果中，并可通过轮询/详情接口查看。自动通过时必须把
+`pass_reason_text` 写入通过备注，OA 退回时必须把
 `reject_reason_text` 写入流转意见，人工处理时写入 `manual_review_reason_text`；“建议”字段
 优先读取对应原因项的 `suggestion`，旧实现可从失败规则的 `suggestion` 兼容读取。这三个面向 OA
 的文本位置统一使用可执行的业务处理建议，不得直接展示“子审核未形成可靠自动结论”或
@@ -132,7 +134,8 @@ callback 是面向 OA 的兼容投影；兼容期内继续发送完整 `rule_res
 
 `decision` 取值：
 
-- `pass`：证据可靠且没有字段差异，表示自动审核通过。
+- `pass`：证据可靠且没有字段差异，表示自动审核通过；`pass_reason_text` 按单店或店中店模式
+  说明 OCR 已完成并通过的字段校验范围，可直接写入 OA 通过备注。
 - `reject`：字段差异达到 4 项、烟草证明确已过期，或官网真伪核验明确失败；OA 退回申请人。
   自动拒绝摘要使用“`一致性核对未通过，共 N 项问题`”，`reject_reasons` 逐项保留
   `rule_code`、`rule_name`、`message`、`suggestion` 和完整 `details`，`reject_reason_text`
