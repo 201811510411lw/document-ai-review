@@ -231,7 +231,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { tobaccoApi, rpaApi } from '@/api'
 import { openTobaccoAttachmentPreview } from '@/features/tobacco/attachmentPreview.js'
-import { isReportProcessing, reportSubjectLabel } from '@/features/tobacco/reportPresentation.js'
+import { isReportProcessing, reportSubjectLabel, formatReportTime } from '@/features/tobacco/reportPresentation.js'
 import {
   callbackDecisionLabel,
   callbackRecords,
@@ -297,7 +297,7 @@ const rpaStatus = computed(() => rpaVerification.value?.status || report.value?.
 const rpaCertificateNo = computed(() => resolveRpaCertificateNo(report.value, rpaVerification.value))
 const rpaVerifiedAt = computed(() => {
   const raw = rpaVerification.value?.verified_at || report.value?.rpa_verification?.verified_at
-  return raw ? String(raw).replace('T', ' ').slice(0, 19) : null
+  return raw ? formatReportTime(raw) : null
 })
 const rpaScreenshotUrl = computed(() => rpaVerification.value?.screenshot_url || report.value?.rpa_verification?.screenshot_url)
 const rpaError = computed(() => rpaVerification.value?.error_message || report.value?.rpa_verification?.error_message)
@@ -421,7 +421,7 @@ async function retryOaCallback() {
 }
 
 function modeLabel(mode) { return mode === 'store_in_store' ? '店中店核对' : '标准核对' }
-function formatTime(value) { return value ? String(value).replace('T', ' ').slice(0, 19) : '-' }
+function formatTime(value) { return formatReportTime(value) }
 function attachmentRoleLabel(role) { return { tobacco_license: '烟草证', business_license: '烟草持证主体营业执照', franchisee_business_license: '加盟店营业执照', selected_attachment: '核对选用附件' }[role] || 'OA 附件' }
 
 function ruleSolution(rule) {

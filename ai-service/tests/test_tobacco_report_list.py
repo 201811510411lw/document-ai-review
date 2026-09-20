@@ -2,6 +2,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api import wecom_frontend
+from app.repositories.review_result_repository import _qc_review_summary_index_row
 
 
 class StubRepository:
@@ -13,6 +14,55 @@ class StubRepository:
         if self.error is not None:
             raise self.error
         return {"items": self.items, "total": len(self.items)}
+
+
+def test_historical_rpa_error_list_matches_detail_and_preserves_store_code(monkeypatch):
+    monkeypatch.setattr(wecom_frontend, "list_tobacco_reports", lambda: [])
+    # Existing summary rows lack comparison.consistency_skipped, unlike details.
+    row = _qc_review_summary_index_row({
+        "task_id": "tc-oa-614-2854608",
+        "document_type": "business_tobacco_consistency",
+        "review_status": "FAILED",
+        "risk_level": "HIGH",
+        "needs_manual_review": True,
+        "source_evidence_json": '{"source":{"oa":{"store_code":"X000001"}}}',
+        "created_at": "2026-09-20T01:57:33.123995+00:00",
+    })
+    response = wecom_frontend.tobacco_reports(
+        _current_user={"username": "reviewer"}, repository=StubRepository(items=[row]),
+    )
+    detail = wecom_frontend._frontend_tobacco_report(
+        {**row, "comparison": {"consistency_skipped": True}}, detail=True,
+    )
+    report = response["records"][0]
+    assert report["overall_result"] == detail["overall_result"] == "异常"
+    assert report["store_code"] == detail["store_code"] == "X000001"
+    assert response["stats"] == {"total": 1, "passed": 0, "failed": 0, "pending": 1}
+
+
+@pytest.mark.parametrize("source", [
+    {"store_identifier": "X000001"},
+    {"store_code": "X000001"},
+    {"oa": {"store_code": "X000001"}},
+])
+def test_tobacco_report_returns_store_code_from_saved_source(source):
+    report = wecom_frontend._frontend_tobacco_report({"source_evidence": {"source": source}})
+    assert report["store_code"] == "X000001"
+
+
+@pytest.mark.parametrize("status,risk,decision,expected", [
+    ("FAILED", "HIGH", None, "异常"),
+    ("REVIEWED", "HIGH", None, "不通过"),
+    ("REVIEWED", "NONE", None, "通过"),
+    ("MANUAL_REVIEWED", "HIGH", "approved", "通过"),
+    ("MANUAL_REVIEWED", "HIGH", "rejected", "不通过"),
+])
+def test_tobacco_failure_display_preserves_business_and_manual_decisions(status, risk, decision, expected):
+    report = wecom_frontend._frontend_tobacco_report({
+        "review_status": status, "risk_level": risk,
+        "manual_review_decision": decision, "comparison": {"consistency_skipped": True},
+    })
+    assert report["overall_result"] == expected
 
 
 def test_tobacco_reports_maps_repository_items(monkeypatch):

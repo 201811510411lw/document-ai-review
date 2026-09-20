@@ -798,7 +798,7 @@ def tobacco_reports(
             "total": len(records),
             "passed": sum(row["overall_result"] == "通过" for row in records),
             "failed": sum(row["overall_result"] == "不通过" for row in records),
-            "pending": sum(row["overall_result"] == "待校验" for row in records),
+            "pending": sum(row["overall_result"] in {"待校验", "异常"} for row in records),
         },
     }
 
@@ -917,7 +917,7 @@ def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> di
     elif row.get("review_status") == "REVIEWED" and not row.get("needs_manual_review"):
         overall_result = "通过" if row.get("risk_level") == "NONE" else "不通过"
     elif row.get("review_status") == "FAILED":
-        overall_result = "不通过"
+        overall_result = "异常"
     else:
         overall_result = "待校验"
     name_match = _tobacco_comparison_verdict(
@@ -931,10 +931,9 @@ def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> di
     )
     if consistency_skipped:
         name_match = address_match = person_match = "未执行"
-        if row.get("review_status") == "FAILED":
-            overall_result = "异常"
     return {
         "id": row.get("task_id"),
+        "store_code": row.get("store_code") or oa.get("store_code") or source.get("store_code") or source.get("store_identifier"),
         "company_name": business.get("subject_name") or tobacco.get("subject_name") or row.get("supplier_name") or "未识别主体名称",
         "overall_result": overall_result,
         "review_status": row.get("review_status"),

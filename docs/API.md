@@ -337,6 +337,12 @@ callback 是同步轮询之外的结果兜底。服务按 `jobUuid` 查找已登
 导入预览、每日同步和来源时间回填；`/api/records*` 提供结果记录查询、导出和删除；
 `/api/tobacco/reports*` 提供烟草报告列表与详情。
 
+烟草报告列表与详情均返回 `store_code`，从保存的 OA 来源 `source.oa.store_code`
+或来源门店字段读取，供门店编码搜索使用。技术失败（`review_status=FAILED`）统一显示
+`overall_result=异常`，归入列表“异常待处理”和 `stats.pending`；业务拒绝仍为“不通过”。
+时间字段保留原始时区，前端按 `Asia/Shanghai` 展示并按实际时间排序。烟草报告列表在
+页面可见时每 15 秒刷新，返回页面时立即刷新，离开页面后停止；后台刷新失败保留已有记录。
+
 前端使用的全部路径以生成的
 [FastAPI operation 清单](api/openapi-operations.md)为准。`/api/contract/reports` 当前只返回
 占位合同报告数据，不能视为合同审核已经实现。

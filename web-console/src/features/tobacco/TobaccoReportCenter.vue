@@ -53,6 +53,7 @@
           <div class="report-row__main">
             <div class="report-row__name">{{ reportSubjectLabel(report) }}</div>
             <div class="report-row__meta">
+              <span v-if="report.store_code">{{ report.store_code }}</span>
               <span>{{ modeLabel(report.review_mode) }}</span>
               <span>{{ formatTime(report.compare_time || report.created_at) }}</span>
             </div>
@@ -86,7 +87,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { reportSubjectLabel } from '@/features/tobacco/reportPresentation.js'
+import { reportSubjectLabel, reportFilterStatus, filterReports, formatReportTime } from '@/features/tobacco/reportPresentation.js'
 
 const props = defineProps({
   records: { type: Array, default: () => [] },
@@ -121,19 +122,14 @@ const metrics = computed(() => [
     label: '异常待处理',
     icon: 'warning-o',
     value: '待校验',
-    count: props.records.filter((r) => r.overall_result === '待校验').length,
+    count: props.records.filter((r) => reportFilterStatus(r) === '待校验').length,
     tone: 'warning',
   },
 ])
 
-const visibleRecords = computed(() => {
-  const term = keyword.value.trim().toLowerCase()
-  return props.records.filter((r) => {
-    const statusMatched = !filter.value || r.overall_result === filter.value
-    const text = `${r.company_name || ''} ${r.store_code || ''}`.toLowerCase()
-    return statusMatched && (!term || text.includes(term))
-  })
-})
+const visibleRecords = computed(() => filterReports(props.records, {
+  keyword: keyword.value, status: filter.value,
+}))
 
 const totalPages = computed(() => Math.max(1, Math.ceil(visibleRecords.value.length / pageSize)))
 
@@ -144,6 +140,7 @@ const pagedRecords = computed(() => {
 
 // 筛选或搜索变化时重置到第一页
 watch([filter, keyword], () => { currentPage.value = 1 })
+watch(totalPages, (pages) => { currentPage.value = Math.min(currentPage.value, pages) })
 
 function scrollToTop() {
   window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -174,8 +171,7 @@ function modeLabel(mode) {
 }
 
 function formatTime(value) {
-  if (!value) return '时间未知'
-  return String(value).replace('T', ' ').slice(0, 16)
+  return formatReportTime(value).slice(0, 16)
 }
 
 function openReport(taskId) {

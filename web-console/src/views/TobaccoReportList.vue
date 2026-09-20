@@ -6,35 +6,52 @@
       <TobaccoReportCenter
         :records="records"
         :loading="loading"
-        @reload="loadReports"
+        @reload="refresher.refresh(false)"
       />
     </main>
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { tobaccoApi } from '@/api'
 import TobaccoReportCenter from '@/features/tobacco/TobaccoReportCenter.vue'
+import { createReportRefresher } from '@/features/tobacco/reportRefresh.js'
 
 const router = useRouter()
 const records = ref([])
 const loading = ref(false)
+let disposed = false
+const refresher = createReportRefresher({
+  load: loadReports,
+  isVisible: () => document.visibilityState !== 'hidden',
+})
 
-onMounted(loadReports)
+function resumeRefresh() {
+  if (document.visibilityState !== 'hidden') refresher.refresh()
+}
 
-async function loadReports() {
-  loading.value = true
+onMounted(() => {
+  refresher.start()
+  document.addEventListener('visibilitychange', resumeRefresh)
+})
+onUnmounted(() => {
+  disposed = true
+  refresher.stop()
+  document.removeEventListener('visibilitychange', resumeRefresh)
+})
+
+async function loadReports({ background = false } = {}) {
+  if (!background) loading.value = true
   try {
     const response = await tobaccoApi.list({ limit: 200 })
-    records.value = response.records || []
+    if (!disposed) records.value = response.records || []
   } catch (error) {
-    records.value = []
-    showToast(error.message || '无法加载比对报告')
+    if (!disposed && !background) showToast(error.message || '无法加载比对报告')
   } finally {
-    loading.value = false
+    if (!disposed) loading.value = false
   }
 }
 </script>
