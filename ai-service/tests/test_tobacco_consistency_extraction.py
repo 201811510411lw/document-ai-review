@@ -269,3 +269,26 @@ def _stored_document(tmp_path, *, role, docid):
             )
         ],
     )
+
+
+def test_preextracted_tobacco_is_reused_for_holder_assignment(tmp_path):
+    tobacco = SimpleNamespace(skill_result={"normalized_fields": {
+        "subject_name": "持证主体", "legal_person": "张三", "license_no": "001",
+    }})
+    documents = [
+        _stored_document(tmp_path, role="business_license", docid=1001),
+        _stored_document(tmp_path, role="business_license", docid=1002),
+    ]
+    results, errors = extract_consistency_document_results(
+        documents,
+        review_service=CandidateReviewService({
+            "business_license-1001.jpg": {"subject_name": "加盟商", "legal_person": "李四"},
+            "business_license-1002.jpg": {"subject_name": "持证主体", "legal_person": "张三"},
+        }),
+        store_identifier="B65230024",
+        initial_results={"tobacco_license": tobacco},
+    )
+    assert errors == {}
+    assert results["tobacco_license"] is tobacco
+    assert results["business_license"].skill_result["normalized_fields"]["subject_name"] == "持证主体"
+    assert results["franchisee_business_license"].skill_result["normalized_fields"]["subject_name"] == "加盟商"

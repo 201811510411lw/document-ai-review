@@ -128,9 +128,11 @@ callback 是面向 OA 的兼容投影；兼容期内继续发送完整 `rule_res
 逐项提供 `field`、`field_label`、`expected`、`actual`、`difference`、`rule_code`、
 `rule_name` 和 `message`，放行与驳回回调都会携带该列表。
 
-一致性规则完成后先形成 OA 预判。预判为 `reject`、`manual_review` 或 `exception` 时立即
-保存并回调，不调用 RPA；只有预判为 `pass` 且已识别许可证号时才执行官网验真。因此字段
-差异达到拒绝阈值时，RPA 技术异常不会覆盖已经形成的 `reject_reasons`。
+先识别烟草证并取得唯一候选的许可证号，再执行已启用的 RPA 官网验真。`FAILED`、
+`SUSPECTED`、`NOT_FOUND` 直接驳回；`ERROR` 或其他未完成状态返回技术异常；这些分支
+保存结果并停止后续营业执照识别及一致性校验，报告中的后续项目标记为未执行。
+只有验真通过才继续营业执照识别和一致性规则。RPA 未启用时保留跳过行为；许可证号缺失
+或候选冲突时不发起验真，交由完整性/证据规则处理。官网验真通过不代表最终审核通过。
 
 `decision` 取值：
 

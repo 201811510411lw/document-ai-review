@@ -26,12 +26,12 @@ from app.services.tobacco_consistency_extraction import (
     resolved_consistency_fields,
 )
 from app.services.tobacco_license_files import TobaccoLicenseFileStore
-from app.services.tobacco_rpa_verification import execute_tobacco_rpa_verification
+from app.services.tobacco_rpa_verification import (
+    execute_tobacco_rpa_verification,
+    run_tobacco_rpa_precheck,
+)
 from app.use_cases.tobacco_license_consistency_review import (
     tobacco_license_consistency_review_use_case,
-)
-from app.workflows.tobacco_license_consistency_review.decision import (
-    oa_review_decision,
 )
 
 
@@ -325,11 +325,80 @@ class OaTobaccoAutoReviewService:
             task_id,
             command.requestid,
         )
+        # 许可证号必须来自烟草证；验真前不识别营业执照。
         document_results, extraction_errors = extract_consistency_document_results(
-            stored_documents,
+            [doc for doc in stored_documents if doc.source.document_role == "tobacco_license"],
             review_service=self._document_review_service,
             store_identifier=command.store_code,
         )
+        rpa_result = None
+        rpa_started = False
+        tobacco_fields = resolved_consistency_fields(document_results.get("tobacco_license"), {})
+        if not extraction_errors and tobacco_fields.get("license_no"):
+            try:
+                claim = self._persist_running_stage(
+                    claim,
+                    summary="烟草证许可证号已识别，正在进行官网验真",
+                    skill_result={"tobacco_license_fields": tobacco_fields},
+                )
+                precheck_context = ReviewInputContext(
+                    task_id=task_id,
+                    input=ReviewInput(
+                        supplier_name=source_files[0].store_name or command.store_name or command.store_code,
+                        supplier_credit_code="",
+                        declared_document_type="business_tobacco_consistency",
+                        source={
+                            "store_identifier": command.store_code,
+                            "requestid": command.requestid,
+                            "workflow_id": command.workflow_id,
+                            "oa": oa_source,
+                        },
+                        options={"review_mode": review_mode},
+                    ),
+                    use_case_name=tobacco_license_consistency_review_use_case.name,
+                    use_case_version=tobacco_license_consistency_review_use_case.version,
+                    ruleset_version=tobacco_license_consistency_review_use_case.ruleset_version,
+                )
+                logger.info("[OA自动审核][RPA前置验真开始] task_id=%s", task_id)
+                rpa_result = run_tobacco_rpa_precheck(
+                    input_context=precheck_context,
+                    tobacco_result=document_results.get("tobacco_license"),
+                    verify=execute_tobacco_rpa_verification,
+                )
+                rpa_started = rpa_result is not None
+                logger.info(
+                    "[OA自动审核][RPA前置验真完成] task_id=%s status=%s",
+                    task_id,
+                    rpa_result.skill_result["rpa_verification"]["status"] if rpa_result else "DISABLED",
+                )
+                if rpa_result is not None:
+                    rpa_result.skill_result["oa_claim"] = claim.skill_result.get("oa_claim", {})
+                    if rpa_result.skill_result["consistency_skipped"]:
+                        if not self._repository.complete_claim(claim, rpa_result):
+                            return _claim_lost(task_id)
+                        return OaAutoReviewOutcome(task_id=task_id, result=rpa_result)
+                claim = self._persist_running_stage(
+                    claim,
+                    summary=("官网验真通过，正在识别营业执照" if rpa_started else "官网验真未启用，正在识别营业执照"),
+                    skill_result={"rpa_verification": rpa_result.skill_result["rpa_verification"]} if rpa_result else {},
+                )
+            except OaReviewClaimLostError:
+                return _claim_lost(task_id)
+            except Exception:
+                logger.exception("[OA自动审核][前置验真或保存失败] task_id=%s", task_id)
+                if rpa_started:
+                    return _error(task_id, "RESULT_STORE_UNAVAILABLE", "官网验真已执行，但结果保存失败，需人工处理", retryable=False)
+                return self._error_after_release(
+                    claim, task_id, "AUTO_REVIEW_FAILED", "前置验真执行或保存失败", retryable=True,
+                )
+
+        document_results, business_errors = extract_consistency_document_results(
+            [doc for doc in stored_documents if doc.source.document_role != "tobacco_license"],
+            review_service=self._document_review_service,
+            store_identifier=command.store_code,
+            initial_results=document_results,
+        )
+        extraction_errors.update(business_errors)
         logger.info(
             "[OA自动审核][OCR解析完成] task_id=%s requestid=%s 证照角色=%s 抽取错误=%s",
             task_id,
@@ -442,7 +511,6 @@ class OaTobaccoAutoReviewService:
             use_case_version=tobacco_license_consistency_review_use_case.version,
             ruleset_version=tobacco_license_consistency_review_use_case.ruleset_version,
         )
-        rpa_started = False
         try:
             logger.info(
                 "[OA自动审核][规则校验开始] task_id=%s requestid=%s",
@@ -471,44 +539,9 @@ class OaTobaccoAutoReviewService:
                     "rule_results": [rule.model_dump(mode="json") for rule in result.rule_results],
                 },
             )
-            tobacco_fields = resolved_consistency_fields(
-                document_results.get("tobacco_license"), {}
-            )
-            certificate_no = str(tobacco_fields.get("license_no") or "").strip()
-            consistency_decision = oa_review_decision(result)
-            if consistency_decision == "pass" and certificate_no:
-                logger.info(
-                    "[OA自动审核][RPA验真开始] task_id=%s requestid=%s",
-                    task_id,
-                    command.requestid,
-                )
-                rpa_payload = execute_tobacco_rpa_verification(
-                    result=result,
-                    task_id=task_id,
-                    certificate_no=certificate_no,
-                    store_name=store_name,
-                    requestid=str(command.requestid),
-                )
-                rpa_started = rpa_payload is not None
-                logger.info(
-                    "[OA自动审核][RPA验真完成] task_id=%s requestid=%s 是否启动=%s",
-                    task_id,
-                    command.requestid,
-                    rpa_started,
-                )
-            elif consistency_decision != "pass":
-                logger.info(
-                    "[OA自动审核][RPA验真跳过] task_id=%s requestid=%s 原因=一致性决策%s",
-                    task_id,
-                    command.requestid,
-                    consistency_decision,
-                )
-            else:
-                logger.info(
-                    "[OA自动审核][RPA验真跳过] task_id=%s requestid=%s 原因=未识别许可证号",
-                    task_id,
-                    command.requestid,
-                )
+            if rpa_result is not None:
+                result.skill_result["rpa_verification"] = rpa_result.skill_result["rpa_verification"]
+                result.audit_events = [*rpa_result.audit_events, *result.audit_events]
             result = result.model_copy(
                 update={
                     "skill_result": {
@@ -617,6 +650,13 @@ class OaTobaccoAutoReviewService:
         try:
             completed = self._repository.complete_claim(claim, failure)
         except Exception:
+            if isinstance(claim.skill_result, dict) and claim.skill_result.get("rpa_verification"):
+                return _error(
+                    task_id,
+                    "RESULT_STORE_UNAVAILABLE",
+                    "官网验真已执行，但审核异常结果保存失败，需人工处理",
+                    retryable=False,
+                )
             try:
                 self._repository.release_claim(claim)
             except Exception:

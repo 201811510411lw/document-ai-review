@@ -53,7 +53,10 @@ from app.services.tobacco_license_files import (
     TobaccoLicenseFileStore,
     TobaccoLicenseFileStoreError,
 )
-from app.services.tobacco_rpa_verification import execute_tobacco_rpa_verification
+from app.services.tobacco_rpa_verification import (
+    execute_tobacco_rpa_verification,
+    run_tobacco_rpa_precheck,
+)
 from app.services.tobacco_review_cache import save_tobacco_report
 from app.use_cases.tobacco_license_consistency_review import (
     tobacco_license_consistency_review_use_case,
@@ -325,14 +328,46 @@ def create_consistency_review(
             },
         )
 
-    document_results = {}
-    extraction_errors = {}
-    if stored_documents:
-        document_results, extraction_errors = extract_consistency_document_results(
-            stored_documents,
+    task_id = _generate_task_id(store_identifier)
+    oa_source = _oa_source_snapshot(
+        first, source_files=source_files, stored_documents=stored_documents,
+        selected_files=request.selected_files,
+    )
+    precheck_context = ReviewInputContext(
+        task_id=task_id,
+        input=ReviewInput(
+            supplier_name=store_name,
+            supplier_credit_code="",
+            declared_document_type="business_tobacco_consistency",
+            source={"store_identifier": store_identifier, "requestid": first.requestid, "oa": oa_source},
+            options={"review_mode": request.review_mode},
+        ),
+        use_case_name=tobacco_license_consistency_review_use_case.name,
+        use_case_version=tobacco_license_consistency_review_use_case.version,
+        ruleset_version=tobacco_license_consistency_review_use_case.ruleset_version,
+    )
+    document_results, extraction_errors = extract_consistency_document_results(
+        [doc for doc in stored_documents if doc.source.document_role == "tobacco_license"],
+        review_service=document_review_service,
+        store_identifier=store_identifier,
+    )
+    rpa_result = None
+    if not extraction_errors:
+        rpa_result = run_tobacco_rpa_precheck(
+            input_context=precheck_context,
+            tobacco_result=document_results.get("tobacco_license"),
+            verify=execute_tobacco_rpa_verification,
+            confirmed_fields=request.tobacco_license_fields,
+        )
+    consistency_skipped = bool(rpa_result and rpa_result.skill_result["consistency_skipped"])
+    if not consistency_skipped:
+        document_results, business_errors = extract_consistency_document_results(
+            [doc for doc in stored_documents if doc.source.document_role != "tobacco_license"],
             review_service=document_review_service,
             store_identifier=store_identifier,
+            initial_results=document_results,
         )
+        extraction_errors.update(business_errors)
 
     business_fields = resolved_consistency_fields(
         document_results.get("business_license"),
@@ -390,7 +425,6 @@ def create_consistency_review(
         },
     )
 
-    task_id = _generate_task_id(store_identifier)
     input_context = ReviewInputContext(
         task_id=task_id,
         input=review_input,
@@ -400,7 +434,13 @@ def create_consistency_review(
     )
 
     try:
-        result = tobacco_license_consistency_review_use_case.review(input_context)
+        result = (
+            rpa_result if consistency_skipped
+            else tobacco_license_consistency_review_use_case.review(input_context)
+        )
+        if rpa_result is not None and not consistency_skipped:
+            result.skill_result["rpa_verification"] = rpa_result.skill_result["rpa_verification"]
+            result.audit_events = [*rpa_result.audit_events, *result.audit_events]
     except Exception as error:
         raise HTTPException(
             status_code=500,
@@ -410,7 +450,8 @@ def create_consistency_review(
             },
         ) from error
 
-    # 5. 从规则结果中提取比对结论
+    # 5. 从实际执行的规则中提取结论；前置验真短路时不伪造比对结果。
+    decision = oa_review_decision(result)
     rule_results = result.rule_results or []
     unmatched = [r.rule_name for r in rule_results if not r.passed]
     has_validity_issue = any(not r.passed and "VALIDITY" in (r.rule_code or "") for r in rule_results)
@@ -419,7 +460,7 @@ def create_consistency_review(
         "id": result.task_id,
         "company_name": store_name,
         "review_mode": request.review_mode,
-        "overall_result": "待校验" if result.needs_manual_review else ("通过" if result.risk_level.value == "NONE" else "不通过"),
+        "overall_result": {"pass": "通过", "reject": "不通过", "manual_review": "待校验", "exception": "异常"}[decision],
         "compare_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "unmatched_fields": unmatched,
         "name_match": _comparison_verdict(
@@ -440,8 +481,8 @@ def create_consistency_review(
             business_fields.get("legal_person"),
             tobacco_fields.get("legal_person"),
         ),
-        "type_match": "正确",
-        "validity_status": "已过期" if has_validity_issue else "未过期",
+        "type_match": "未执行" if consistency_skipped else "正确",
+        "validity_status": "未执行" if consistency_skipped else ("已过期" if has_validity_issue else "未过期"),
         "business_license_name": business_fields.get("subject_name"),
         "business_license_address": business_fields.get("business_address"),
         "business_license_person": business_fields.get("legal_person"),
@@ -459,14 +500,12 @@ def create_consistency_review(
         "source_request_id": first.requestid,
         "oa": oa_source,
     }
-    # 6. 执行官网 RPA 验真，再统一保存最终结果。
-    report["rpa_verification"] = execute_tobacco_rpa_verification(
-        result=result,
-        task_id=task_id,
-        certificate_no=str(tobacco_fields.get("license_no") or "").strip(),
-        store_name=store_name,
-        requestid=str(first.requestid or ""),
-    )
+    if consistency_skipped:
+        for field in ("name_match", "address_match", "person_match"):
+            report[field] = "未执行"
+    report["consistency_skipped"] = consistency_skipped
+    report["rpa_verification"] = result.skill_result.get("rpa_verification")
+    # 6. 验真已在字段比对之前执行，这里只保存最终结果。
     try:
         repository.save(result)
     except Exception as error:
@@ -1130,11 +1169,9 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
             }
             for rule in failed
         ]
-        if isinstance(rpa_info, dict) and rpa_info.get("status") in {
-            "FAILED",
-            "SUSPECTED",
-            "NOT_FOUND",
-        }:
+        if (isinstance(rpa_info, dict) and rpa_info.get("status") in {
+            "FAILED", "SUSPECTED", "NOT_FOUND",
+        } and not any(rule.rule_code == "TOBACCO_LICENSE_RPA_VERIFICATION" for rule in failed)):
             reject_reasons.append(
                 {
                     "rule_code": "TOBACCO_LICENSE_RPA_VERIFICATION",
@@ -1158,7 +1195,10 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
                 else {},
             )
         if manual_action is None:
-            data["summary"] = f"一致性核对未通过，共 {len(reject_reasons)} 项问题"
+            data["summary"] = (
+                result.summary if skill_result.get("consistency_skipped")
+                else f"一致性核对未通过，共 {len(reject_reasons)} 项问题"
+            )
         data["reject_reasons"] = reject_reasons
         data["reject_reason_text"] = (
             manual_comment

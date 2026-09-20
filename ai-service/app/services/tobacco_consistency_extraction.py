@@ -36,9 +36,12 @@ def extract_consistency_document_results(
     *,
     review_service: DocumentReviewService,
     store_identifier: str,
+    initial_results: dict[str, ReviewResult] | None = None,
 ) -> tuple[dict[str, ReviewResult], dict[str, str]]:
     """Review the current OA attachments using their document-specific workflow."""
-    candidates: dict[str, list[ReviewResult]] = {}
+    candidates: dict[str, list[ReviewResult]] = {
+        role: [result] for role, result in (initial_results or {}).items()
+    }
     errors: dict[str, str] = {}
     for document in stored_documents:
         role = document.source.document_role

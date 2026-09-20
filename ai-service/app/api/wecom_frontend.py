@@ -890,6 +890,7 @@ def _frontend_review_record(
 
 def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> dict[str, Any]:
     comparison = dict(row.get("comparison") or row.get("normalized_fields") or {})
+    consistency_skipped = bool(comparison.get("consistency_skipped"))
     business = dict(row.get("business_license_fields") or comparison.get("business_license") or {})
     franchisee_business = dict(comparison.get("franchisee_business_license") or {})
     tobacco = dict(row.get("tobacco_license_fields") or comparison.get("tobacco_license") or {})
@@ -928,6 +929,10 @@ def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> di
     person_match = _tobacco_comparison_verdict(
         failed_codes, "PERSON_MATCH", business.get("legal_person"), tobacco.get("legal_person")
     )
+    if consistency_skipped:
+        name_match = address_match = person_match = "未执行"
+        if row.get("review_status") == "FAILED":
+            overall_result = "异常"
     return {
         "id": row.get("task_id"),
         "company_name": business.get("subject_name") or tobacco.get("subject_name") or row.get("supplier_name") or "未识别主体名称",
@@ -940,8 +945,9 @@ def _frontend_tobacco_report(row: dict[str, Any], *, detail: bool = False) -> di
         "name_match": name_match,
         "address_match": address_match,
         "person_match": person_match,
-        "type_match": "不正确" if any("TYPE_FOR_CONSISTENCY" in str(code) for code in failed_codes) else "正确",
-        "validity_status": "已过期" if "BUSINESS_TOBACCO_TOBACCO_VALIDITY" in failed_codes else "未过期",
+        "type_match": "未执行" if consistency_skipped else ("不正确" if any("TYPE_FOR_CONSISTENCY" in str(code) for code in failed_codes) else "正确"),
+        "validity_status": "未执行" if consistency_skipped else ("已过期" if "BUSINESS_TOBACCO_TOBACCO_VALIDITY" in failed_codes else "未过期"),
+        "consistency_skipped": consistency_skipped,
         "business_license_name": business.get("subject_name"),
         "business_license_address": business.get("business_address"),
         "business_license_person": business.get("legal_person"),

@@ -997,7 +997,7 @@ def test_result_save_failure_returns_exception_not_in_memory_pass(monkeypatch, t
     assert "database unavailable" not in response["data"]["error"]["message"]
 
 
-def test_small_field_mismatch_requires_next_node_review_without_rpa(monkeypatch, tmp_path):
+def test_small_field_mismatch_requires_next_node_review_after_rpa(monkeypatch, tmp_path):
     source_files = [_source("business_license", 1001), _source("tobacco_license", 1002)]
     documents = [_stored(tmp_path, source) for source in source_files]
     repository = NewResultRepository()
@@ -1044,10 +1044,11 @@ def test_small_field_mismatch_requires_next_node_review_without_rpa(monkeypatch,
             "message": "营业执照主体名称与烟草证主体名称不一致",
         }
     ]
-    assert rpa_calls == []
+    assert rpa_calls == [_tobacco_fields()["license_no"]]
+    assert repository.saved[-1].skill_result["rpa_verification"]["status"] == "AUTHENTIC"
 
 
-def test_rejected_consistency_result_skips_rpa_and_preserves_reject_reasons(
+def test_rejected_consistency_result_runs_after_rpa_and_preserves_reject_reasons(
     monkeypatch,
     tmp_path,
 ):
@@ -1062,12 +1063,12 @@ def test_rejected_consistency_result_skips_rpa_and_preserves_reject_reasons(
         lambda sql_client, requestid, workflow_id: source_files,
     )
 
-    def unexpected_rpa(**kwargs):
-        raise AssertionError("business rejection must short-circuit RPA verification")
+    def authentic_rpa(**kwargs):
+        return {"status": "AUTHENTIC"}
 
     monkeypatch.setattr(
         "app.services.oa_tobacco_auto_review.execute_tobacco_rpa_verification",
-        unexpected_rpa,
+        authentic_rpa,
     )
 
     response = create_oa_auto_review(
@@ -1156,7 +1157,8 @@ def test_unreliable_child_reviews_do_not_automatically_reject_oa_request(
     )
 
 
-def test_rpa_is_not_repeated_when_final_persistence_fails(monkeypatch, tmp_path):
+@pytest.mark.parametrize("rpa_status", ["AUTHENTIC", "FAILED", "ERROR"])
+def test_rpa_is_not_repeated_when_final_persistence_fails(monkeypatch, tmp_path, rpa_status):
     source_files = [_source("business_license", 1001), _source("tobacco_license", 1002)]
     documents = [_stored(tmp_path, source) for source in source_files]
     repository = FailingSaveRepository()
@@ -1167,7 +1169,7 @@ def test_rpa_is_not_repeated_when_final_persistence_fails(monkeypatch, tmp_path)
     )
     monkeypatch.setattr(
         "app.services.oa_tobacco_auto_review.execute_tobacco_rpa_verification",
-        lambda **kwargs: rpa_calls.append(kwargs["task_id"]) or {"status": "AUTHENTIC"},
+        lambda **kwargs: rpa_calls.append(kwargs["task_id"]) or {"status": rpa_status},
     )
 
     def invoke():
@@ -1773,3 +1775,156 @@ def _stored(tmp_path, source):
             )
         ],
     )
+
+
+@pytest.mark.parametrize("entrypoint", ["oa", "console"])
+@pytest.mark.parametrize(
+    "rpa_status,expected_decision",
+    [("FAILED", "reject"), ("SUSPECTED", "reject"), ("NOT_FOUND", "reject"),
+     ("ERROR", "exception"), ("RUNNING", "exception"), ("AUTHENTIC", "pass")],
+)
+def test_rpa_precedes_business_ocr_and_short_circuits_review(
+    monkeypatch, tmp_path, entrypoint, rpa_status, expected_decision,
+):
+    from app.api import tobacco_license_consistency as api
+    from app.api.wecom_frontend import _frontend_tobacco_report
+    from app.repositories.review_result_repository import _qc_tobacco_consistency_detail_from_result
+
+    events = []
+    source_files = [_source("business_license", 1001), _source("tobacco_license", 1002)]
+    documents = [_stored(tmp_path, source) for source in source_files]
+    repository = NewResultRepository()
+    monkeypatch.setattr(
+        "app.services.oa_tobacco_auto_review.fetch_tobacco_license_source_files_by_request",
+        lambda *args, **kwargs: source_files,
+    )
+    monkeypatch.setattr(api, "fetch_latest_tobacco_license_source_files", lambda *args: source_files)
+
+    class OrderedReviewService(ChildReviewService):
+        def review(self, review_input, use_case_name=None):
+            events.append(use_case_name)
+            if use_case_name == "tobacco_license":
+                assert review_input.options.get("skip_rpa_verification") is True
+            return super().review(review_input, use_case_name)
+
+    original_review = api.tobacco_license_consistency_review_use_case.review
+
+    def consistency_review(context):
+        events.append("consistency")
+        return original_review(context)
+
+    monkeypatch.setattr(api.tobacco_license_consistency_review_use_case, "review", consistency_review)
+
+    def verify(**kwargs):
+        events.append("rpa")
+        assert kwargs["certificate_no"] == _tobacco_fields()["license_no"]
+        if entrypoint == "oa":
+            assert repository.saved[-1].status == ReviewStatus.RUNNING
+            assert "正在进行官网验真" in repository.saved[-1].summary
+        return {"status": rpa_status}
+
+    monkeypatch.setattr("app.services.oa_tobacco_auto_review.execute_tobacco_rpa_verification", verify)
+    monkeypatch.setattr(api, "execute_tobacco_rpa_verification", verify)
+
+    def invoke():
+        shared = dict(
+            sql_client=object(), file_store=StoredDocumentsFileStore(documents),
+            repository=repository, document_review_service=OrderedReviewService(),
+        )
+        if entrypoint == "oa":
+            return api.create_oa_auto_review(
+                OaAutoReviewRequest(requestid=584412, store_code="00001", franchisee_name="示例商行", workflow_id=614),
+                _oa_client={"client": "oa"}, **shared,
+            )
+        return api.create_consistency_review(
+            api.CreateConsistencyReviewRequest(store_identifier="00001", franchisee_name="示例商行"),
+            _current_user={"username": "reviewer"}, **shared,
+        )
+
+    response = invoke()
+    result = repository.saved[-1]
+    assert _oa_decision(result) == expected_decision
+    if expected_decision == "pass":
+        assert events == ["tobacco_license", "rpa", "business_license", "consistency"]
+        assert result.skill_result["rpa_verification"]["status"] == "AUTHENTIC"
+        return
+
+    assert events == ["tobacco_license", "rpa"]
+    assert result.skill_result["consistency_skipped"] is True
+    assert [rule.rule_code for rule in result.rule_results] == ["TOBACCO_LICENSE_RPA_VERIFICATION"]
+    payload = _oa_response(result)["data"]
+    assert payload["field_differences"] == []
+    assert payload["mismatch_count"] == 0
+    if expected_decision == "reject":
+        assert len(payload["reject_reasons"]) == 1
+        assert payload["reject_reason_text"]
+        assert result.needs_manual_review is False
+    else:
+        assert payload["error"]["code"] == "RPA_VERIFICATION_FAILED"
+        assert "reject_reasons" not in payload
+    report = _frontend_tobacco_report(_qc_tobacco_consistency_detail_from_result(result), detail=True)
+    for field in ("name_match", "address_match", "person_match", "type_match", "validity_status"):
+        assert report[field] == "未执行"
+        if entrypoint == "console":
+            assert response["report"][field] == "未执行"
+    assert report["overall_result"] == ("不通过" if expected_decision == "reject" else "异常")
+    if entrypoint == "oa":
+        invoke()
+        assert events == ["tobacco_license", "rpa"]
+
+
+@pytest.mark.parametrize("problem", ["missing_number", "conflicting_candidates"])
+def test_precheck_does_not_guess_license_number(monkeypatch, tmp_path, problem):
+    source_files = [_source("business_license", 1001), _source("tobacco_license", 1002)]
+    if problem == "conflicting_candidates":
+        source_files.append(_source("tobacco_license", 1003))
+    documents = [_stored(tmp_path, source) for source in source_files]
+    repository = NewResultRepository()
+    calls = []
+
+    class MissingNumberReviewService(ChildReviewService):
+        def review(self, review_input, use_case_name=None):
+            result = super().review(review_input, use_case_name)
+            if use_case_name == "tobacco_license":
+                result.skill_result["normalized_fields"]["license_no"] = None
+            return result
+
+    monkeypatch.setattr(
+        "app.services.oa_tobacco_auto_review.fetch_tobacco_license_source_files_by_request",
+        lambda *args, **kwargs: source_files,
+    )
+    monkeypatch.setattr(
+        "app.services.oa_tobacco_auto_review.execute_tobacco_rpa_verification",
+        lambda **kwargs: calls.append(kwargs) or {"status": "AUTHENTIC"},
+    )
+    response = create_oa_auto_review(
+        OaAutoReviewRequest(requestid=584412, store_code="00001", franchisee_name="示例商行", workflow_id=614),
+        _oa_client={"client": "oa"}, sql_client=object(),
+        file_store=StoredDocumentsFileStore(documents), repository=repository,
+        document_review_service=(MissingNumberReviewService() if problem == "missing_number" else ConflictingChildReviewService()),
+    )
+    assert calls == []
+    assert response["data"]["decision"] == "manual_review"
+
+
+def test_console_precheck_verifies_confirmed_license_number(monkeypatch, tmp_path):
+    from app.api import tobacco_license_consistency as api
+
+    source_files = [_source("business_license", 1001), _source("tobacco_license", 1002)]
+    documents = [_stored(tmp_path, source) for source in source_files]
+    repository = NewResultRepository()
+    numbers = []
+    monkeypatch.setattr(api, "fetch_latest_tobacco_license_source_files", lambda *args: source_files)
+    monkeypatch.setattr(api, "execute_tobacco_rpa_verification", lambda **kwargs: numbers.append(kwargs["certificate_no"]) or {"status": "FAILED"})
+    response = api.create_consistency_review(
+        api.CreateConsistencyReviewRequest(
+            store_identifier="00001", franchisee_name="示例商行",
+            tobacco_license_fields={"license_no": "CORRECTED-001"},
+        ),
+        _current_user={"username": "reviewer"}, sql_client=object(),
+        file_store=StoredDocumentsFileStore(documents), repository=repository,
+        document_review_service=ChildReviewService(),
+    )
+    assert numbers == ["CORRECTED-001"]
+    assert response["report"]["tobacco_license_no"] == "CORRECTED-001"
+    assert repository.saved[-1].skill_result["tobacco_license_fields"]["license_no"] == "CORRECTED-001"
