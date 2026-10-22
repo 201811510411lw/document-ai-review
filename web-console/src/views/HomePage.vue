@@ -55,8 +55,8 @@
               :key="task.id"
               class="task-row"
               tabindex="0"
-              @click="openTask(task.id)"
-              @keydown.enter="openTask(task.id)"
+              @click="openTask(task)"
+              @keydown.enter="openTask(task)"
             >
               <div class="task-subject">
                 <span class="document-mark" aria-hidden="true"><van-icon name="description" /></span>
@@ -71,7 +71,7 @@
                 <small v-if="task.matchRatio !== '-'">匹配率 {{ task.matchRatio }}</small>
               </div>
               <time>{{ formatTime(task.updatedAt) }}</time>
-              <button type="button" class="row-action" @click.stop="openTask(task.id)">查看</button>
+              <button type="button" class="row-action" @click.stop="openTask(task)">查看</button>
             </article>
           </div>
         </template>
@@ -130,7 +130,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { dashboardApi, reviewApi, tobaccoApi } from '@/api'
 import { useUserStore } from '@/store/user'
-import { buildWorkbenchOverview } from '@/features/workbench/overview'
+import { buildWorkbenchOverview, workbenchTaskRoute } from '@/features/workbench/overview'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -235,8 +235,8 @@ function openPrimaryAction() {
   router.push(isAdmin.value ? '/review' : '/query')
 }
 
-function openTask(id) {
-  router.push(`/review/${id}`)
+function openTask(task) {
+  router.push(workbenchTaskRoute(task))
 }
 </script>
 

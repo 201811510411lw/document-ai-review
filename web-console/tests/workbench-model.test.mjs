@@ -4,7 +4,7 @@ import {
   buildDesktopNavigation,
   buildMobileNavigation,
 } from '../src/features/workbench/navigation.js'
-import { buildWorkbenchOverview } from '../src/features/workbench/overview.js'
+import { buildWorkbenchOverview, workbenchTaskRoute } from '../src/features/workbench/overview.js'
 
 const reviewerDesktop = buildDesktopNavigation({ isAdmin: false, currentPath: '/tobacco/reports/abc' })
 assert.deepEqual(reviewerDesktop.map(group => group.label), ['QC 审核', '烟草业务'])
@@ -62,6 +62,13 @@ const overview = buildWorkbenchOverview({
         license_type: '商品报告',
         review_status: 'confirmed',
       },
+      {
+        id: 'task-tobacco',
+        company_name: '测试便利店',
+        license_type: '营业执照与烟草证一致性',
+        document_type: 'business_tobacco_consistency',
+        review_status: 'pending',
+      },
     ],
   },
 })
@@ -75,6 +82,9 @@ assert.equal(overview.tasks[0].matchRatio, '86%')
 assert.equal(overview.tasks[1].title, '示例商品')
 assert.equal(overview.tasks[1].identifier, '-')
 assert.equal(overview.tasks[1].matchRatio, '-')
+assert.equal(workbenchTaskRoute(overview.tasks[0]), '/review/task-1')
+assert.equal(overview.tasks[2].documentTypeCode, 'business_tobacco_consistency')
+assert.equal(workbenchTaskRoute(overview.tasks[2]), '/tobacco/reports/task-tobacco')
 assert.deepEqual(overview.distribution, [
   { label: '已认可', value: 231, tone: 'confirmed' },
   { label: '待复核', value: 18, tone: 'pending' },
