@@ -90,15 +90,10 @@ assert.match(
   /rpaApi\.getCapability\(\)/,
   'Tobacco report detail should load the backend RPA capability',
 )
-assert.match(
-  detailSource,
-  /rpaApi\.triggerVerify\(item\.id, rpaCertificateNo\.value,/,
-  'Tobacco report detail should submit the extracted license number',
-)
 assert.doesNotMatch(
   detailSource,
-  /rpaApi\.triggerVerify\(item\.id, item\.tobacco_license_name,/,
-  'Tobacco report detail must not submit the subject name as certificate_no',
+  /rpaApi\.triggerVerify/,
+  'Tobacco report detail must not expose a manual re-verification entry; RPA runs once from the backend',
 )
 assert.match(
   detailSource,
