@@ -301,6 +301,57 @@ def test_wecom_frontend_pending_queue_returns_complete_frontend_pending_scope():
     assert payload["stats"]["pending"] == 1
 
 
+def test_wecom_frontend_pending_queue_collapses_oa_tobacco_request_to_one_task():
+    rows = [
+        {
+            "task_id": "review-task-STORE-1-42-100-1-business_license",
+            "document_type": "business_license",
+            "source_system": "oa_starrocks",
+            "review_status": "PENDING_MANUAL_REVIEW",
+            "risk_level": "NONE",
+            "needs_manual_review": True,
+        },
+        {
+            "task_id": "tc-oa-77-42",
+            "document_type": "business_tobacco_consistency",
+            "source_system": "",
+            "review_status": "PENDING_MANUAL_REVIEW",
+            "risk_level": "HIGH",
+            "needs_manual_review": True,
+        },
+        {
+            "task_id": "review-task-STORE-1-42-100-1-tobacco_license",
+            "document_type": "tobacco_license",
+            "source_system": "oa_starrocks",
+            "review_status": "PENDING_MANUAL_REVIEW",
+            "risk_level": "NONE",
+            "needs_manual_review": True,
+        },
+        {
+            "task_id": "review-task-SRM-1",
+            "document_type": "business_license",
+            "source_system": "srm",
+            "review_status": "PENDING_MANUAL_REVIEW",
+            "risk_level": "NONE",
+            "needs_manual_review": True,
+        },
+    ]
+
+    class StubRepository:
+        def list_qc_reviews(self, **_kwargs):
+            return {"items": rows, "total_pages": 1}
+
+    payload = review_pending_queue(_current_user={}, repository=StubRepository())
+
+    assert [record["id"] for record in payload["records"]] == [
+        "tc-oa-77-42",
+        "review-task-SRM-1",
+    ]
+    assert payload["filtered_total"] == 2
+    assert payload["stats"]["total"] == 2
+    assert payload["stats"]["pending"] == 2
+
+
 def test_wecom_frontend_review_list_filters_business_license_records(tmp_path, monkeypatch):
     install_mysql_repository_stub(monkeypatch)
     repository = _repository()

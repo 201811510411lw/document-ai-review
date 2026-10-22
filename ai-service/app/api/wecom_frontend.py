@@ -234,7 +234,7 @@ def review_pending_queue(
     _current_user: dict[str, Any] = Depends(get_wecom_frontend_user),
     repository: FrontendRepository = Depends(get_review_read_repository),
 ) -> dict[str, Any]:
-    records_scope = _all_qc_records(repository)
+    records_scope = _actionable_queue_records(_all_qc_records(repository))
     records = [record for record in records_scope if record.get("review_status") == "pending"]
     return {
         "records": records,
@@ -1106,7 +1106,8 @@ def _frontend_qc_record(
         "order_number": source.get("order_number") or "",
         "sku_name": source.get("sku_name") or "",
         "vendor_name": source.get("vendor_name") or "",
-        "source_system": source.get("source_system") or "",
+        # review_summary_index 行同时带顶层 source_system，老旧数据可能没有 source 子字典
+        "source_system": source.get("source_system") or row.get("source_system") or "",
     }
 
 
@@ -1244,6 +1245,23 @@ def _license_only_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]
                 continue
             filtered.append(r)
     return filtered
+
+
+# OA 烟草一致性任务会先按附件逐份审核营业执照、烟草证，这些子审核结果只作为
+# 证据落库，不构成独立待办；待办队列只展示聚合后的一致性任务。
+_OA_TOBACCO_EVIDENCE_DOCUMENT_TYPES = frozenset({"business_license", "tobacco_license"})
+
+
+def _actionable_queue_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """按"一条业务请求一个待办"过滤，剔除 OA 烟草流程的附件级子审核。"""
+    return [
+        record
+        for record in records
+        if not (
+            record.get("source_system") == "oa_starrocks"
+            and record.get("document_type") in _OA_TOBACCO_EVIDENCE_DOCUMENT_TYPES
+        )
+    ]
 
 
 def _frontend_record_matches_review_filter(record: dict[str, Any], review_filter: dict[str, str]) -> bool:
