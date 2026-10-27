@@ -37,6 +37,7 @@ def extract_consistency_document_results(
     review_service: DocumentReviewService,
     store_identifier: str,
     initial_results: dict[str, ReviewResult] | None = None,
+    tobacco_license_ocr_model: str | None = None,
 ) -> tuple[dict[str, ReviewResult], dict[str, str]]:
     """Review the current OA attachments using their document-specific workflow."""
     candidates: dict[str, list[ReviewResult]] = {
@@ -55,6 +56,7 @@ def extract_consistency_document_results(
                 stored_file=stored_file,
                 store_identifier=store_identifier,
                 document_type=document_type,
+                tobacco_license_ocr_model=tobacco_license_ocr_model,
             )
             try:
                 result = review_service.review(
@@ -165,6 +167,7 @@ def _review_input_for_document(
     stored_file: Any,
     store_identifier: str,
     document_type: str,
+    tobacco_license_ocr_model: str | None = None,
 ) -> ReviewInput:
     role = document.source.document_role
     requestid = document.source.requestid
@@ -194,7 +197,14 @@ def _review_input_for_document(
             "relative_path": stored_file.relative_path,
         },
         options=(
-            {"skip_rpa_verification": True}
+            {
+                "skip_rpa_verification": True,
+                **(
+                    {"tobacco_license_ocr_model": tobacco_license_ocr_model}
+                    if tobacco_license_ocr_model
+                    else {}
+                ),
+            }
             if document_type == "tobacco_license"
             else {}
         ),

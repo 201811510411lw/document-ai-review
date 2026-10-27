@@ -90,9 +90,16 @@ def build_tobacco_license_graph():
 def load_document(state: TobaccoLicenseWorkflowState) -> TobaccoLicenseWorkflowState:
     input_context = state["input_context"]
     review_input = input_context.input
+    model_override = str(
+        review_input.options.get("tobacco_license_ocr_model") or ""
+    ).strip()
     recognition_result = recognize_license_file(
         review_input,
-        adapter=tobacco_license_file_adapter,
+        adapter=(
+            build_tobacco_license_file_adapter(model=model_override)
+            if model_override
+            else tobacco_license_file_adapter
+        ),
     )
     return {
         **state,

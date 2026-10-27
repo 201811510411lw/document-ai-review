@@ -3,9 +3,31 @@ from app.tools.vision_adapter import (
     build_business_license_vision_adapter,
     build_food_license_file_adapter,
     build_food_production_license_file_adapter,
+    build_tobacco_license_file_adapter,
     parse_business_license_vision_json,
     reject_source_mismatched_fields,
 )
+
+
+def test_tobacco_license_adapter_defaults_to_dedicated_ocr_model(monkeypatch):
+    monkeypatch.setenv("TOBACCO_LICENSE_FILE_RECOGNITION_PROVIDER", "qwen_ocr")
+    monkeypatch.delenv("TOBACCO_LICENSE_QWEN_OCR_MODEL", raising=False)
+    monkeypatch.delenv("BUSINESS_LICENSE_QWEN_OCR_MODEL", raising=False)
+
+    adapter = build_tobacco_license_file_adapter()
+
+    assert adapter.model == "qwen3.5-ocr"
+
+
+def test_tobacco_license_adapter_model_override_is_scoped_to_builder(monkeypatch):
+    monkeypatch.setenv("TOBACCO_LICENSE_FILE_RECOGNITION_PROVIDER", "qwen_ocr")
+    monkeypatch.setenv("TOBACCO_LICENSE_QWEN_OCR_MODEL", "qwen3.5-ocr")
+
+    default_adapter = build_tobacco_license_file_adapter()
+    oa_adapter = build_tobacco_license_file_adapter(model="qwen3.8-max")
+
+    assert default_adapter.model == "qwen3.5-ocr"
+    assert oa_adapter.model == "qwen3.8-max"
 
 
 def test_business_license_vision_adapter_defaults_to_aliyun(monkeypatch):

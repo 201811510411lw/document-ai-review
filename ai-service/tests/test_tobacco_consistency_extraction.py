@@ -77,6 +77,23 @@ def test_source_documents_are_reviewed_by_their_oa_document_role(tmp_path):
     }
 
 
+def test_oa_tobacco_license_model_override_is_forwarded(tmp_path):
+    service = StubReviewService()
+    documents = [_stored_document(tmp_path, role="tobacco_license", docid=1002)]
+
+    extract_consistency_document_results(
+        documents,
+        review_service=service,
+        store_identifier="B65230024",
+        tobacco_license_ocr_model="qwen3.8-max",
+    )
+
+    assert service.calls[0][0].options == {
+        "skip_rpa_verification": True,
+        "tobacco_license_ocr_model": "qwen3.8-max",
+    }
+
+
 def test_manual_fields_override_only_non_empty_business_values():
     result = SimpleNamespace(
         skill_result={

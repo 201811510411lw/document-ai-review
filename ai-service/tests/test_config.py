@@ -27,6 +27,9 @@ business_license:
     model: qwen-config
     max_pages: 7
     stop_after_first_license: true
+tobacco_license:
+  qwen_ocr:
+    model: tobacco-qwen-config
 aliyun_ocr:
   body_options:
     prob: true
@@ -43,6 +46,7 @@ oa_source_mysql:
   port: 3306
   database: ecology
 oa_auto_review:
+  tobacco_license_qwen_ocr_model: qwen-oa-config
   callback_url: http://oa.example.test/api/bicallback/result
 wecom:
   reviewer_user_ids:
@@ -63,6 +67,7 @@ wecom:
 
     assert os.environ["OPENAI_BASE_URL"] == "https://config.example/v1"
     assert os.environ["BUSINESS_LICENSE_QWEN_OCR_MODEL"] == "qwen-config"
+    assert os.environ["TOBACCO_LICENSE_QWEN_OCR_MODEL"] == "tobacco-qwen-config"
     assert os.environ["BUSINESS_LICENSE_QWEN_OCR_MAX_PAGES"] == "7"
     assert os.environ["BUSINESS_LICENSE_QWEN_OCR_STOP_AFTER_FIRST_LICENSE"] == "true"
     assert os.environ["ALIYUN_OCR_BODY_JSON"] == '{"prob":true,"table":false}'
@@ -76,6 +81,9 @@ wecom:
     assert os.environ["OA_SOURCE_MYSQL_DATABASE"] == "ecology"
     assert os.environ["OA_AUTO_REVIEW_CALLBACK_URL"] == (
         "http://oa.example.test/api/bicallback/result"
+    )
+    assert os.environ["OA_AUTO_REVIEW_TOBACCO_LICENSE_QWEN_OCR_MODEL"] == (
+        "qwen-oa-config"
     )
     assert os.environ["STARROCKS_USER"] == "starrocks-user"
     assert os.environ["STARROCKS_PASSWORD"] == "starrocks-password"

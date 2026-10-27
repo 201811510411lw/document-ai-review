@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from app.core.config import settings
 from app.integrations.starrocks.tobacco_license_sources import (
     SqlFetchClient,
     TobaccoLicenseSourceFile,
@@ -330,6 +331,9 @@ class OaTobaccoAutoReviewService:
             [doc for doc in stored_documents if doc.source.document_role == "tobacco_license"],
             review_service=self._document_review_service,
             store_identifier=command.store_code,
+            tobacco_license_ocr_model=(
+                settings.oa_auto_review_tobacco_license_qwen_ocr_model
+            ),
         )
         rpa_result = None
         rpa_started = False
@@ -397,6 +401,9 @@ class OaTobaccoAutoReviewService:
             review_service=self._document_review_service,
             store_identifier=command.store_code,
             initial_results=document_results,
+            tobacco_license_ocr_model=(
+                settings.oa_auto_review_tobacco_license_qwen_ocr_model
+            ),
         )
         extraction_errors.update(business_errors)
         logger.info(

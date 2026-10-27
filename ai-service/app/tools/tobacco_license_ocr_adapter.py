@@ -27,7 +27,8 @@ class QwenOcrTobaccoLicenseAdapter:
         self.model = (
             model
             or os.environ.get("TOBACCO_LICENSE_QWEN_OCR_MODEL")
-            or os.environ.get("BUSINESS_LICENSE_QWEN_OCR_MODEL", "")
+            or os.environ.get("BUSINESS_LICENSE_QWEN_OCR_MODEL")
+            or "qwen3.5-ocr"
         )
         self.api_key = api_key
         self.base_url = base_url or os.environ.get("OPENAI_BASE_URL")
