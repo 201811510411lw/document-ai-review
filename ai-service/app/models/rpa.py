@@ -83,10 +83,19 @@ class YindaoCallbackPayload(BaseModel):
     robotClientName: str | None = None
     robotName: str | None = None
     result: list[dict[str, Any]] = []
+    robotParams: dict[str, Any] | None = None
 
     def get_param(self, name: str) -> str | None:
-        """从 result 数组中按 name 提取参数值。"""
-        for item in self.result:
+        """从 result 和 robotParams.outputs 中按 name 提取参数值。"""
+        items = list(self.result)
+        outputs = self.robotParams.get("outputs", []) if isinstance(self.robotParams, dict) else []
+        names = {item.get("name") for item in items if isinstance(item, dict)}
+        items.extend(
+            item
+            for item in outputs
+            if isinstance(item, dict) and item.get("name") not in names
+        )
+        for item in items:
             if item.get("name") == name:
                 value = item.get("value")
                 return str(value) if value is not None else None

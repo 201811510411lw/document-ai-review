@@ -11,7 +11,7 @@ from app.models import (
     ReviewStatus,
     RiskLevel,
 )
-from app.models.rpa import RpaVerificationStatus
+from app.models.rpa import RpaVerificationStatus, YindaoCallbackPayload
 from app.services.rpa_verification import YindaoRpaClient
 from app.services.tobacco_rpa_verification import execute_tobacco_rpa_verification
 
@@ -218,6 +218,49 @@ def test_map_result_falls_back_to_robot_params_when_result_is_empty():
                 ],
             },
         },
+    )
+
+    assert result.status == RpaVerificationStatus.AUTHENTIC
+    assert result.screenshot_url == "https://example.test/result.png"
+
+
+def test_map_result_merges_robot_params_outputs_not_present_in_result():
+    result = _client()._map_result(
+        certificate_no="652328100481",
+        job_uuid="job-123",
+        raw={
+            "jobUuid": "job-123",
+            "status": "finish",
+            "result": [
+                {"name": "verify_status", "type": "str", "value": "AUTHENTIC"},
+            ],
+            "robotParams": {
+                "outputs": [
+                    {"name": "screenshot_url", "type": "str", "value": "https://example.test/result.png"},
+                ],
+            },
+        },
+    )
+
+    assert result.status == RpaVerificationStatus.AUTHENTIC
+    assert result.screenshot_url == "https://example.test/result.png"
+
+
+def test_parse_callback_reads_screenshot_from_robot_params_outputs():
+    result = _client().parse_callback(
+        YindaoCallbackPayload(
+            jobUuid="job-123",
+            status="finish",
+            result=[
+                {"name": "verify_status", "type": "str", "value": "AUTHENTIC"},
+            ],
+            robotParams={
+                "outputs": [
+                    {"name": "screenshot_url", "type": "str", "value": "https://example.test/result.png"},
+                ],
+            },
+        ),
+        certificate_no="652328100481",
     )
 
     assert result.status == RpaVerificationStatus.AUTHENTIC

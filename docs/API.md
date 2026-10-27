@@ -247,7 +247,8 @@ OA 两个接口使用独立请求头 `X-OA-Token`，密钥由 `OA_AUTO_REVIEW_TO
 callback 暂时保留完整 `rule_results`，其中失败规则带非空 `suggestion`；原始完整规则仍可通过
 结果轮询和系统详情查看。OA 流转意见和 `suggestion` 使用面向申请人的业务处理建议；子审核状态、
 证据完整性等内部诊断只保留在原始规则结果中，不直接向申请人展示。
-回调和 `oa-result` 轮询结果在 `data.rpa_verification` 中提供受控的官网验真证据：
+OA callback 的 `result.data.rpa_verification`、以及 `oa-result` 轮询响应的
+`data.callback.rpa_verification` 中提供受控的官网验真证据：
 `status`、`certificate_no`、`verified_at`、`result_label` 和可供 OA/前端展示的
 `screenshot_url`；不会暴露影刀原始响应。存在截图地址时，`pass_reason_text`、
 `reject_reason_text` 或 `manual_review_reason_text` 会追加“官网验真截图：<URL>”。

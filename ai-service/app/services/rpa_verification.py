@@ -261,13 +261,28 @@ class YindaoRpaClient:
         yindao_status = YindaoJobStatus(status_str) if status_str else None
 
         result_items = raw.get("result")
-        if not isinstance(result_items, list) or not result_items:
-            robot_params = raw.get("robotParams")
-            result_items = (
-                robot_params.get("outputs", [])
-                if isinstance(robot_params, dict)
-                else []
-            )
+        robot_params = raw.get("robotParams")
+        robot_outputs = (
+            robot_params.get("outputs", [])
+            if isinstance(robot_params, dict)
+            else []
+        )
+        if not isinstance(result_items, list):
+            result_items = robot_outputs
+        elif robot_outputs:
+            result_names = {
+                item.get("name")
+                for item in result_items
+                if isinstance(item, dict)
+            }
+            result_items = [
+                *result_items,
+                *[
+                    item
+                    for item in robot_outputs
+                    if isinstance(item, dict) and item.get("name") not in result_names
+                ],
+            ]
 
         # 如果影刀的 result 数组里有验真结果，构造成 callback 模型来解析
         callback = YindaoCallbackPayload(
