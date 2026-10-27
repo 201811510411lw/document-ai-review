@@ -115,3 +115,8 @@ assert.match(
   /rpaStatus === 'ERROR'[\s\S]*验真未完成或执行异常/,
   'Tobacco report detail should describe missing results as an execution error',
 )
+assert.match(
+  detailSource,
+  /rpaScreenshotUrl[\s\S]*<img[\s\S]*alt="烟草证官网验真截图"/,
+  'Tobacco report detail should render the RPA verification screenshot inline',
+)

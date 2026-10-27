@@ -247,6 +247,10 @@ OA 两个接口使用独立请求头 `X-OA-Token`，密钥由 `OA_AUTO_REVIEW_TO
 callback 暂时保留完整 `rule_results`，其中失败规则带非空 `suggestion`；原始完整规则仍可通过
 结果轮询和系统详情查看。OA 流转意见和 `suggestion` 使用面向申请人的业务处理建议；子审核状态、
 证据完整性等内部诊断只保留在原始规则结果中，不直接向申请人展示。
+回调和 `oa-result` 轮询结果在 `data.rpa_verification` 中提供受控的官网验真证据：
+`status`、`certificate_no`、`verified_at`、`result_label` 和可供 OA/前端展示的
+`screenshot_url`；不会暴露影刀原始响应。存在截图地址时，`pass_reason_text`、
+`reject_reason_text` 或 `manual_review_reason_text` 会追加“官网验真截图：<URL>”。
 人工驳回和要求补件必须提供非空 `comment`。详情响应包含 `oa_callback` 和
 `oa_callback_history`，用于查看实际请求 JSON、目标地址、HTTP 状态、接收端响应和业务确认结果。
 
@@ -323,6 +327,9 @@ GET /api/v1/tobacco-license/rpa-verify/{task_id}
 
 影刀输出 `parameter=false` 只有在存在非空 `responseId` 时映射为 `FAILED`；缺少
 `responseId` 表示官网请求没有形成可判定结果，映射为 `ERROR`。
+
+影刀验真截图应作为 `result` 或 `robotParams.outputs` 中名为 `screenshot_url` 的字符串返回，
+并指向 OA 和 Web Console 均可访问的图片地址。系统保存该地址，不在审核结果或 OA 评价中嵌入图片二进制。
 
 ### 9.4 Callback
 

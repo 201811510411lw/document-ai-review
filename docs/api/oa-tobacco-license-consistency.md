@@ -77,6 +77,13 @@ OA 无需传入 `submission_version`。系统使用 `workflow_id + requestid` �
       "mismatch_rejection_threshold": 4,
       "field_differences": [],
       "next_node_review_required": false,
+      "rpa_verification": {
+        "status": "AUTHENTIC",
+        "certificate_no": "510100000001",
+        "verified_at": "2026-10-27T10:00:00+00:00",
+        "result_label": "官网验真通过",
+        "screenshot_url": "https://files.example.test/rpa/verify.png"
+      },
       "rule_results": [
         {
           "rule_code": "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
@@ -112,6 +119,8 @@ callback 是面向 OA 的兼容投影；兼容期内继续发送完整 `rule_res
 优先读取对应原因项的 `suggestion`，旧实现可从失败规则的 `suggestion` 兼容读取。这三个面向 OA
 的文本位置统一使用可执行的业务处理建议，不得直接展示“子审核未形成可靠自动结论”或
 “证据完整不足”等内部诊断；内部诊断继续保留在完整 `rule_results` 中供审计排障。
+`data.rpa_verification` 同时提供官网验真状态和 `screenshot_url`，不包含影刀原始响应；存在截图地址时，
+评价文本会追加“官网验真截图：<URL>”，OA 可将其作为评价中的链接展示。
 领域结果和轮询接口保留四态；当前 OA callback 接收端只支持三态。自动审核产生的
 `manual_review` 在 callback 中映射为 `decision=exception`，并携带
 `error.code=REVIEW_REQUIRES_MANUAL_REVIEW`、`retryable=false`、

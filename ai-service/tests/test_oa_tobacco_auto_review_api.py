@@ -301,6 +301,36 @@ def test_pass_callback_includes_standard_ocr_review_reason():
     assert "field_checks" not in data
 
 
+def test_oa_callback_exposes_rpa_screenshot_and_adds_it_to_evaluation_text():
+    result = _result().model_copy(
+        update={
+            "skill_result": {
+                "comparison": {"review_mode": "standard"},
+                "rpa_verification": {
+                    "status": "AUTHENTIC",
+                    "certificate_no": "510100000001",
+                    "verified_at": "2026-10-27T10:00:00+00:00",
+                    "result_label": "官网验真通过",
+                    "screenshot_url": "https://files.example.test/rpa/verify.png",
+                },
+            }
+        }
+    )
+
+    data = _oa_response(result)["data"]
+
+    assert data["rpa_verification"] == {
+        "status": "AUTHENTIC",
+        "certificate_no": "510100000001",
+        "verified_at": "2026-10-27T10:00:00+00:00",
+        "result_label": "官网验真通过",
+        "screenshot_url": "https://files.example.test/rpa/verify.png",
+    }
+    assert data["pass_reason_text"].endswith(
+        "\n官网验真截图：https://files.example.test/rpa/verify.png"
+    )
+
+
 def test_small_confirmed_mismatch_callback_uses_manual_review_exception():
     rule = _rule(
         "BUSINESS_TOBACCO_SUBJECT_NAME_MATCH",
@@ -1520,6 +1550,38 @@ def test_oa_polling_redacts_internal_rpa_error_text():
     assert rpa == {
         "status": "ERROR",
         "error_message": "烟草证官网验真未可靠完成",
+    }
+
+
+def test_oa_polling_exposes_rpa_screenshot_url_without_raw_response():
+    result = _result().model_copy(
+        update={
+            "skill_result": {
+                "rpa_verification": {
+                    "status": "AUTHENTIC",
+                    "certificate_no": "510100000001",
+                    "verified_at": "2026-10-27T10:00:00+00:00",
+                    "result_label": "官网验真通过",
+                    "screenshot_url": "https://files.example.test/rpa/verify.png",
+                    "raw_yindao_response": {"secret": "internal"},
+                }
+            }
+        }
+    )
+    repository = ExistingResultRepository(result)
+
+    response = get_consistency_oa_result(
+        result.task_id,
+        _oa_client={"client": "oa"},
+        repository=repository,
+    )
+
+    assert response["data"]["callback"]["rpa_verification"] == {
+        "status": "AUTHENTIC",
+        "certificate_no": "510100000001",
+        "verified_at": "2026-10-27T10:00:00+00:00",
+        "result_label": "官网验真通过",
+        "screenshot_url": "https://files.example.test/rpa/verify.png",
     }
 
 

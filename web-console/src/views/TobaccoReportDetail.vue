@@ -97,8 +97,16 @@
           </div>
 
           <div v-if="rpaScreenshotUrl" class="rpa-screenshot">
-            <span>验真截图</span>
-            <a :href="rpaScreenshotUrl" target="_blank" rel="noopener">查看截图 <van-icon name="arrow" /></a>
+            <div class="rpa-screenshot__header">
+              <span>验真截图</span>
+              <a :href="rpaScreenshotUrl" target="_blank" rel="noopener">新窗口查看 <van-icon name="arrow" /></a>
+            </div>
+            <img
+              :src="rpaScreenshotUrl"
+              alt="烟草证官网验真截图"
+              class="rpa-screenshot__image"
+              loading="lazy"
+            />
           </div>
 
           <div v-if="rpaAction.visible" class="rpa-actions">
@@ -473,9 +481,11 @@ function previewOaAttachment(attachment) {
 .rpa-meta span { color: var(--tobacco-muted); font-size: 12px; }
 .rpa-meta strong { color: var(--tobacco-ink); font-size: 13px; margin-top: 2px; }
 .rpa-error-text { color: #b44b50; }
-.rpa-screenshot { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; border-top: 1px solid var(--tobacco-line); font-size: 13px; }
+.rpa-screenshot { padding: 10px 16px 14px; border-top: 1px solid var(--tobacco-line); font-size: 13px; }
+.rpa-screenshot__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .rpa-screenshot span { color: var(--tobacco-muted); }
 .rpa-screenshot a { color: var(--tobacco-accent); text-decoration: none; }
+.rpa-screenshot__image { display: block; width: 100%; max-height: 480px; margin-top: 10px; border: 1px solid var(--tobacco-line); border-radius: 5px; background: var(--tobacco-surface-muted); object-fit: contain; }
 .rpa-actions { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--tobacco-line); }
 .rpa-actions > span { color: var(--tobacco-muted); font-size: 12px; }
 .callback-header-actions { display: flex; align-items: center; gap: 10px; }.callback-header-actions > span { color: var(--tobacco-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }.callback-header-actions :deep(.van-button) { border-radius: 5px; }

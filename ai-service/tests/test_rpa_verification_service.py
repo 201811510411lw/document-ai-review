@@ -203,6 +203,27 @@ def test_map_result_reads_outputs_from_query_robot_params():
     assert result.screenshot_url == "https://example.test/result.png"
 
 
+def test_map_result_falls_back_to_robot_params_when_result_is_empty():
+    result = _client()._map_result(
+        certificate_no="652328100481",
+        job_uuid="job-123",
+        raw={
+            "jobUuid": "job-123",
+            "status": "finish",
+            "result": [],
+            "robotParams": {
+                "outputs": [
+                    {"name": "verify_status", "type": "str", "value": "AUTHENTIC"},
+                    {"name": "screenshot_url", "type": "str", "value": "https://example.test/result.png"},
+                ],
+            },
+        },
+    )
+
+    assert result.status == RpaVerificationStatus.AUTHENTIC
+    assert result.screenshot_url == "https://example.test/result.png"
+
+
 @pytest.mark.parametrize("parameter", [True, "true"])
 def test_map_result_treats_true_parameter_as_authentic(parameter):
     result = _client()._map_result(

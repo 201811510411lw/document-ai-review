@@ -261,7 +261,7 @@ class YindaoRpaClient:
         yindao_status = YindaoJobStatus(status_str) if status_str else None
 
         result_items = raw.get("result")
-        if not isinstance(result_items, list):
+        if not isinstance(result_items, list) or not result_items:
             robot_params = raw.get("robotParams")
             result_items = (
                 robot_params.get("outputs", [])

@@ -1099,6 +1099,9 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
             for rule in result.rule_results
         ],
         "needs_manual_review": decision in {"manual_review", "exception"},
+        # Keep the RPA evidence available to OA adapters.  The raw provider
+        # response remains internal; this view only exposes stable fields.
+        "rpa_verification": _oa_rpa_view(rpa_info),
     }
     if decision == "pass":
         data["pass_reason_text"] = (
@@ -1215,6 +1218,18 @@ def _oa_response(result: ReviewResult) -> dict[str, Any]:
         persisted_error = skill_result.get("oa_error")
         if isinstance(persisted_error, dict):
             data["error"] = persisted_error
+
+    screenshot_url = (data.get("rpa_verification") or {}).get("screenshot_url")
+    if isinstance(screenshot_url, str) and screenshot_url.strip():
+        screenshot_note = f"官网验真截图：{screenshot_url.strip()}"
+        for field in (
+            "pass_reason_text",
+            "reject_reason_text",
+            "manual_review_reason_text",
+        ):
+            value = data.get(field)
+            if isinstance(value, str) and value.strip() and screenshot_note not in value:
+                data[field] = f"{value.rstrip()}\n{screenshot_note}"
     return {"code": 0, "message": "success", "data": data}
 
 
