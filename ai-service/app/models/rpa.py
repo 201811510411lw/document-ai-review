@@ -82,6 +82,8 @@ class YindaoCallbackPayload(BaseModel):
     endTime: str | None = None
     robotClientName: str | None = None
     robotName: str | None = None
+    # 影刀查询接口可能把任务截图放在顶层 camelCase 字段，而不是 result 输出项。
+    screenshotUrl: str | None = None
     result: list[dict[str, Any]] = []
     robotParams: dict[str, Any] | None = None
 
@@ -130,7 +132,11 @@ class YindaoCallbackPayload(BaseModel):
 
     @property
     def screenshot_url(self) -> str | None:
-        return self.get_param("screenshot_url")
+        return (
+            self.get_param("screenshot_url")
+            or self.get_param("screenshotUrl")
+            or self.screenshotUrl
+        )
 
     @property
     def error_message(self) -> str | None:

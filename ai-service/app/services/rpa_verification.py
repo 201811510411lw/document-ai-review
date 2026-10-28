@@ -291,6 +291,7 @@ class YindaoRpaClient:
             msg=raw.get("msg", ""),
             startTime=raw.get("startTime"),
             endTime=raw.get("endTime"),
+            screenshotUrl=raw.get("screenshotUrl"),
             result=result_items,
         )
 
