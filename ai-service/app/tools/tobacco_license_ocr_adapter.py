@@ -4,10 +4,14 @@ from typing import Any
 from app.tools.qwen_ocr_adapter import (
     OpenAI,
     _create_chat_completion_content,
+    _image_data_url_candidates,
     _ocr_response_to_plain_text,
     _source_page_data_urls,
 )
 from app.tools.vision_adapter import parse_business_license_vision_json
+
+# 证照类型 + 4 个关键字段都识别到，才认为当前角度已经足够，无需继续尝试。
+_ROTATION_SCORE_THRESHOLD = 16
 
 
 class QwenOcrTobaccoLicenseAdapter:
@@ -42,6 +46,11 @@ class QwenOcrTobaccoLicenseAdapter:
             )
         )
         self.max_pages = int(os.environ.get("TOBACCO_LICENSE_QWEN_OCR_MAX_PAGES", "5"))
+        self.try_rotations = _env_bool(
+            "TOBACCO_LICENSE_QWEN_OCR_TRY_ROTATIONS",
+            default=True,
+        )
+        self.rotation_order = _rotation_order_from_env()
 
     def extract_text(self, source: Any) -> dict[str, Any]:
         if not self.model:
@@ -69,36 +78,58 @@ class QwenOcrTobaccoLicenseAdapter:
             )
 
         client = OpenAI(api_key=api_key, base_url=self.base_url, timeout=self.timeout)
+        is_pdf = mime_type == "application/pdf"
         pages: list[dict[str, Any]] = []
         attempts = 0
         try:
             for page_number, data_url in enumerate(page_data_urls[: self.max_pages], start=1):
-                response, page_attempts = _create_chat_completion_content(
-                    client=client,
-                    model=self.model,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": tobacco_license_qwen_ocr_prompt()},
-                                {"type": "image_url", "image_url": {"url": data_url}},
-                            ],
-                        }
-                    ],
-                    max_attempts=self.max_attempts,
-                )
-                attempts += page_attempts
-                fields = _sanitize_fields(parse_business_license_vision_json(response) or {})
-                text = _ocr_response_to_plain_text(response)
-                pages.append(
-                    {
+                page_entries: list[dict[str, Any]] = []
+                for rotation, candidate_url in _rotation_candidates(
+                    page_data_url=data_url,
+                    content=content,
+                    mime_type=mime_type,
+                    is_pdf=is_pdf,
+                    try_rotations=self.try_rotations,
+                    rotation_order=self.rotation_order,
+                ):
+                    response, page_attempts = _create_chat_completion_content(
+                        client=client,
+                        model=self.model,
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": tobacco_license_qwen_ocr_prompt()},
+                                    {"type": "image_url", "image_url": {"url": candidate_url}},
+                                ],
+                            }
+                        ],
+                        max_attempts=self.max_attempts,
+                    )
+                    attempts += page_attempts
+                    fields = _sanitize_fields(
+                        parse_business_license_vision_json(response) or {}
+                    )
+                    text = _ocr_response_to_plain_text(response)
+                    entry = {
                         "page": page_number,
+                        "rotation": rotation,
                         "text": text,
                         "fields": fields,
                         "is_tobacco_license": _is_tobacco_license(fields, text),
+                        "score": _candidate_score(fields),
                     }
-                )
-                if pages[-1]["is_tobacco_license"]:
+                    pages.append(entry)
+                    page_entries.append(entry)
+                    if (
+                        entry["is_tobacco_license"]
+                        and entry["score"] >= _ROTATION_SCORE_THRESHOLD
+                    ):
+                        break
+                if page_entries and (
+                    page_entries[-1]["is_tobacco_license"]
+                    and page_entries[-1]["score"] >= _ROTATION_SCORE_THRESHOLD
+                ):
                     break
         except Exception as error:
             return self._error(
@@ -108,16 +139,23 @@ class QwenOcrTobaccoLicenseAdapter:
                 error_message=str(error),
             )
 
-        selected = next((page for page in pages if page["is_tobacco_license"]), None)
+        matched_pages = [page for page in pages if page["is_tobacco_license"]]
+        selected = (
+            max(matched_pages, key=lambda page: page["score"]) if matched_pages else None
+        )
         metadata = {
             "implementation_status": self.implementation_status,
             "provider": "qwen_ocr",
             "model": self.model,
             "pages": len(page_data_urls),
-            "processed_pages": len(pages),
+            "processed_pages": len({page["page"] for page in pages}),
             "attempts": attempts,
             "structured_extraction": "qwen_tobacco_license_ocr_parse",
             "selected_page": selected["page"] if selected else None,
+            "try_rotations": self.try_rotations,
+            "rotation_order": list(self.rotation_order),
+            "rotations_attempted": [page["rotation"] for page in pages],
+            "selected_rotation": selected["rotation"] if selected else None,
         }
         if selected is None:
             return {
@@ -182,3 +220,59 @@ def _sanitize_fields(fields: dict[str, Any]) -> dict[str, Any]:
 
 def _is_tobacco_license(fields: dict[str, Any], text: str) -> bool:
     return fields.get("document_type") == "tobacco_license" or "烟草专卖零售许可证" in text
+
+
+def _rotation_candidates(
+    *,
+    page_data_url: str,
+    content: bytes,
+    mime_type: str,
+    is_pdf: bool,
+    try_rotations: bool,
+    rotation_order: tuple[int, ...],
+) -> list[tuple[int, str]]:
+    """PDF 页面由服务端渲染，只处理一次；图片按配置尝试多个旋转角度。"""
+    if is_pdf:
+        return [(0, page_data_url)]
+    return _image_data_url_candidates(
+        content,
+        mime_type,
+        try_rotations=try_rotations,
+        rotation_order=rotation_order,
+    )
+
+
+def _candidate_score(fields: dict[str, Any]) -> int:
+    score = 0
+    if str(fields.get("document_type") or "").strip().lower() == "tobacco_license":
+        score += 4
+    for field in ("subject_name", "business_address", "legal_person", "license_no"):
+        if fields.get(field):
+            score += 3
+    for field in ("subject_name_evidence", "license_no_evidence", "valid_to"):
+        if fields.get(field):
+            score += 1
+    return score
+
+
+def _rotation_order_from_env() -> tuple[int, ...]:
+    raw_value = os.environ.get(
+        "TOBACCO_LICENSE_QWEN_OCR_ROTATION_ORDER",
+        "0,90,180,270",
+    )
+    rotations: list[int] = []
+    for value in raw_value.split(","):
+        try:
+            rotation = int(value.strip()) % 360
+        except ValueError:
+            continue
+        if rotation in {0, 90, 180, 270} and rotation not in rotations:
+            rotations.append(rotation)
+    return tuple(rotations or [0, 90, 180, 270])
+
+
+def _env_bool(name: str, *, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}

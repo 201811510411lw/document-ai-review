@@ -4,6 +4,14 @@ const statusLabels = {
   flagged: '异常',
 }
 
+// 烟草一致性审核与 QC 证照审核共用 task_id，但详情页属于烟草模块。
+const TOBACCO_DETAIL_TYPES = new Set(['business_tobacco_consistency'])
+
+export function workbenchTaskRoute(task) {
+  const base = TOBACCO_DETAIL_TYPES.has(task?.documentTypeCode) ? '/tobacco/reports' : '/review'
+  return `${base}/${task?.id}`
+}
+
 function firstValue(record, keys, fallback = '-') {
   for (const key of keys) {
     const value = record?.[key]
@@ -46,6 +54,7 @@ export function buildWorkbenchOverview({ dashboardStats = {}, reviewResponse = {
       title: firstValue(record, ['company_name', 'product_name', 'sample_name'], '未识别审核对象'),
       identifier: firstValue(record, ['credit_code', 'license_no', 'order_number', 'batch_no']),
       documentType: firstValue(record, ['license_type', 'document_type']),
+      documentTypeCode: record.document_type || '',
       status: record.review_status || 'default',
       statusLabel: statusLabels[record.review_status] || '无需审核',
       riskLevel: record.risk_level || '',
