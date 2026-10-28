@@ -28,6 +28,27 @@ _STATUS_LABELS = {
 }
 
 
+def _normalize_screenshot_value(value: Any) -> str | None:
+    """将影刀返回的 URL 或裸图片 Base64 统一成浏览器可用的 src。"""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.startswith(("data:", "http://", "https://", "blob:")):
+        return text
+    mime_by_prefix = {
+        "iVBOR": "image/png",
+        "/9j/": "image/jpeg",
+        "R0lGOD": "image/gif",
+        "UklGR": "image/webp",
+    }
+    for prefix, mime_type in mime_by_prefix.items():
+        if text.startswith(prefix):
+            return f"data:{mime_type};base64,{text}"
+    return text
+
+
 def rpa_status_label(status: RpaVerificationStatus | str | None) -> str:
     if status is None:
         return "未验真"
@@ -132,7 +153,7 @@ class YindaoCallbackPayload(BaseModel):
 
     @property
     def screenshot_url(self) -> str | None:
-        return (
+        return _normalize_screenshot_value(
             self.get_param("screenshot_url")
             or self.get_param("screenshotUrl")
             or self.screenshotUrl

@@ -223,6 +223,25 @@ def test_map_result_reads_top_level_screenshot_url_from_yindao_query():
     assert result.screenshot_url == "https://example.test/result.png"
 
 
+def test_map_result_normalizes_raw_png_base64_screenshot_output():
+    result = _client()._map_result(
+        certificate_no="652328100481",
+        job_uuid="job-123",
+        raw={
+            "jobUuid": "job-123",
+            "status": "finish",
+            "robotParams": {
+                "outputs": [
+                    {"name": "verify_status", "type": "str", "value": "AUTHENTIC"},
+                    {"name": "screenshot_url", "type": "str", "value": "iVBORw0KGgoAAA"},
+                ],
+            },
+        },
+    )
+
+    assert result.screenshot_url == "data:image/png;base64,iVBORw0KGgoAAA"
+
+
 def test_map_result_falls_back_to_robot_params_when_result_is_empty():
     result = _client()._map_result(
         certificate_no="652328100481",
