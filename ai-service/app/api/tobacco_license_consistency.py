@@ -23,6 +23,7 @@ from app.models import (
     ReviewResult,
     ReviewStatus,
 )
+from app.models.rpa import normalize_screenshot_value
 from app.repositories import build_review_result_repository_from_env
 from app.services.review_service import ReviewService
 from app.services.oa_auto_review_callback import (
@@ -1329,6 +1330,8 @@ def _oa_rpa_view(rpa_info: Any) -> dict[str, Any] | None:
         )
         if key in rpa_info
     }
+    if "screenshot_url" in payload:
+        payload["screenshot_url"] = normalize_screenshot_value(payload["screenshot_url"])
     if status == "ERROR":
         payload["error_message"] = "烟草证官网验真未可靠完成"
     return payload

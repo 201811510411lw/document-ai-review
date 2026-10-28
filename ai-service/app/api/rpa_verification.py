@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from app.api.auth import require_web_console_user
 from app.core.config import settings
 from app.models import ReviewResult
-from app.models.rpa import YindaoCallbackPayload
+from app.models.rpa import YindaoCallbackPayload, normalize_screenshot_value
 from app.repositories import build_review_result_repository_from_env
 from app.services.rpa_verification import (
     RpaVerificationService,
@@ -237,7 +237,7 @@ def get_rpa_verification_status(
         "status": status,
         "certificate_no": rpa_info.get("certificate_no"),
         "verified_at": rpa_info.get("verified_at"),
-        "screenshot_url": rpa_info.get("screenshot_url"),
+        "screenshot_url": normalize_screenshot_value(rpa_info.get("screenshot_url")),
         "result_label": rpa_status_label(status),
         "error_message": _stored_rpa_error_message(rpa_info),
         "attempts": rpa_info.get("attempts", 0),

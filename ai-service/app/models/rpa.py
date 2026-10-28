@@ -28,7 +28,7 @@ _STATUS_LABELS = {
 }
 
 
-def _normalize_screenshot_value(value: Any) -> str | None:
+def normalize_screenshot_value(value: Any) -> str | None:
     """将影刀返回的 URL 或裸图片 Base64 统一成浏览器可用的 src。"""
     if value is None:
         return None
@@ -153,7 +153,7 @@ class YindaoCallbackPayload(BaseModel):
 
     @property
     def screenshot_url(self) -> str | None:
-        return _normalize_screenshot_value(
+        return normalize_screenshot_value(
             self.get_param("screenshot_url")
             or self.get_param("screenshotUrl")
             or self.screenshotUrl
