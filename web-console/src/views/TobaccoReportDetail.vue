@@ -110,25 +110,13 @@
                   </span>
                 </button>
                 <figcaption v-if="pane.item?.type === 'rpa'" class="compare-pane__note">
-                  官网验真 · {{ rpaStatusLabel }}
+                  <span>官网验真 · {{ rpaStatusLabel }}</span>
+                  <a :href="pane.item.imageUrl" target="_blank" rel="noopener">新窗口查看</a>
                 </figcaption>
               </figure>
             </div>
             <p v-if="!compareItems.length" class="evidence-empty">未取得 OA 附件</p>
             <p v-else class="evidence-hint">左右两侧可分别选择任意原件或官网截图，自由组合对照；点击图片可放大查看。</p>
-
-          <div v-if="rpaScreenshotUrl" class="rpa-screenshot">
-            <div class="rpa-screenshot__header">
-              <span>验真截图</span>
-              <a :href="rpaScreenshotUrl" target="_blank" rel="noopener">新窗口查看 <van-icon name="arrow" /></a>
-            </div>
-            <img
-              :src="rpaScreenshotUrl"
-              alt="烟草证官网验真截图"
-              class="rpa-screenshot__image"
-              loading="lazy"
-            />
-          </div>
             <div class="rpa-meta">
               <div><span>官网核验许可证号</span><strong>{{ rpaCertificateNo || '—' }}</strong></div>
               <div v-if="rpaVerifiedAt"><span>验真时间</span><strong>{{ rpaVerifiedAt }}</strong></div>
@@ -145,13 +133,21 @@
               color="#526979"
               background="#f5f8f9"
             >证照字段正在识别，完成后展示主体名称、经营场所和负责人核对结果。</van-notice-bar>
-            <div v-else class="comparison-grid">
-              <article v-for="field in comparisonFields" :key="field.key" class="comparison-card" :class="field.passed ? 'passed' : 'failed'">
-                <header><div><van-icon :name="field.passed ? 'success' : 'cross'" /><strong>{{ field.label }}</strong></div><van-tag :type="field.passed ? 'success' : 'danger'" plain>{{ field.verdict }}</van-tag></header>
-                <dl>
-                  <div v-for="value in field.values" :key="value.label"><dt>{{ value.label }}</dt><dd>{{ value.value || '-' }}</dd></div>
-                </dl>
-              </article>
+            <div v-else class="field-compare">
+              <div class="field-compare__head" aria-hidden="true">
+                <span>字段</span><span>营业执照</span><span>烟草证</span><span>结论</span>
+              </div>
+              <div
+                v-for="field in comparisonFields"
+                :key="field.key"
+                class="field-compare__row"
+                :class="field.passed ? 'passed' : 'failed'"
+              >
+                <strong><van-icon :name="field.passed ? 'success' : 'cross'" />{{ field.label }}</strong>
+                <span class="field-compare__value" data-label="营业执照">{{ fieldValue(field, '营业执照') }}</span>
+                <span class="field-compare__value" data-label="烟草证">{{ fieldValue(field, '烟草证') }}</span>
+                <van-tag :type="field.passed ? 'success' : 'danger'" plain>{{ field.verdict }}</van-tag>
+              </div>
             </div>
             <div v-if="report.review_mode === 'store_in_store'" class="store-evidence store-evidence--inline">
               <div><span>烟草持证主体</span><strong>{{ report.comparison?.holder_business_license?.subject_name || '-' }}</strong></div>
@@ -402,6 +398,11 @@ const comparisonFields = computed(() => {
   ]
 })
 const mismatchCount = computed(() => comparisonFields.value.filter((item) => !item.passed).length)
+
+// 字段对照表按来源固定取值，缺失来源（如有效期只有烟草证）显示为“-”。
+function fieldValue(field, label) {
+  return field.values.find((value) => value.label === label)?.value || '-'
+}
 const missingRequiredAttachmentRoles = computed(() => {
   const attachments = report.value?.oa?.attachments || []
   const roles = new Set(attachments.filter((item) => item.relative_path).map((item) => item.document_role))
@@ -888,13 +889,6 @@ function ruleFieldDetail(rule) {
 .rpa-meta span { color: var(--tobacco-muted); font-size: 12px; }
 .rpa-meta strong { color: var(--tobacco-ink); font-size: 13px; margin-top: 2px; }
 .rpa-error-text { color: #b44b50; }
-.rpa-screenshot { padding: 10px 16px 14px; border-top: 1px solid var(--tobacco-line); font-size: 13px; }
-.rpa-screenshot__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.rpa-screenshot span { color: var(--tobacco-muted); }
-.rpa-screenshot a { color: var(--tobacco-accent); text-decoration: none; }
-.rpa-screenshot__image { display: block; width: 100%; max-height: 480px; margin-top: 10px; border: 1px solid var(--tobacco-line); border-radius: 5px; background: var(--tobacco-surface-muted); object-fit: contain; }
-.rpa-actions { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--tobacco-line); }
-.rpa-actions > span { color: var(--tobacco-muted); font-size: 12px; }
 .callback-header-actions { display: flex; align-items: center; gap: 10px; }.callback-header-actions > span { color: var(--tobacco-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }.callback-header-actions :deep(.van-button) { border-radius: 5px; }
 .callback-list { display: grid; gap: 10px; }.callback-list article { overflow: hidden; border: 1px solid var(--tobacco-line); border-radius: 8px; background: var(--tobacco-surface); }.callback-list article > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--tobacco-line); background: var(--tobacco-surface-muted); }.callback-list article > header strong, .callback-list article > header span { display: block; }.callback-list article > header strong { color: var(--tobacco-ink); font-size: 13px; }.callback-list article > header span { margin-top: 3px; color: var(--tobacco-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }.callback-list dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; padding: 10px 14px; }.callback-list dl div { min-width: 0; padding: 5px 8px 5px 0; }.callback-list dt { color: var(--tobacco-muted); font-size: 11px; }.callback-list dd { margin: 3px 0 0; color: #30485d; font-size: 12px; overflow-wrap: anywhere; }.callback-list details { border-top: 1px solid var(--tobacco-line); }.callback-list summary { padding: 10px 14px; color: var(--tobacco-accent); cursor: pointer; font-size: 12px; font-weight: 650; }.callback-list pre { max-height: 320px; overflow: auto; margin: 0; padding: 12px 14px; background: #17232c; color: #dbe8ee; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }.callback-error { margin: 0; padding: 10px 14px; border-top: 1px solid #f0cdca; background: #fff1f0; color: #a6443d; font-size: 12px; overflow-wrap: anywhere; }
 @media (max-width: 600px) { .callback-list dl { grid-template-columns: 1fr; } }
@@ -919,8 +913,9 @@ function ruleFieldDetail(rule) {
 .issue-list small { color: #7d8e9d; font-size: 11px; overflow-wrap: anywhere; }
 
 .evidence-section .section-header { margin-bottom: 12px; }
-.evidence-desk { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.7fr); gap: 12px; align-items: start; }
+.evidence-desk { display: block; }
 .evidence-col { min-width: 0; padding: 14px; border: 1px solid var(--tobacco-line); border-radius: 8px; background: var(--tobacco-surface); }
+.evidence-col + .evidence-col { margin-top: 12px; }
 .evidence-col__title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 0 10px; padding-bottom: 8px; border-bottom: 1px solid var(--tobacco-line); }
 .evidence-col__title span { color: var(--tobacco-ink); font-size: 14px; font-weight: 700; }
 .evidence-col__title small { color: var(--tobacco-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 400; }
@@ -931,7 +926,7 @@ function ruleFieldDetail(rule) {
 .rpa-status-line .rpa-status { padding: 10px 12px; border-radius: 6px; font-size: 13px; }
 .compare-stage { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .compare-pane { display: grid; min-width: 0; gap: 6px; margin: 0; }
-.compare-pane__frame { display: flex; width: 100%; height: 320px; align-items: center; justify-content: center; padding: 0; overflow: hidden; border: 1px solid var(--tobacco-line); border-radius: 6px; background: #f2f6f8; cursor: zoom-in; }
+.compare-pane__frame { display: flex; width: 100%; height: clamp(300px, 36vh, 480px); align-items: center; justify-content: center; padding: 0; overflow: hidden; border: 1px solid var(--tobacco-line); border-radius: 6px; background: #f2f6f8; cursor: zoom-in; }
 .compare-pane__frame:disabled { cursor: default; }
 .compare-pane__frame img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .compare-placeholder { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 5px; padding: 12px; color: #8aa0ae; font-size: 12px; text-align: center; }
@@ -943,10 +938,25 @@ function ruleFieldDetail(rule) {
 .compare-pane__picker select { width: 100%; min-width: 0; height: 28px; padding: 0 22px 0 8px; border: 1px solid var(--tobacco-line-strong); border-radius: 5px; appearance: none; background: #fff; color: #30485d; cursor: pointer; font-family: inherit; font-size: 12px; }
 .compare-pane__picker select:focus-visible { border-color: var(--tobacco-accent); outline: 2px solid rgba(23, 103, 132, 0.18); }
 .compare-pane__picker .van-icon { position: absolute; right: 6px; color: #8aa0ae; font-size: 12px; pointer-events: none; }
-.compare-pane__note { margin: 0; color: var(--tobacco-muted); font-size: 11px; }
+.compare-pane__note { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; color: var(--tobacco-muted); font-size: 11px; }
+.compare-pane__note a { color: var(--tobacco-accent); text-decoration: none; }
+.compare-pane__note a:hover { text-decoration: underline; }
 
-.rpa-meta { margin-top: 12px; padding: 10px 14px; border: 1px solid var(--tobacco-line); border-radius: 6px; background: #fbfcfd; }
-.rpa-meta .wide { grid-column: span 2; }
+/* 字段对照：一行一个字段，压缩高度并与左侧图片区对齐 */
+.field-compare { overflow: hidden; border: 1px solid var(--tobacco-line); border-radius: 6px; background: #fff; }
+.field-compare__head, .field-compare__row { display: grid; grid-template-columns: 84px minmax(0, 1fr) minmax(0, 1fr) 68px; gap: 12px; align-items: center; }
+.field-compare__head { padding: 7px 12px; background: var(--tobacco-surface-muted); color: var(--tobacco-muted); font-size: 11px; }
+.field-compare__row { padding: 8px 12px; border-top: 1px solid var(--tobacco-line); border-left: 2px solid #c2524b; font-size: 13px; }
+.field-compare__row.passed { border-left-color: #2f8b58; }
+.field-compare__row strong { display: flex; align-items: center; gap: 4px; color: var(--tobacco-ink); font-size: 12px; }
+.field-compare__row.failed strong :deep(.van-icon) { color: #b44b50; }
+.field-compare__row.passed strong :deep(.van-icon) { color: #27784c; }
+.field-compare__value { color: #31495c; line-height: 1.4; overflow-wrap: anywhere; }
+.field-compare__row :deep(.van-tag) { justify-self: start; }
+
+.rpa-meta { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 10px; padding: 8px 0 0; border-top: 1px solid var(--tobacco-line); }
+.rpa-meta div { display: flex; min-width: 0; align-items: baseline; gap: 6px; padding: 0; }
+.rpa-meta .wide { flex: 1 1 100%; }
 .store-evidence--inline { margin-top: 12px; }
 
 .fold-section { overflow: hidden; border: 1px solid var(--tobacco-line); border-radius: 8px; background: var(--tobacco-surface); }
@@ -994,6 +1004,12 @@ function ruleFieldDetail(rule) {
   .compare-pane__picker { gap: 4px; }
   .compare-pane__picker > span { padding: 2px 4px; font-size: 10px; }
   .compare-pane__picker select { height: 26px; padding-left: 6px; font-size: 11px; }
+  .field-compare__head { display: none; }
+  .field-compare__row { grid-template-columns: minmax(0, 1fr) auto; gap: 3px 8px; padding: 8px 10px; }
+  .field-compare__row strong { grid-column: 1; }
+  .field-compare__row :deep(.van-tag) { grid-column: 2; grid-row: 1; }
+  .field-compare__value { grid-column: 1 / -1; }
+  .field-compare__value::before { content: attr(data-label) '：'; color: var(--tobacco-muted); }
 }
 
 .evidence-viewer { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; background: rgba(12, 23, 31, 0.9); }

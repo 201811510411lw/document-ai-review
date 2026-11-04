@@ -45,6 +45,6 @@ const detailSource = fs.readFileSync(
 )
 
 assert.match(detailSource, /v-if="isReportProcessing\(report\)"[\s\S]*证照字段正在识别/)
-assert.match(detailSource, /v-else class="comparison-grid"/)
+assert.match(detailSource, /v-else class="field-compare"/)
 
 console.log('tobacco report presentation tests passed')

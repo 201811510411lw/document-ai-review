@@ -112,6 +112,11 @@ assert.match(
 )
 assert.match(
   detailSource,
-  /rpaScreenshotUrl[\s\S]*<img[\s\S]*alt="烟草证官网验真截图"/,
-  'Tobacco report detail should render the RPA verification screenshot inline',
+  /imageUrl: rpaScreenshotUrl/,
+  'Tobacco report detail should offer the RPA screenshot as a selectable evidence pane',
+)
+assert.doesNotMatch(
+  detailSource,
+  /rpa-screenshot__image/,
+  'Tobacco report detail should not render a duplicate inline RPA screenshot',
 )
